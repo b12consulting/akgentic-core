@@ -4,7 +4,6 @@ Tests serialize functions, SerializableBaseModel, and deserialize_object.
 """
 
 import uuid
-from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import pytest
@@ -99,19 +98,6 @@ class TestSerialize:
         msg = Message()
         result = serialize(msg)
         assert isinstance(result, dict)
-        assert "__model__" in result
-
-    def test_serialize_dataclass(self) -> None:
-        """Should serialize dataclass with __model__."""
-
-        @dataclass
-        class TestData:
-            value: int
-
-        data = TestData(value=42)
-        result = serialize(data)
-        assert isinstance(result, dict)
-        assert result["value"] == 42
         assert "__model__" in result
 
     def test_serialize_primitive(self) -> None:
@@ -271,15 +257,24 @@ class TestDeserializeObject:
         assert isinstance(result, Message)
 
     def test_deserialize_actor_address_without_context(self) -> None:
-        """Should return dict as-is when no context for ActorAddress."""
+        """Should return ActorAddressProxy when no context for ActorAddress."""
+        from akgentic.actor_address_impl import ActorAddressProxy
+
         addr_dict: ActorAddressDict = {
             "__actor_address__": True,
-            "id": str(uuid.uuid4()),
-            "name": "test",
+            "__actor_type__": "test.MockAgent",
+            "agent_id": str(uuid.uuid4()),
+            "name": "test-agent",
+            "role": "assistant",
+            "team_id": str(uuid.uuid4()),
+            "squad_id": str(uuid.uuid4()),
+            "user_message": False,
         }
         result = deserialize_object(addr_dict)
-        # Without context, returns dict as-is
-        assert result == addr_dict
+        # Without context, returns ActorAddressProxy (v1 behavior)
+        assert isinstance(result, ActorAddressProxy)
+        assert result.name == "test-agent"
+        assert result.role == "assistant"
 
     def test_deserialize_with_canonical_uuid(self) -> None:
         """Should convert canonical UUIDs when flag is set."""

@@ -126,8 +126,10 @@ def deserialize_object(
         if "__actor_address__" in obj:
             address_dict = cast(ActorAddressDict, obj)
             if context is None:
-                # Return as-is when no context; ActorAddressProxy would be used in full impl
-                return obj
+                # Import here to avoid circular imports at module level
+                from akgentic.actor_address_impl import ActorAddressProxy
+
+                return ActorAddressProxy(address_dict)
             return context.resolve_address(address_dict)
 
         if "__type__" in obj:

@@ -16,7 +16,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, ValidationInfo, model_serializer, model_validator
 from pydantic_core import to_jsonable_python
 
-from akgentic.utils.deserializer import deserialize_object
+from akgentic.actor_address import ActorAddress
+from akgentic.utils.deserializer import ActorAddressDict, deserialize_object
 
 
 def serialize_type(value: type[Any] | Any) -> str:
@@ -33,7 +34,7 @@ def serialize_type(value: type[Any] | Any) -> str:
     return f"{value.__class__.__module__}.{value.__class__.__name__}"
 
 
-def serialize(value: Any) -> dict[str, Any] | list[Any] | str | None:
+def serialize(value: Any) -> dict[str, Any] | list[Any] | str | None | ActorAddressDict:
     """Recursively serialize values, adding __object__ metadata where needed.
 
     Handles UUID, datetime, ActorAddress, types, lists, dicts, BaseModel,
@@ -49,10 +50,8 @@ def serialize(value: Any) -> dict[str, Any] | list[Any] | str | None:
         return None
     elif isinstance(value, uuid.UUID):
         return str(value)
-    elif hasattr(value, "serialize") and hasattr(value, "__actor_address__"):
-        # ActorAddress - use its serialize method
-        result: dict[str, Any] | list[Any] | str | None = value.serialize()
-        return result
+    elif isinstance(value, ActorAddress):
+        return value.serialize()
     elif isinstance(value, datetime):
         return value.isoformat()
     elif isinstance(value, type):
@@ -67,11 +66,9 @@ def serialize(value: Any) -> dict[str, Any] | list[Any] | str | None:
     elif is_dataclass(value) and not isinstance(value, type):
         data = asdict(value)
         data["__model__"] = serialize_type(value)
-        serialized: dict[str, Any] | list[Any] | str | None = serialize(data)
-        return serialized
+        return serialize(data)
     else:
-        jsonable: dict[str, Any] | list[Any] | str | None = to_jsonable_python(value)
-        return jsonable
+        return to_jsonable_python(value)  # type: ignore[no-any-return]
 
 
 def get_field_serializers_map(model_class: type[BaseModel]) -> dict[str, Any]:
