@@ -13,6 +13,14 @@ from akgentic.actor_address_impl import (
     ActorAddressStopped,
 )
 
+# Agent configuration
+from akgentic.agent_config import (
+    AgentConfig,
+    BaseConfig,
+    PrivateConfig,
+    ReadOnlyField,
+)
+
 # Message primitives
 from akgentic.messages.message import (
     Message,
@@ -57,6 +65,11 @@ __all__ = [
     "ActorAddressImpl",
     "ActorAddressProxy",
     "ActorAddressStopped",
+    # Agent configuration
+    "AgentConfig",
+    "BaseConfig",
+    "PrivateConfig",
+    "ReadOnlyField",
     # Base message
     "Message",
     "ResultMessage",
