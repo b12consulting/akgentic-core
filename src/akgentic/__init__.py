@@ -21,6 +21,9 @@ from akgentic.agent_config import (
     ReadOnlyField,
 )
 
+# Agent state
+from akgentic.agent_state import AkgentStateObserver, BaseState
+
 # Message primitives
 from akgentic.messages.message import (
     Message,
@@ -70,6 +73,9 @@ __all__ = [
     "BaseConfig",
     "PrivateConfig",
     "ReadOnlyField",
+    # Agent state
+    "AkgentStateObserver",
+    "BaseState",
     # Base message
     "Message",
     "ResultMessage",
