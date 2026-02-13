@@ -52,9 +52,7 @@ class TestActorAddressProxy:
         assert proxy.handle_user_message() is True
         assert proxy.is_alive() is True
 
-    def test_send_raises_runtime_error(
-        self, sample_address_dict: ActorAddressDict
-    ) -> None:
+    def test_send_raises_runtime_error(self, sample_address_dict: ActorAddressDict) -> None:
         """send should raise RuntimeError for proxy addresses."""
         from akgentic.actor_address_impl import ActorAddressProxy
 
@@ -62,9 +60,7 @@ class TestActorAddressProxy:
         with pytest.raises(RuntimeError, match="Cannot send message from mock actor address"):
             proxy.send(None, {"content": "test"})
 
-    def test_serialize_returns_dict(
-        self, sample_address_dict: ActorAddressDict
-    ) -> None:
+    def test_serialize_returns_dict(self, sample_address_dict: ActorAddressDict) -> None:
         """serialize should return the original ActorAddressDict."""
         from akgentic.actor_address_impl import ActorAddressProxy
 
@@ -145,7 +141,9 @@ class TestActorAddressImpl:
         # Add receiveMsg_UserMessage method for handle_user_message check
         actor.receiveMsg_UserMessage = MagicMock()
         # Set __class__ for serialize test
-        actor.__class__ = type("MockAgent", (), {"__module__": "test.agents", "__name__": "MockAgent"})
+        actor.__class__ = type(  # type: ignore
+            "MockAgent", (), {"__module__": "test.agents", "__name__": "MockAgent"}
+        )
 
         actor_ref = MagicMock()
         actor_ref._actor = actor

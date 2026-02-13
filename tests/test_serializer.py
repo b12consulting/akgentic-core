@@ -320,7 +320,16 @@ class TestDeserializeContext:
 
         ctx = TestContext()
         result = ctx.resolve_address(
-            {"__actor_address__": True, "id": "123", "name": "test"}
+            {
+                "__actor_address__": True,
+                "__actor_type__": "test.MockAgent",
+                "agent_id": "12345678-1234-5678-1234-567812345678",
+                "name": "test-agent",
+                "role": "assistant",
+                "team_id": "12345678-4321-8765-4321-876543218765",
+                "squad_id": "11111111-2222-3333-4444-555555555555",
+                "user_message": False,
+            }
         )
         assert result["resolved"] is True  # type: ignore[index]
 

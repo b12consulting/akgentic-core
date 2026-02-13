@@ -9,7 +9,14 @@ from akgentic.actor_address_impl import (
     ActorAddressProxy,
     ActorAddressStopped,
 )
-from akgentic.agent import Akgent, AkgentDeserializeContext, ProxyWrapper
+from akgentic.actor_system_impl import (
+    ActorSystemImpl,
+    ExecutionContext,
+    ProxyWrapper as ActorProxyWrapper,
+    Statistics,
+)
+from akgentic.agent import Akgent, AkgentDeserializeContext
+from akgentic.agent import ProxyWrapper
 from akgentic.agent_config import (
     AgentConfig,
     BaseConfig,
@@ -62,6 +69,11 @@ __all__ = [
     "Agent",
     "AkgentDeserializeContext",
     "ProxyWrapper",
+    # Actor system
+    "ActorSystemImpl",
+    "ExecutionContext",
+    "ActorProxyWrapper",
+    "Statistics",
     # Actor addressing
     "ActorAddress",
     "ActorAddressImpl",
