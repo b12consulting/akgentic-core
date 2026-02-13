@@ -3,28 +3,19 @@
 Phase 1 provides core actor primitives with minimal dependencies (pydantic for serialization).
 """
 
-__version__ = "2.0.0-alpha.1"
-
-# Actor addressing
 from akgentic.actor_address import ActorAddress
 from akgentic.actor_address_impl import (
     ActorAddressImpl,
     ActorAddressProxy,
     ActorAddressStopped,
 )
-
-# Agent configuration
+from akgentic.agent import Akgent, AkgentDeserializeContext, ProxyWrapper
 from akgentic.agent_config import (
     AgentConfig,
     BaseConfig,
-    PrivateConfig,
     ReadOnlyField,
 )
-
-# Agent state
 from akgentic.agent_state import AkgentStateObserver, BaseState
-
-# Message primitives
 from akgentic.messages.message import (
     Message,
     ResultMessage,
@@ -43,8 +34,6 @@ from akgentic.messages.orchestrator import (
     StopMessage,
     ToolUpdateMessage,
 )
-
-# Serialization utilities
 from akgentic.utils.deserializer import (
     ActorAddressDict,
     DeserializeContext,
@@ -60,9 +49,19 @@ from akgentic.utils.serializer import (
     serialize_type,
 )
 
+__version__ = "2.0.0-alpha.1"
+
+# Alias for cleaner API
+Agent = Akgent
+
 __all__ = [
     # Version
     "__version__",
+    # Agent base class
+    "Akgent",
+    "Agent",
+    "AkgentDeserializeContext",
+    "ProxyWrapper",
     # Actor addressing
     "ActorAddress",
     "ActorAddressImpl",
@@ -71,7 +70,6 @@ __all__ = [
     # Agent configuration
     "AgentConfig",
     "BaseConfig",
-    "PrivateConfig",
     "ReadOnlyField",
     # Agent state
     "AkgentStateObserver",

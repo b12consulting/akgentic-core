@@ -1,0 +1,606 @@
+"""Agent base class with v1-compatible message dispatch pattern.
+
+Provides the Akgent base class that agents extend to handle messages
+using the receiveMsg_<Type> pattern from v1. Integrates with pykka actors
+and provides state management, child actor creation, and orchestrator telemetry.
+
+Source: Migrated from akgentic-framework/libs/akgentic/akgentic/core/akgent_impl.py
+"""
+
+from __future__ import annotations
+
+import inspect
+import logging
+import uuid
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, override
+
+import pykka
+
+from akgentic.actor_address import ActorAddress
+from akgentic.actor_address_impl import ActorAddressImpl
+from akgentic.agent_config import BaseConfig
+from akgentic.agent_state import BaseState
+from akgentic.messages.message import Message, StopRecursively
+from akgentic.messages.orchestrator import (
+    ContextChangedMessage,
+    ErrorMessage,
+    ProcessedMessage,
+    ReceivedMessage,
+    SentMessage,
+    StartMessage,
+    StateChangedMessage,
+    StopMessage,
+)
+from akgentic.utils.deserializer import DeserializeContext, deserialize_object
+
+if TYPE_CHECKING:
+    from akgentic.actor_address_impl import ActorAddressProxy, ActorAddressStopped
+
+# Type variables for generic Agent configuration and state
+ConfigType = TypeVar("ConfigType", bound=BaseConfig)
+StateType = TypeVar("StateType", bound="BaseState")
+AkgentType = TypeVar("AkgentType", bound="Akgent[Any, Any]")
+
+# Logger for agent operations
+logger = logging.getLogger(__name__)
+
+
+class AkgentDeserializeContext(DeserializeContext):
+    """Deserialization context that resolves addresses via an Akgent's orchestrator.
+
+    Used during state deserialization to reconstruct ActorAddress references
+    by querying the orchestrator for live actor instances.
+    """
+
+    def __init__(self, akgent: Akgent[Any, Any]) -> None:
+        """Initialize context with agent reference.
+
+        Args:
+            akgent: The Akgent instance providing orchestrator access.
+        """
+        self.akgent = akgent
+
+    @override
+    def resolve_address(
+        self, address_dict: Any
+    ) -> ActorAddress | ActorAddressProxy | ActorAddressStopped:
+        """Resolve address dictionary to live ActorAddress or proxy.
+
+        Args:
+            address_dict: Serialized address with agent_id and metadata.
+
+        Returns:
+            Live ActorAddress if available, otherwise stopped/proxy address.
+        """
+        # Lazy import to avoid circular dependencies
+        from akgentic.actor_address_impl import ActorAddressStopped
+
+        address_stopped = ActorAddressStopped(address_dict)
+        orch = self.akgent._orchestrator
+        if orch is None:
+            return address_stopped
+
+        # Import Orchestrator for typing if available (Phase 2+)
+        try:
+            from akgentic.orchestrator import Orchestrator  # type: ignore[import-not-found]
+
+            agent_id = str(address_dict["agent_id"])
+            member = self.akgent.proxy_ask(orch, Orchestrator).get_team_member(agent_id)
+            return member if member else address_stopped
+        except ImportError:
+            # Orchestrator not yet implemented - return stopped address
+            return address_stopped
+
+
+class ProxyWrapper:
+    """Wrapper around Pykka proxy supporting tell and ask patterns.
+
+    Provides unified interface for fire-and-forget (tell) and blocking (ask)
+    actor method invocations with automatic future resolution.
+    """
+
+    def __init__(
+        self, actor: ActorAddress, ask_mode: bool = False, timeout: float | None = None
+    ) -> None:
+        """Initialize proxy wrapper.
+
+        Args:
+            actor: Target actor address to wrap.
+            ask_mode: If True, use ask pattern; if False, use tell pattern.
+            timeout: Optional timeout for ask operations in seconds.
+        """
+        self._pykka_proxy = cast(ActorAddressImpl, actor)._actor_ref.proxy()
+        self._ask_mode = ask_mode
+        self._timeout = timeout
+
+    def __getattr__(self, name: str) -> Any:
+        """Proxy attribute access with automatic future handling.
+
+        Args:
+            name: Attribute or method name to access on proxied actor.
+
+        Returns:
+            For methods: Wrapped callable with ask/tell behavior.
+            For attributes: Resolved value (ask mode) or future (tell mode).
+        """
+        attr = getattr(self._pykka_proxy, name)
+
+        # If it's a callable (method)
+        if hasattr(attr, "__call__"):
+            if self._ask_mode:
+                # Ask mode: call the method and wait for result
+
+                def ask_wrapper(*args: Any, **kwargs: Any) -> Any:
+                    future = attr(*args, **kwargs)
+                    return future.get(timeout=self._timeout)
+
+                return ask_wrapper
+            else:
+                # Tell mode: call the method without waiting
+
+                def tell_wrapper(*args: Any, **kwargs: Any) -> None:
+                    attr(*args, **kwargs)
+                    return None
+
+                return tell_wrapper
+
+        # For non-callable attributes
+        if self._ask_mode and hasattr(attr, "get"):
+            # Ask mode: resolve immediately
+            return attr.get(timeout=self._timeout)
+
+        return attr
+
+    def __repr__(self) -> str:
+        """String representation of proxy wrapper.
+
+        Returns:
+            String showing wrapped proxy.
+        """
+        return f"<ProxyWrapper for {self._pykka_proxy}>"
+
+
+class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP046
+    """Base agent class with explicit initialization parameters.
+
+    Generic actor supporting typed configuration and state. Uses MRO-based
+    message dispatch pattern where subclasses define receiveMsg_<Type> handlers.
+
+    Agents are initialized with explicit keyword arguments instead of positional
+    args for clarity and maintainability.
+
+    Type Parameters:
+        ConfigType: Agent configuration type (subclass of BaseConfig).
+        StateType: Agent state type (subclass of BaseState).
+
+    Attributes:
+        agent_id: Unique identifier for this agent instance.
+        config: Public agent configuration.
+        state: Current agent state with observer pattern.
+        llm_context: LLM conversation history (Phase 2+).
+
+    Example:
+        >>> # Create agent with explicit keyword parameters
+        >>> ref = MyAgent.start(
+        ...     agent_id=uuid.uuid4(),
+        ...     config=BaseConfig(name="worker"),
+        ...     user_id=user_id,
+        ...     team_id=team_id,
+        ...     orchestrator=orch_address,
+        ... )
+    """
+
+    def __init__(
+        self,
+        agent_id: uuid.UUID | None = None,
+        config: ConfigType | None = None,
+        user_id: uuid.UUID | None = None,
+        user_email: str | None = None,
+        team_id: uuid.UUID | None = None,
+        parent: ActorAddress | None = None,
+        orchestrator: ActorAddress | None = None,
+        restoring: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        """Initialize agent with explicit configuration parameters.
+
+        Args:
+            agent_id: Unique identifier for this agent (defaults to uuid4()).
+            config: Public agent configuration.
+            user_id: User identifier for context propagation.
+            user_email: User email for context propagation.
+            team_id: Team identifier for context propagation.
+            parent: Parent agent address for hierarchy tracking.
+            orchestrator: Orchestrator address for telemetry.
+            restoring: Whether restoring from snapshot (default: False).
+            **kwargs: Additional arguments passed to pykka.ThreadingActor.
+
+        Calls init() hook after initialization for custom setup.
+        """
+        super().__init__(**kwargs)
+
+        self._current_message: Message | None = None
+        self._children: list[ActorAddress] = []
+
+        ## Initialize from explicit parameters
+        self.agent_id: uuid.UUID = agent_id or uuid.uuid4()
+        self.config: ConfigType = config or BaseConfig()  # type: ignore
+        self._user_id = user_id
+        self._user_email = user_email
+        self._team_id = team_id
+        self._parent = parent
+        self._orchestrator = orchestrator
+        self._restoring = restoring
+        self.state: StateType = BaseState()  # type: ignore
+
+        ## set default name and role if not provided
+        self.config.name = self.config.name or str(self._actor_ref)
+        self.config.role = self.config.role or self._actor_ref._actor.__class__.__name__
+
+        ## llm context
+        self.llm_context: list[Any] = []
+
+        self._notify_orchestrator(
+            StartMessage(
+                config=self.config,
+                parent=self._parent,
+            )
+        )
+        self.init()
+
+    def init(self) -> None:
+        """Custom initialization hook, to be overridden by subclasses.
+
+        Called after __init__ completes. Use for agent-specific setup
+        that requires the actor system to be fully initialized.
+        """
+        pass
+
+    @property
+    def myAddress(self) -> ActorAddress:  # noqa: N802
+        """Get this agent's actor address.
+
+        Returns:
+            ActorAddress wrapping this agent's pykka actor reference.
+        """
+        return ActorAddressImpl(self.actor_ref)
+
+    def createActor(  # noqa: N802
+        self,
+        actor_class: type[Akgent[Any, Any]],
+        agent_id: uuid.UUID | None = None,
+        user_config: BaseConfig = BaseConfig(),
+    ) -> ActorAddress:
+        """Create a child actor with context propagation.
+
+        Inherits squad_id, user_id, user_email, team_id from parent.
+        Tracks child in internal list for recursive cleanup.
+
+        Args:
+            actor_class: Class of the agent to instantiate.
+            agent_id: Optional UUID for the new agent (defaults to uuid4()).
+            user_config: Configuration for the new agent.
+
+        Returns:
+            ActorAddress of the newly created child agent.
+
+        Example:
+            >>> child = self.createActor(
+            ...     WorkerAgent,
+            ...     agent_id=uuid.uuid4(),
+            ...     user_config=WorkerConfig(name="worker-1")
+            ... )
+        """
+        ## Priority on the new configuration for the squad_id over the parent one
+        user_config.squad_id = user_config.squad_id or self.config.squad_id
+
+        actor = actor_class.start(
+            agent_id=agent_id,
+            config=user_config,
+            user_id=self._user_id,
+            user_email=self._user_email,
+            team_id=self._team_id,
+            parent=self.myAddress,
+            orchestrator=self._orchestrator,
+        )
+        self._children.append(ActorAddressImpl(actor))
+
+        return ActorAddressImpl(actor)
+
+    ##
+    ## Message routing
+    ##
+    def _notify_orchestrator(self, message: Message) -> None:
+        """Send telemetry message to orchestrator if available.
+
+        Args:
+            message: Orchestrator telemetry message (Start/Received/Processed/etc).
+        """
+        orchestrator = self._orchestrator
+        if orchestrator is not None and orchestrator.is_alive():
+            message.init(
+                self.myAddress,
+                self._team_id,
+                self._current_message,
+            )
+            cast(ActorAddressImpl, orchestrator)._actor_ref.tell(message)
+
+    def send(self, recipient: ActorAddress | None, message: Any) -> Any:
+        """Send a message to another actor with telemetry.
+
+        Args:
+            recipient: Target actor address (must not be None).
+            message: Message to send (any type).
+
+        Returns:
+            The sent message.
+
+        Raises:
+            AssertionError: If recipient is None.
+        """
+        assert recipient is not None, "Recipient cannot be None"
+        if isinstance(message, Message):
+            message.init(
+                self.myAddress,
+                self._team_id,
+                self._current_message,
+            )
+            self._notify_orchestrator(SentMessage(message=message, recipient=recipient))
+
+        cast(ActorAddressImpl, recipient)._actor_ref.tell(message)
+        return message
+
+    @override
+    def _handle_receive(self, message: Any) -> Any:
+        """Error handling wrapper for message processing.
+
+        Catches exceptions during message handling, logs them,
+        notifies orchestrator, and prevents actor crash.
+
+        Args:
+            message: Incoming message to process.
+
+        Returns:
+            Result from super()._handle_receive() if successful.
+        """
+        try:
+            return super()._handle_receive(message)
+        except Exception as e:
+            logger.exception(f"[{self.config.name}] ERROR processing message: {e}")
+            self._current_message = None
+            self._notify_orchestrator(
+                ErrorMessage(
+                    exception_type=type(e).__name__,
+                    exception_value=str(e),
+                    current_message=self._current_message,
+                )
+            )
+
+    @override
+    def on_receive(self, message: Any) -> Any:
+        """Telemetry sandwich for message processing.
+
+        Logs message receipt, notifies orchestrator (Received/Processed),
+        and dispatches to message handler.
+
+        Args:
+            message: Incoming message to process.
+
+        Returns:
+            Result from message handler.
+        """
+        logger.info(
+            f"[{self.config.name}-{self.myAddress}] receiveMessage: "
+            f"{message.__class__.__name__}"
+        )
+        if isinstance(message, Message):
+            self._current_message = message
+            self._notify_orchestrator(ReceivedMessage(message=message))
+            result = self._receiveMessage(message, message.sender)
+            self._notify_orchestrator(ProcessedMessage(message_id=message.id))
+            self._current_message = None
+            return result
+
+        return self._receiveMessage(message, None)
+
+    # _receiveMessage() walks two hierarchies (the message's MRO and the actor's MRO).
+    # If your receiveMsg_<Type> decides not to handle a message, the only way to tell
+    # the dispatcher to keep searching up the chain is to return self.SUPER.
+    # Any other return value (including None) is treated as "handled," and the search stops
+    SUPER = hash("SUPER")
+
+    def _receiveMessage(self, message: Any, sender: Any) -> Any:  # noqa: N802
+        """Dispatch message using MRO-based handler lookup.
+
+        Walks message class MRO looking for receiveMsg_<Type> handlers.
+        For each found handler, walks actor class MRO to find implementation.
+        Stops when handler returns non-SUPER value.
+
+        Args:
+            message: Message to dispatch.
+            sender: Sender address (may be None for non-Message types).
+
+        Returns:
+            Result from message handler, or None if no handler found.
+        """
+        for each in inspect.getmro(message.__class__):
+            methodName = "receiveMsg_" + each.__name__  # noqa: N806
+            if hasattr(self, methodName):
+                for klass in inspect.getmro(self.__class__):
+                    if hasattr(klass, methodName):
+                        r = getattr(klass, methodName)(self, message, sender)
+                        if r != self.SUPER:
+                            return r
+
+        ## Message type not handled
+        logger.warning(
+            f"[{self.config.name}] Unknown message {message.__class__.__name__} from {sender}"
+        )
+
+    ##
+    ## Stopping handling
+    ##
+    def receiveMsg_StopRecursively(  # noqa: N802
+        self, msg: StopRecursively, sender: Any
+    ) -> None:
+        """Handle recursive stop message.
+
+        Args:
+            msg: StopRecursively message.
+            sender: Sender address.
+        """
+        self.stop()
+
+    def stop(self) -> None:
+        """Stop this agent and all children recursively.
+
+        Iterates children list and stops each child before stopping self.
+        """
+        print(f"### [{self.config.name}] Stopping recursively ...")
+        for child in self._children.copy():
+            self._stop_child(child)
+        super().stop()
+
+    def _stop_child(self, child: ActorAddress) -> None:
+        """Stop a single child actor.
+
+        Args:
+            child: Child actor address to stop.
+        """
+        if child.is_alive():
+            self.proxy_ask(child).stop()
+
+        try:
+            self._children.remove(child)
+        except Exception:
+            logger.error(
+                f"ERROR: stop_child: Actor with reference {child} doesn't exist"
+            )
+
+    def on_stop(self) -> None:
+        """Cleanup hook called when actor stops.
+
+        Notifies orchestrator of stop event.
+        """
+        self._notify_orchestrator(StopMessage())
+        print(f"### [{self.config.name}] Stopped !")
+
+    ##
+    ## State and LLM context
+    ##
+    def state_changed(self, state: BaseState) -> None:
+        """Notify orchestrator of state change.
+
+        Implements AkgentStateObserver protocol - called by BaseState when
+        fields change, and by init_state() during state initialization.
+
+        Args:
+            state: New state (BaseState instance).
+        """
+        serializable_state = state.serializable_copy().model_dump()
+        self._notify_orchestrator(
+            StateChangedMessage(state=serializable_state),
+        )
+
+    def update_state(self, updates: dict[str, Any]) -> None:
+        """Update the state of the agent and notify the orchestrator.
+
+        Merges updates into current state, deserializes, and reinitializes.
+
+        Args:
+            updates: Dictionary of state field updates.
+        """
+        try:
+            state_data = {**self.state.model_dump(), **updates}
+            state = deserialize_object(state_data, AkgentDeserializeContext(self))
+            self.init_state(cast(StateType, state))
+        except Exception as e:
+            logger.error(f"Failed to update state: {e}")
+            self._notify_orchestrator(
+                ErrorMessage(
+                    exception_type=type(e).__name__,
+                    exception_value=str(e),
+                    current_message=self._current_message,
+                )
+            )
+            return
+
+    def init_state(self, state: StateType) -> None:
+        """Initialize the state of the agent and notify the orchestrator.
+
+        Preserves observer reference across state replacement.
+
+        Note: Used externally by state restoration logic (e.g., restart_team.py).
+
+        Args:
+            state: New state to initialize.
+        """
+        state._observer = self.state._observer
+        self.state = state
+        self.state_changed(self.state)
+
+    def llm_context_changed(self, messages: list[Any]) -> None:
+        """Notify the orchestrator of a change in the LLM context.
+
+        Args:
+            messages: New LLM context messages.
+        """
+        self._notify_orchestrator(
+            ContextChangedMessage(messages=messages),
+        )
+
+    def init_llm_context(self, messages: list[Any]) -> None:
+        """Initialize the LLM context of the agent and notify the orchestrator.
+
+        Phase 1: Stores messages as-is without validation.
+        Phase 2+: Will validate against pydantic_ai types.
+
+        Args:
+            messages: LLM context messages to initialize.
+        """
+        # Note: pydantic_ai import removed for Phase 1 (no LLM dependency)
+        self.llm_context = messages
+        self.llm_context_changed(self.llm_context)
+
+    ##
+    ## Proxy helpers
+    ##
+    def proxy_tell(
+        self,
+        actor: ActorAddress,
+        actor_type: type[AkgentType] | None = None,
+    ) -> AkgentType:
+        """Create a typed proxy that supports tell patterns.
+
+        Fire-and-forget message sending without blocking for results.
+
+        Args:
+            actor: Target actor address.
+            actor_type: Type hint for return typing (not used at runtime).
+
+        Returns:
+            ProxyWrapper configured for tell mode, typed as AkgentType.
+        """
+        proxy_instance = ProxyWrapper(actor, ask_mode=False)
+        return cast(AkgentType, proxy_instance)
+
+    def proxy_ask(
+        self,
+        actor: ActorAddress,
+        actor_type: type[AkgentType] | None = None,
+        timeout: int | None = None,
+    ) -> AkgentType:
+        """Create a typed proxy that supports ask patterns.
+
+        Blocking message sending that waits for and returns results.
+
+        Args:
+            actor: Target actor address.
+            actor_type: Type hint for return typing (not used at runtime).
+            timeout: Optional timeout in seconds for ask operations.
+
+        Returns:
+            ProxyWrapper configured for ask mode, typed as AkgentType.
+        """
+        proxy_instance = ProxyWrapper(actor, ask_mode=True, timeout=timeout)
+        return cast(AkgentType, proxy_instance)

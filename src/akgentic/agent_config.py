@@ -73,23 +73,12 @@ class BaseConfig(SerializableBaseModel):
 class PrivateConfig(SerializableBaseModel):
     """Internal framework configuration for agent management.
 
-    Contains fields used by the framework for agent lifecycle management,
-    team coordination, and hierarchical relationships. Not typically
-    exposed to application code.
-
     Attributes:
         team_id: Required team identifier for coordination.
         user_id: Optional user identifier for multi-tenant scenarios.
         user_email: Optional user email for notifications.
         parent: ActorAddress of the parent agent in hierarchy.
         orchestrator: ActorAddress of the orchestrating agent.
-
-    Example:
-        >>> _config = PrivateConfig(team_id=uuid.uuid4())
-        >>> _config = PrivateConfig(
-        ...     team_id=uuid.uuid4(),
-        ...     parent=some_actor_address,
-        ... )
     """
 
     team_id: uuid.UUID
