@@ -25,39 +25,39 @@ from akgentic.agent_state import BaseState
 from akgentic.messages.message import Message, StopRecursively
 
 
-class TestMessage(Message):
+class SampleMessage(Message):
     """Test message for dispatch testing."""
 
     content: str = ""
 
 
-class DerivedTestMessage(TestMessage):
+class DerivedSampleMessage(SampleMessage):
     """Derived test message for MRO testing."""
 
     extra: str = ""
 
 
-class TestAgent(Akgent[BaseConfig, BaseState]):
+class SampleAgent(Akgent[BaseConfig, BaseState]):
     """Test agent with message handler."""
 
     def __init__(self, **kwargs):
         self.received_messages: list = []
         super().__init__(**kwargs)
 
-    def receiveMsg_TestMessage(self, msg: TestMessage, sender: Any):
-        """Handle TestMessage and derived types."""
+    def receiveMsg_SampleMessage(self, msg: SampleMessage, sender: Any):
+        """Handle SampleMessage and derived types."""
         self.received_messages.append(msg)
         return msg.content
 
 
-class SuperTestAgent(Akgent[BaseConfig, BaseState]):
+class SuperSampleAgent(Akgent[BaseConfig, BaseState]):
     """Test agent that uses SUPER sentinel."""
 
     def __init__(self, **kwargs):
         self.handled_at_base = False
         super().__init__(**kwargs)
 
-    def receiveMsg_TestMessage(self, msg: TestMessage, sender: Any):
+    def receiveMsg_SampleMessage(self, msg: SampleMessage, sender: Any):
         """Decline to handle - return SUPER."""
         return self.SUPER
 
@@ -92,7 +92,7 @@ class TestAgentInitialization:
     def test_agent_starts_and_stops(self, agent_setup):
         """Agent can be started and stopped cleanly."""
         agent_id, config, team_id = agent_setup
-        ref = TestAgent.start(
+        ref = SampleAgent.start(
             agent_id=agent_id,
             config=config,
             team_id=team_id,
@@ -111,7 +111,7 @@ class TestAgentInitialization:
         user_id = uuid.uuid4()
         config = BaseConfig(name="test-agent", role="Tester")
 
-        ref = TestAgent.start(
+        ref = SampleAgent.start(
             agent_id=agent_id,
             config=config,
             user_id=user_id,
@@ -131,7 +131,7 @@ class TestAgentInitialization:
             # Verify child creation propagates context correctly
             child_config = BaseConfig(name="child")
             child_address = ref.proxy().createActor(
-                TestAgent, uuid.uuid4(), child_config
+                SampleAgent, uuid.uuid4(), child_config
             ).get(timeout=5)
             assert child_address.is_alive()
         finally:
@@ -141,7 +141,7 @@ class TestAgentInitialization:
         """Agent keyword args use defaults when not specified."""
         config = BaseConfig(name="test-agent")
 
-        ref = TestAgent.start(config=config)
+        ref = SampleAgent.start(config=config)
         try:
             assert ref.is_alive()
             agent_agent_id = ref.proxy().agent_id.get()
@@ -159,7 +159,7 @@ class TestAgentInitialization:
     def test_agent_receives_uuid_and_config(self, agent_setup):
         """Agent initialization extracts args correctly."""
         agent_id, config, team_id = agent_setup
-        ref = TestAgent.start(
+        ref = SampleAgent.start(
             agent_id=agent_id,
             config=config,
             team_id=team_id,
@@ -178,7 +178,7 @@ class TestAgentInitialization:
         """Agent sets default name and role if not provided."""
         agent_id, _, team_id = agent_setup
         config = BaseConfig()  # No name or role
-        ref = TestAgent.start(
+        ref = SampleAgent.start(
             agent_id=agent_id,
             config=config,
             team_id=team_id,
@@ -192,7 +192,7 @@ class TestAgentInitialization:
             assert len(agent_config_name) > 0
 
             # Role defaults to class name
-            assert agent_config_role == "TestAgent"
+            assert agent_config_role == "SampleAgent"
         finally:
             ref.stop()
 
@@ -226,10 +226,10 @@ class TestMessageDispatch:
     def test_message_handler_called(self, agent_setup):
         """Message dispatch invokes correct handler."""
         agent_id, config, team_id = agent_setup
-        ref = TestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
             # Send message and verify handler called
-            msg = TestMessage(content="hello")
+            msg = SampleMessage(content="hello")
             result = ref.proxy().on_receive(msg).get(timeout=5)
             assert result == "hello"
 
@@ -242,10 +242,10 @@ class TestMessageDispatch:
     def test_derived_message_uses_handler(self, agent_setup):
         """Derived message types use parent handler via MRO."""
         agent_id, config, team_id = agent_setup
-        ref = TestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
-            # DerivedTestMessage should use receiveMsg_TestMessage
-            msg = DerivedTestMessage(content="derived", extra="data")
+            # DerivedSampleMessage should use receiveMsg_SampleMessage
+            msg = DerivedSampleMessage(content="derived", extra="data")
             result = ref.proxy().on_receive(msg).get(timeout=5)
             assert result == "derived"
 
@@ -258,7 +258,7 @@ class TestMessageDispatch:
     def test_unhandled_message_logs_warning(self, agent_setup, caplog):
         """Unhandled message type logs warning."""
         agent_id, config, team_id = agent_setup
-        ref = TestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
 
             class UnhandledMessage:
@@ -279,11 +279,11 @@ class TestSuperSentinel:
     def test_super_continues_mro_search(self, agent_setup):
         """Returning SUPER causes dispatcher to continue MRO walk."""
         agent_id, config, team_id = agent_setup
-        ref = SuperTestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SuperSampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
-            # receiveMsg_TestMessage returns SUPER
+            # receiveMsg_SampleMessage returns SUPER
             # Should fallback to receiveMsg_Message
-            msg = TestMessage(content="test")
+            msg = SampleMessage(content="test")
             result = ref.proxy().on_receive(msg).get(timeout=5)
 
             assert result == "base_handler"
@@ -300,12 +300,12 @@ class TestChildActorCreation:
         """Parent can create child actor."""
         agent_id, config, team_id = agent_setup
         config.squad_id = uuid.uuid4()
-        ref = TestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
             # Create child via proxy
             child_config = BaseConfig(name="child-agent")
             child_address = ref.proxy().createActor(
-                TestAgent, uuid.uuid4(), child_config
+                SampleAgent, uuid.uuid4(), child_config
             ).get(timeout=5)
 
             assert child_address is not None
@@ -319,12 +319,12 @@ class TestChildActorCreation:
         agent_id, config, team_id = agent_setup
         parent_squad_id = uuid.uuid4()
         config.squad_id = parent_squad_id
-        ref = TestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
             # Create child without squad_id
             child_config = BaseConfig(name="child-agent")
             child_address = ref.proxy().createActor(
-                TestAgent, uuid.uuid4(), child_config
+                SampleAgent, uuid.uuid4(), child_config
             ).get(timeout=5)
 
             child_ref = cast(ActorAddressImpl, child_address)._actor_ref
@@ -340,12 +340,12 @@ class TestChildActorCreation:
         parent_squad_id = uuid.uuid4()
         child_squad_id = uuid.uuid4()
         config.squad_id = parent_squad_id
-        ref = TestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
             # Create child with explicit squad_id
             child_config = BaseConfig(name="child-agent", squad_id=child_squad_id)
             child_address = ref.proxy().createActor(
-                TestAgent, uuid.uuid4(), child_config
+                SampleAgent, uuid.uuid4(), child_config
             ).get(timeout=5)
 
             child_ref = cast(ActorAddressImpl, child_address)._actor_ref
@@ -362,7 +362,7 @@ class TestStateManagement:
     def test_init_state_preserves_observer(self, agent_setup):
         """init_state preserves observer reference."""
         agent_id, config, team_id = agent_setup
-        ref = TestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
             # Get initial state observer
             initial_observer = ref.proxy().state.get()._observer
@@ -380,7 +380,7 @@ class TestStateManagement:
     def test_update_state_merges_updates(self, agent_setup):
         """update_state merges dictionary updates into state."""
         agent_id, config, team_id = agent_setup
-        ref = TestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
             # BaseState is simple model - just verify update_state doesn't error
             # Full state update testing requires custom state types
@@ -400,12 +400,12 @@ class TestStopBehavior:
     def test_stop_cleans_up_children(self, agent_setup):
         """Stopping parent stops all children recursively."""
         agent_id, config, team_id = agent_setup
-        ref = TestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
             # Create child
             child_config = BaseConfig(name="child-agent")
             child_address = ref.proxy().createActor(
-                TestAgent, uuid.uuid4(), child_config
+                SampleAgent, uuid.uuid4(), child_config
             ).get(timeout=5)
 
             assert child_address.is_alive()
@@ -425,7 +425,7 @@ class TestStopBehavior:
     def test_stop_recursively_message(self, agent_setup):
         """StopRecursively message triggers recursive stop."""
         agent_id, config, team_id = agent_setup
-        ref = TestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
             msg = StopRecursively()
             ref.proxy().on_receive(msg).get(timeout=5)
@@ -445,12 +445,12 @@ class TestProxyHelpers:
     def test_proxy_tell_fire_and_forget(self, agent_setup):
         """proxy_tell creates fire-and-forget proxy."""
         agent_id, config, team_id = agent_setup
-        ref = TestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
             address = ActorAddressImpl(ref)
 
             # Create tell proxy
-            proxy = ref.proxy().proxy_tell(address, TestAgent).get()
+            proxy = ref.proxy().proxy_tell(address, SampleAgent).get()
 
             assert isinstance(proxy, ProxyWrapper)
             assert proxy._ask_mode is False
@@ -460,12 +460,12 @@ class TestProxyHelpers:
     def test_proxy_ask_blocking(self, agent_setup):
         """proxy_ask creates blocking proxy."""
         agent_id, config, team_id = agent_setup
-        ref = TestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
             address = ActorAddressImpl(ref)
 
             # Create ask proxy with timeout
-            proxy = ref.proxy().proxy_ask(address, TestAgent, timeout=10).get()
+            proxy = ref.proxy().proxy_ask(address, SampleAgent, timeout=10).get()
 
             assert isinstance(proxy, ProxyWrapper)
             assert proxy._ask_mode is True
@@ -480,7 +480,7 @@ class TestProxyWrapper:
     def test_proxy_wrapper_ask_mode_resolves_futures(self, agent_setup):
         """Ask mode automatically resolves pykka futures."""
         agent_id, config, team_id = agent_setup
-        ref = TestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
             address = ActorAddressImpl(ref)
             wrapper = ProxyWrapper(address, ask_mode=True, timeout=5)
@@ -494,7 +494,7 @@ class TestProxyWrapper:
     def test_proxy_wrapper_tell_mode_returns_none(self, agent_setup):
         """Tell mode returns None without blocking."""
         agent_id, config, team_id = agent_setup
-        ref = TestAgent.start(agent_id=agent_id, config=config, team_id=team_id)
+        ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
         try:
             address = ActorAddressImpl(ref)
             wrapper = ProxyWrapper(address, ask_mode=False)
@@ -518,7 +518,7 @@ class TestOrchestratorIntegration:
         mock_orch_ref.is_alive.return_value = True
         mock_orch = ActorAddressImpl(mock_orch_ref)
 
-        ref = TestAgent.start(
+        ref = SampleAgent.start(
             agent_id=agent_id,
             config=config,
             team_id=team_id,
@@ -543,7 +543,7 @@ class TestOrchestratorIntegration:
         mock_orch_ref.is_alive.return_value = True
         mock_orch = ActorAddressImpl(mock_orch_ref)
 
-        ref = TestAgent.start(
+        ref = SampleAgent.start(
             agent_id=agent_id,
             config=config,
             team_id=team_id,
@@ -551,7 +551,7 @@ class TestOrchestratorIntegration:
         )
         try:
             # Create recipient
-            recipient_ref = TestAgent.start(
+            recipient_ref = SampleAgent.start(
                 agent_id=uuid.uuid4(),
                 config=BaseConfig(),
                 team_id=team_id,
@@ -559,7 +559,7 @@ class TestOrchestratorIntegration:
             recipient_address = ActorAddressImpl(recipient_ref)
 
             # Send message
-            msg = TestMessage(content="test")
+            msg = SampleMessage(content="test")
             ref.proxy().send(recipient_address, msg).get(timeout=5)
 
             # Verify SentMessage sent to orchestrator
