@@ -6,13 +6,16 @@ message flows, and state changes using in-memory storage.
 """
 
 import logging
+import os
+import threading
+from collections.abc import Callable
 from typing import Any, Protocol, overload, override
 
 from akgentic.actor_address import ActorAddress
 from akgentic.agent import Akgent
 from akgentic.agent_config import BaseConfig
 from akgentic.agent_state import BaseState
-from akgentic.messages.message import Message
+from akgentic.messages.message import Message, StopRecursively
 from akgentic.messages.orchestrator import (
     ContextChangedMessage,
     ErrorMessage,
@@ -27,6 +30,67 @@ from akgentic.messages.orchestrator import (
 
 logger = logging.getLogger(__name__)
 
+TIMER_DELAY = 3600  # 1 hour default inactivity timeout
+
+
+class Timer:
+    """Helper class for inactivity timeout management.
+
+    Tracks active tasks and triggers a timeout callback after a configurable
+    delay when the orchestrator becomes idle (task_count reaches 0).
+
+    The timer automatically cancels itself when tasks are active and restarts
+    when the orchestrator becomes idle again.
+
+    Args:
+        delay: Seconds of inactivity before timeout_callback is invoked.
+        timeout_callback: Zero-argument callable invoked on timeout.
+
+    Example:
+        >>> def on_timeout():
+        ...     print("Timed out!")
+        >>> timer = Timer(delay=60, timeout_callback=on_timeout)
+        >>> timer.start()
+        >>> timer.task_started()   # pauses countdown
+        >>> timer.task_completed() # restarts countdown
+        >>> timer.cancel()         # prevents callback from firing
+    """
+
+    def __init__(self, delay: int, timeout_callback: Callable[[], None]) -> None:
+        self.delay = delay
+        self.timeout_callback = timeout_callback
+        self.task_count: int = 0
+        self._timer: threading.Timer | None = None
+
+    def start(self) -> None:
+        """Start or restart the countdown timer.
+
+        Cancels any existing timer before starting a new one.
+        """
+        self.cancel()
+        self._timer = threading.Timer(self.delay, self.timeout_callback)
+        self._timer.daemon = True
+        self._timer.start()
+
+    def cancel(self) -> None:
+        """Cancel the current timer, preventing the callback from firing."""
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+
+    def task_started(self) -> None:
+        """Increment task count and cancel timer while tasks are active."""
+        self.task_count += 1
+        if self.task_count > 0:
+            self.cancel()
+
+    def task_completed(self) -> None:
+        """Decrement task count and restart timer when orchestrator becomes idle."""
+        self.task_count -= 1
+        if self.task_count <= 0:
+            self.task_count = 0  # Prevent negative count
+            self.start()
+
 
 class OrchestratorEventSubscriber(Protocol):
     """Protocol for subscribing to orchestrator events.
@@ -39,10 +103,6 @@ class OrchestratorEventSubscriber(Protocol):
         - WebSocketEventSubscriber: Streams events to WebSocket clients
         - PostgresEventSubscriber: Persists events to PostgreSQL
     """
-
-    def on_start(self) -> None:
-        """Called when an orchestrator starts."""
-        ...
 
     def on_stop(self) -> None:
         """Called when an orchestrator stops."""
@@ -122,6 +182,10 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     def init(self) -> None:
         """Initialize the Orchestrator with empty in-memory state.
 
+        The inactivity timer delay is configurable via the
+        ``ORCHESTRATOR_TIMEOUT_DELAY`` environment variable (seconds).
+        Defaults to 3600 seconds (1 hour) when the variable is not set.
+
         Args:
             config: Base configuration for the agent
             **kwargs: Additional keyword arguments passed to parent Akgent class
@@ -145,6 +209,11 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         # Event subscribers for Phase 3 extensibility
         self.subscribers: list[OrchestratorEventSubscriber] = []
 
+        # Inactivity timer — configurable via env var, defaults to TIMER_DELAY
+        timer_delay = int(os.environ.get("ORCHESTRATOR_TIMEOUT_DELAY", str(TIMER_DELAY)))
+        self._timer = Timer(delay=timer_delay, timeout_callback=self._timeout_handler)
+        self._timer.start()
+
         # Notify orchestrator of its own startup
         start_message = StartMessage(config=self.config)
         start_message.init(self.myAddress, self._team_id)
@@ -155,10 +224,30 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self._notify_subscribers("on_stop")
         print(f"### [{self.config.name}] Stopped !")
 
+    def _timeout_handler(self) -> None:
+        """Handle inactivity timeout by stopping the orchestrator.
+
+        Logs the timeout event with the team ID from config, then sends
+        a ``StopRecursively`` message to self to trigger graceful shutdown.
+        Any exception during the stop is caught and logged to prevent the
+        timer thread from crashing silently.
+        """
+        team_id = getattr(self.config, "team_id", "unknown")
+        logger.info(f"Orchestrator timeout after {self._timer.delay}s inactivity (team={team_id})")
+        self.send(self.myAddress, StopRecursively())
+
     @override
     def _notify_orchestrator(self, message: Message) -> None:
         """Override to directly append orchestrator's own messages without telemetry cascade."""
         pass
+
+    def get_timer(self) -> Timer:
+        """Return the inactivity Timer instance (for testing and introspection).
+
+        Returns:
+            The Timer managing inactivity-based shutdown.
+        """
+        return self._timer
 
     def subscribe(self, subscriber: OrchestratorEventSubscriber) -> None:
         """Add an event subscriber to receive orchestrator events.
@@ -178,7 +267,10 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         for subscriber in self.subscribers:
             try:
                 method = getattr(subscriber, event_method)
-                method(message)
+                if message is None:
+                    method()
+                else:
+                    method(message)
             except Exception as e:
                 logger.error(
                     f"Subscriber {subscriber.__class__.__name__} failed {event_method}: {e}"
@@ -235,6 +327,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         # Skip orchestrator's own telemetry to avoid recursion
         if sender == self.myAddress:
             return
+        self._timer.task_started()
         self.messages.append(message)
         self._notify_subscribers("on_message", message)
 
@@ -248,11 +341,12 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         # Skip orchestrator's own telemetry to avoid recursion
         if sender == self.myAddress:
             return
+        self._timer.task_completed()
         self.messages.append(message)
         self._notify_subscribers("on_message", message)
 
     def receiveMsg_ErrorMessage(self, message: ErrorMessage, sender: ActorAddress) -> None:
-        """Handle error events.
+        """Handle error events (treat as task completion for timer purposes).
 
         Args:
             message: ErrorMessage containing error details
@@ -261,6 +355,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         # Skip orchestrator's own telemetry to avoid recursion
         if sender == self.myAddress:
             return
+        self._timer.task_completed()
         self.messages.append(message)
         self._notify_subscribers("on_message", message)
 
@@ -434,10 +529,12 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         return self.tool_state_dict
 
     def stop(self) -> None:
-        """Override stop to set _stopping flag before shutdown.
+        """Override stop to cancel timer and set _stopping flag before shutdown.
 
-        Sets _stopping flag to prevent recording StopMessages during orchestrator
-        shutdown, then calls parent stop() method.
+        Cancels the inactivity timer first to prevent it from firing during
+        shutdown, then sets the _stopping flag to suppress StopMessage recording,
+        then calls the parent stop() method.
         """
+        self._timer.cancel()
         self._stopping = True
         super().stop()
