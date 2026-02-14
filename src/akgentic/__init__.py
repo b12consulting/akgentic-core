@@ -43,6 +43,7 @@ from akgentic.messages.orchestrator import (
     ToolUpdateMessage,
 )
 from akgentic.orchestrator import Orchestrator, OrchestratorEventSubscriber
+from akgentic.user_proxy import UserProxy
 from akgentic.utils.deserializer import (
     ActorAddressDict,
     DeserializeContext,
@@ -107,6 +108,8 @@ __all__ = [
     # Orchestrator
     "Orchestrator",
     "OrchestratorEventSubscriber",
+    # UserProxy
+    "UserProxy",
     # Serialization
     "ActorAddressDict",
     "DeserializeContext",
