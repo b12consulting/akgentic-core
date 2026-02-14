@@ -11,6 +11,9 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from akgentic.actor_address import ActorAddress
+from akgentic.agent_config import BaseConfig
+from akgentic.agent_state import BaseState
 from akgentic.messages.message import Message
 
 
@@ -26,7 +29,7 @@ class SentMessage(Message):
     """
 
     message: Message
-    recipient: Any  # ActorAddress - using Any for forward compat
+    recipient: ActorAddress
 
 
 class ReceivedMessage(Message):
@@ -64,8 +67,8 @@ class StartMessage(Message):
         parent: Optional parent actor address.
     """
 
-    config: Any  # BaseConfig - using Any for forward compat
-    parent: Any = None  # ActorAddress | None - using Any for forward compat
+    config: BaseConfig
+    parent: ActorAddress | None = None
 
 
 class StopMessage(Message):
@@ -121,7 +124,7 @@ class StateChangedMessage(Message):
         err: Optional exception if state change failed.
     """
 
-    state: Any  # BaseState - using Any for forward compat
+    state: BaseState
     err: BaseException | None = None
 
 

@@ -49,4 +49,5 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "UP", "ANN", "ASYNC"]
 # ANN401: Allow Any type in serialization code (necessary for dynamic serialization)
-ignore = ["ANN401"]
+# N802: Allow receiveMsg_* pattern (v1 Pykka message dispatch convention)
+ignore = ["ANN401", "N802"]

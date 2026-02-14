@@ -198,15 +198,29 @@ class TestSentMessage:
 
     def test_instantiation(self) -> None:
         """Should instantiate with message and recipient."""
+        from akgentic.actor_address_impl import ActorAddressProxy
+
         inner_msg = Message()
-        sent = SentMessage(message=inner_msg, recipient="mock_recipient")
+        recipient = ActorAddressProxy({
+            "name": "test",
+            "role": "Worker",
+            "agent_id": str(uuid.uuid4()),
+        })
+        sent = SentMessage(message=inner_msg, recipient=recipient)
         assert sent.message is inner_msg
-        assert sent.recipient == "mock_recipient"
+        assert sent.recipient == recipient
 
     def test_inherits_message_fields(self) -> None:
         """Should inherit all Message fields."""
+        from akgentic.actor_address_impl import ActorAddressProxy
+
         inner_msg = Message()
-        sent = SentMessage(message=inner_msg, recipient=None)
+        recipient = ActorAddressProxy({
+            "name": "test",
+            "role": "Worker",
+            "agent_id": str(uuid.uuid4()),
+        })
+        sent = SentMessage(message=inner_msg, recipient=recipient)
         assert isinstance(sent.id, uuid.UUID)
 
 
@@ -235,19 +249,33 @@ class TestStartMessage:
 
     def test_instantiation(self) -> None:
         """Should instantiate with config."""
-        config_mock = {"key": "value"}
-        start = StartMessage(config=config_mock)
-        assert start.config == config_mock
+        from akgentic.agent_config import BaseConfig
+
+        config = BaseConfig(name="test", role="Worker")
+        start = StartMessage(config=config)
+        assert start.config == config
 
     def test_parent_defaults_to_none(self) -> None:
         """parent should default to None."""
-        start = StartMessage(config={})
+        from akgentic.agent_config import BaseConfig
+
+        config = BaseConfig(name="test", role="Worker")
+        start = StartMessage(config=config)
         assert start.parent is None
 
     def test_parent_can_be_set(self) -> None:
         """parent can be explicitly set."""
-        start = StartMessage(config={}, parent="mock_parent")
-        assert start.parent == "mock_parent"
+        from akgentic.actor_address_impl import ActorAddressProxy
+        from akgentic.agent_config import BaseConfig
+
+        config = BaseConfig(name="test", role="Worker")
+        parent = ActorAddressProxy({
+            "name": "parent",
+            "role": "Parent",
+            "agent_id": str(uuid.uuid4()),
+        })
+        start = StartMessage(config=config, parent=parent)
+        assert start.parent == parent
 
 
 class TestStopMessage:
@@ -316,13 +344,18 @@ class TestStateChangedMessage:
 
     def test_instantiation(self) -> None:
         """Should instantiate with state."""
-        state_mock = {"key": "value"}
-        state_changed = StateChangedMessage(state=state_mock)
-        assert state_changed.state == state_mock
+        from akgentic.agent_state import BaseState
+
+        state = BaseState()
+        state_changed = StateChangedMessage(state=state)
+        assert state_changed.state == state
 
     def test_err_defaults_to_none(self) -> None:
         """err should default to None."""
-        state_changed = StateChangedMessage(state={})
+        from akgentic.agent_state import BaseState
+
+        state = BaseState()
+        state_changed = StateChangedMessage(state=state)
         assert state_changed.err is None
 
 

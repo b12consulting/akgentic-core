@@ -15,6 +15,7 @@ from typing import Any, Literal
 
 from pydantic import Field, model_serializer
 
+from akgentic.actor_address import ActorAddress
 from akgentic.utils.serializer import SerializableBaseModel, serialize_base_model
 
 
@@ -46,7 +47,7 @@ class Message(SerializableBaseModel):
     parent_id: uuid.UUID | None = Field(default=None)
     team_id: uuid.UUID | None = Field(default=None)
     timestamp: datetime | None = Field(default_factory=date_time_factory)
-    sender: Any = Field(default=None)  # ActorAddress | None - using Any for forward compat
+    sender: ActorAddress | None = Field(default=None)
     display_type: Literal["human", "ai", "other"] = Field(default="other")
 
     @model_serializer
@@ -60,7 +61,7 @@ class Message(SerializableBaseModel):
 
     def init(
         self,
-        sender: Any,
+        sender: ActorAddress,
         team_id: uuid.UUID | None = None,
         current_message: Message | None = None,
     ) -> Message:

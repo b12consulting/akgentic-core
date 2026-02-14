@@ -35,6 +35,7 @@ from akgentic.utils.deserializer import DeserializeContext, deserialize_object
 
 if TYPE_CHECKING:
     from akgentic.actor_address_impl import ActorAddressProxy, ActorAddressStopped
+    from akgentic.orchestrator import Orchestrator
 
 # Type variables for generic Agent configuration and state
 ConfigType = TypeVar("ConfigType", bound=BaseConfig)
@@ -80,16 +81,9 @@ class AkgentDeserializeContext(DeserializeContext):
         if orch is None:
             return address_stopped
 
-        # Import Orchestrator for typing if available (Phase 2+)
-        try:
-            from akgentic.orchestrator import Orchestrator  # type: ignore[import-not-found]
-
-            agent_id = str(address_dict["agent_id"])
-            member = self.akgent.proxy_ask(orch, Orchestrator).get_team_member(agent_id)
-            return member if member else address_stopped
-        except ImportError:
-            # Orchestrator not yet implemented - return stopped address
-            return address_stopped
+        agent_id = str(address_dict["agent_id"])
+        member = self.akgent.proxy_ask(orch, Orchestrator).get_team_member(agent_id)
+        return member if member else address_stopped
 
 
 class ProxyWrapper:
@@ -390,8 +384,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             Result from message handler.
         """
         logger.info(
-            f"[{self.config.name}-{self.myAddress}] receiveMessage: "
-            f"{message.__class__.__name__}"
+            f"[{self.config.name}-{self.myAddress}] receiveMessage: {message.__class__.__name__}"
         )
         if isinstance(message, Message):
             self._current_message = message
@@ -473,9 +466,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         try:
             self._children.remove(child)
         except Exception:
-            logger.error(
-                f"ERROR: stop_child: Actor with reference {child} doesn't exist"
-            )
+            logger.error(f"ERROR: stop_child: Actor with reference {child} doesn't exist")
 
     def on_stop(self) -> None:
         """Cleanup hook called when actor stops.
@@ -497,7 +488,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         Args:
             state: New state (BaseState instance).
         """
-        serializable_state = state.serializable_copy().model_dump()
+        serializable_state = state.serializable_copy()
         self._notify_orchestrator(
             StateChangedMessage(state=serializable_state),
         )

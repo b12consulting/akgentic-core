@@ -12,11 +12,12 @@ from akgentic.actor_address_impl import (
 from akgentic.actor_system_impl import (
     ActorSystemImpl,
     ExecutionContext,
-    ProxyWrapper as ActorProxyWrapper,
     Statistics,
 )
-from akgentic.agent import Akgent, AkgentDeserializeContext
-from akgentic.agent import ProxyWrapper
+from akgentic.actor_system_impl import (
+    ProxyWrapper as ActorProxyWrapper,
+)
+from akgentic.agent import Akgent, AkgentDeserializeContext, ProxyWrapper
 from akgentic.agent_config import (
     AgentConfig,
     BaseConfig,
@@ -41,6 +42,7 @@ from akgentic.messages.orchestrator import (
     StopMessage,
     ToolUpdateMessage,
 )
+from akgentic.orchestrator import Orchestrator, OrchestratorEventSubscriber
 from akgentic.utils.deserializer import (
     ActorAddressDict,
     DeserializeContext,
@@ -102,6 +104,9 @@ __all__ = [
     "StateChangedMessage",
     "StopMessage",
     "ToolUpdateMessage",
+    # Orchestrator
+    "Orchestrator",
+    "OrchestratorEventSubscriber",
     # Serialization
     "ActorAddressDict",
     "DeserializeContext",
