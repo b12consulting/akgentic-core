@@ -66,7 +66,7 @@ class TestActorSystemImpl:
         """Test creating an actor returns a valid address."""
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
-        address = system.createActor(SimpleAgent, user_config=config)
+        address = system.createActor(SimpleAgent, config=config)
         assert address is not None
         assert address.is_alive()
         system.shutdown()
@@ -75,7 +75,7 @@ class TestActorSystemImpl:
         """Test retrieving an actor by agent_id."""
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
-        address = system.createActor(SimpleAgent, user_config=config)
+        address = system.createActor(SimpleAgent, config=config)
         found = system.get_actor(address)
         assert found is not None
         assert found.agent_id == address.agent_id
@@ -85,7 +85,7 @@ class TestActorSystemImpl:
         """Test system statistics reporting."""
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
-        system.createActor(SimpleAgent, user_config=config)
+        system.createActor(SimpleAgent, config=config)
         stats = system.stat()
         assert len(stats) == 1
         assert stats[0].agent_count >= 1
@@ -95,7 +95,7 @@ class TestActorSystemImpl:
         """Test that shutdown properly stops all actors."""
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
-        address = system.createActor(SimpleAgent, user_config=config)
+        address = system.createActor(SimpleAgent, config=config)
         system.shutdown()
         assert not address.is_alive()
 
@@ -107,7 +107,7 @@ class TestProxyWrapper:
         """Test proxy in tell mode (fire-and-forget)."""
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
-        address = system.createActor(SimpleAgent, user_config=config)
+        address = system.createActor(SimpleAgent, config=config)
 
         proxy = ProxyWrapper(address, ask_mode=False)
         # Tell mode should not block and return None
@@ -119,7 +119,7 @@ class TestProxyWrapper:
         """Test proxy in ask mode (request-response)."""
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
-        address = system.createActor(SimpleAgent, user_config=config)
+        address = system.createActor(SimpleAgent, config=config)
 
         proxy = ProxyWrapper(address, ask_mode=True, timeout=5.0)
         result = proxy.on_receive("test")
@@ -149,7 +149,7 @@ class TestExecutionContext:
         """Test that tell sends messages to actors."""
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
-        address = system.createActor(SimpleAgent, user_config=config)
+        address = system.createActor(SimpleAgent, config=config)
         ctx = ExecutionContext()
 
         # Send message via tell (fire and forget)
@@ -162,7 +162,7 @@ class TestExecutionContext:
         """Test that ask waits for and returns a response."""
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
-        address = system.createActor(SimpleAgent, user_config=config)
+        address = system.createActor(SimpleAgent, config=config)
         ctx = ExecutionContext()
 
         # Send message via ask and get response
@@ -207,9 +207,7 @@ class TestActorSystemImplEdgeCases:
         """Test creating actor from string class path."""
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
-        address = system.createActor(
-            "tests.test_actor_system_impl.SimpleAgent", user_config=config
-        )
+        address = system.createActor("tests.core.test_actor_system_impl.SimpleAgent", config=config)
         assert address is not None
         assert address.is_alive()
         system.shutdown()
@@ -219,7 +217,7 @@ class TestActorSystemImplEdgeCases:
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
         agent_id = str(uuid.uuid4())
-        address = system.createActor(SimpleAgent, agent_id=agent_id, user_config=config)
+        address = system.createActor(SimpleAgent, agent_id=agent_id, config=config)
         assert address is not None
         system.shutdown()
 
@@ -228,7 +226,7 @@ class TestActorSystemImplEdgeCases:
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
         team_id = str(uuid.uuid4())
-        address = system.createActor(SimpleAgent, team_id=team_id, user_config=config)
+        address = system.createActor(SimpleAgent, team_id=team_id, config=config)
         assert address is not None
         system.shutdown()
 
@@ -245,7 +243,7 @@ class TestActorSystemImplEdgeCases:
             user_id=test_user_id,
             user_email=test_user_email,
             team_id=test_team_id,
-            user_config=config,
+            config=config,
         )
 
         # Verify the agent received correct context
@@ -283,7 +281,7 @@ class TestActorSystemImplEdgeCases:
         """Test ProxyWrapper string representation."""
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
-        address = system.createActor(SimpleAgent, user_config=config)
+        address = system.createActor(SimpleAgent, config=config)
         proxy = ProxyWrapper(address, ask_mode=False)
         repr_str = repr(proxy)
         assert "ProxyWrapper" in repr_str
@@ -293,7 +291,7 @@ class TestActorSystemImplEdgeCases:
         """Test ProxyWrapper accessing attributes in ask mode."""
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
-        address = system.createActor(SimpleAgent, user_config=config)
+        address = system.createActor(SimpleAgent, config=config)
         proxy = ProxyWrapper(address, ask_mode=True, timeout=5.0)
 
         # Access agent_id through proxy (attribute access, not method call)
@@ -338,7 +336,7 @@ class TestActorSystemImplEdgeCases:
         ctx = ExecutionContext()
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
-        address = system.createActor(SimpleAgent, user_config=config)
+        address = system.createActor(SimpleAgent, config=config)
 
         # Ask sends a message and the response comes back
         ctx.tell(address, "ping")
@@ -351,7 +349,7 @@ class TestActorSystemImplEdgeCases:
         """Test ActorSystemImpl proxy_tell and proxy_ask convenience methods."""
         system = ActorSystemImpl()
         config = BaseConfig(name="test-agent", role="Tester")
-        address = system.createActor(SimpleAgent, user_config=config)
+        address = system.createActor(SimpleAgent, config=config)
 
         # Test proxy_tell
         tell_proxy = system.proxy_tell(address, SimpleAgent)

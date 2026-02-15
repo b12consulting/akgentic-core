@@ -51,7 +51,7 @@ class TestUserProxyCreation:
     def test_userproxy_creation_via_actor_system(self) -> None:
         """UserProxy starts via ActorSystemImpl."""
         system = ActorSystemImpl()
-        addr = system.createActor(UserProxy, user_config=BaseConfig(name="human", role="UserProxy"))
+        addr = system.createActor(UserProxy, config=BaseConfig(name="human", role="UserProxy"))
         assert addr.is_alive()
         system.shutdown()
 

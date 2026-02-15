@@ -7,6 +7,7 @@ multiple implementations exist).
 
 from __future__ import annotations
 
+import logging
 import uuid
 from collections import deque
 from collections.abc import Generator
@@ -24,6 +25,9 @@ from akgentic.utils.deserializer import import_class
 
 if TYPE_CHECKING:
     from akgentic.agent import Akgent
+
+# Logger for agent operations
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -124,7 +128,7 @@ class ExecutionContext:
         recipient = cast(ActorAddressImpl, actor)
         if isinstance(message, Message):
             message.sender = ActorAddressImpl(self.listener_ref)
-            message.team_id = recipient._actor_ref._actor._config.team_id
+            message.team_id = getattr(recipient._actor_ref._actor, "_team_id", None)
 
         recipient._actor_ref.tell(message)
 
@@ -142,7 +146,7 @@ class ExecutionContext:
         recipient = cast(ActorAddressImpl, actor)
         if isinstance(message, Message):
             message.sender = ActorAddressImpl(self.listener_ref)
-            message.team_id = recipient._actor_ref._actor._config.team_id
+            message.team_id = getattr(recipient._actor_ref._actor, "_team_id", None)
 
         return recipient._actor_ref.ask(message, timeout=timeout)
 
@@ -169,7 +173,7 @@ class ExecutionContext:
         try:
             self.listener_ref.stop(timeout=timeout)
         except Exception as e:
-            print(f"Warning: Failed to stop listener actor: {e}")
+            logger.error(f"Warning: Failed to stop listener actor: {e}")
 
 
 class ActorSystemImpl(ExecutionContext):
@@ -247,15 +251,17 @@ class ActorSystemImpl(ExecutionContext):
             try:
                 future.get(timeout=timeout)
             except pykka.Timeout:
-                print("Warning: Timeout while stopping an actor.")
+                logger.warning("Warning: Timeout while stopping an actor.")
             except Exception as e:
-                print(f"Warning: Failed to stop actor: {e}")
+                logger.error(f"Error: Failed to stop actor: {e}")
 
         # Final cleanup: stop any remaining actors
         remaining_actors = pykka.ActorRegistry.get_all()
+        remaining_actors_classes = [actor.actor_class.__name__ for actor in remaining_actors]
         if remaining_actors:
-            print(f"\nWarning: {len(remaining_actors)} actors did not stop cleanly.")
-            [print(" - ", actor.actor_class) for actor in remaining_actors]
+            logger.warning(
+                f"\nStopping remaining {len(remaining_actors)} actors: {remaining_actors_classes}"
+            )
             pykka.ActorRegistry.stop_all()
 
     def createActor(  # noqa: N802
@@ -266,7 +272,7 @@ class ActorSystemImpl(ExecutionContext):
         user_id: str | None = None,
         user_email: str | None = None,
         team_id: uuid.UUID | str | None = None,
-        user_config: BaseConfig = BaseConfig(),
+        config: BaseConfig = BaseConfig(),
     ) -> ActorAddress:
         """Create and start a new actor.
 
@@ -285,7 +291,7 @@ class ActorSystemImpl(ExecutionContext):
         Raises:
             ValueError: If actor_class is not a Type or string.
         """
-        user_config.squad_id = user_config.squad_id or uuid.uuid4()
+        config.squad_id = config.squad_id or uuid.uuid4()
 
         if isinstance(agent_id, str):
             agent_id = uuid.UUID(agent_id)
@@ -302,7 +308,7 @@ class ActorSystemImpl(ExecutionContext):
         # Use keyword arguments matching Agent.__init__ signature
         actor = actor_type.start(
             agent_id=agent_id,
-            config=user_config,
+            config=config,
             user_id=user_id,
             user_email=user_email,
             team_id=team_id,
@@ -332,7 +338,7 @@ class ActorSystemImpl(ExecutionContext):
             try:
                 execution_context.shutdown()
             except Exception as e:
-                print(f"Warning: Failed to stop execution context: {e}")
+                logger.error(f"Warning: Failed to stop execution context: {e}")
 
     def proxy_tell(self, actor: ActorAddress, actor_type: type[T]) -> T:
         """Create a typed proxy for fire-and-forget messaging.

@@ -62,14 +62,14 @@ from akgentic.utils.serializer import (
 __version__ = "2.0.0-alpha.1"
 
 # Alias for cleaner API
-Agent = Akgent
+Akgent = Akgent
 
 __all__ = [
     # Version
     "__version__",
     # Agent base class
     "Akgent",
-    "Agent",
+    "Akgent",
     "AkgentDeserializeContext",
     "ProxyWrapper",
     # Actor system

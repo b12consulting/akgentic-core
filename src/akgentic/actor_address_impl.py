@@ -92,13 +92,10 @@ class ActorAddressImpl(ActorAddress):
         """Team identifier from the underlying actor's private config.
 
         Returns:
-            UUID from _config.team_id, or None if not available.
+            UUID from _team_id, or None if not available.
         """
         actor = self._actor_ref._actor
-        _config = getattr(actor, "_config", None)
-        if _config is not None:
-            return _config.team_id  # type: ignore[no-any-return]
-        return None
+        return getattr(actor, "_team_id", None)  # type: ignore[no-any-return]
 
     @property
     def squad_id(self) -> uuid.UUID | None:

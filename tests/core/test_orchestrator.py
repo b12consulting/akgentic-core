@@ -257,7 +257,7 @@ class TestIntegration:
 
         # Create orchestrator - should integrate without errors
         orch_config = BaseConfig(name="orchestrator", role="Orchestrator")
-        orch_addr = system.createActor(Orchestrator, user_config=orch_config)
+        orch_addr = system.createActor(Orchestrator, config=orch_config)
 
         # Verify orchestrator is alive
         assert orch_addr.is_alive()
@@ -279,7 +279,7 @@ class TestIntegration:
 
         # Create orchestrator - should not throw any connection errors
         orch_config = BaseConfig(name="orchestrator", role="Orchestrator")
-        orch_addr = system.createActor(Orchestrator, user_config=orch_config)
+        orch_addr = system.createActor(Orchestrator, config=orch_config)
 
         # Verify basic functionality
         orch_proxy = orch_addr._actor_ref.proxy()  # type: ignore

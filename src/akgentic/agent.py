@@ -449,7 +449,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
 
         Iterates children list and stops each child before stopping self.
         """
-        print(f"### [{self.config.name}] Stopping recursively ...")
+        logger.info(f"### [{self.config.name}] Stopping recursively ...")
         for child in self._children.copy():
             self._stop_child(child)
         super().stop()
@@ -474,7 +474,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         Notifies orchestrator of stop event.
         """
         self._notify_orchestrator(StopMessage())
-        print(f"### [{self.config.name}] Stopped !")
+        logger.info(f"[{self.config.name}] Stopped.")
 
     ##
     ## State and LLM context
