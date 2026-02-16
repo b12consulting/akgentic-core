@@ -319,7 +319,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             )
             cast(ActorAddressImpl, orchestrator)._actor_ref.tell(message)
 
-    def send(self, recipient: ActorAddress | None, message: Any) -> Any:
+    def send(self, recipient: ActorAddress, message: Any) -> Any:
         """Send a message to another actor with telemetry.
 
         Args:

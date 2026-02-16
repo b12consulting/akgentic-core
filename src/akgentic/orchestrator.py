@@ -222,7 +222,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     @override
     def on_stop(self) -> None:
         self._notify_subscribers("on_stop")
-        print(f"### [{self.config.name}] Stopped !")
+        logger.info(f">>> [{self.config.name}] Stopped !")
 
     def _timeout_handler(self) -> None:
         """Handle inactivity timeout by stopping the orchestrator.
@@ -492,7 +492,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
                 if isinstance(answer, SentMessage)
                 and answer.message.__class__.__name__ == "HelpAnswerMessage"
                 and hasattr(answer.message, "request_id")
-                and answer.message.request_id in request_ids
+                and answer.message.request_id in request_ids  # type: ignore
             ]
             return requests, answers
 
