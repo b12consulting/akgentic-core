@@ -11,7 +11,6 @@ import pykka
 import pytest
 
 from akgentic.agent_config import BaseConfig
-from akgentic.messages.message import UserMessage
 from akgentic.messages.orchestrator import ErrorMessage, ProcessedMessage, ReceivedMessage
 from akgentic.orchestrator import TIMER_DELAY, Orchestrator, Timer
 
@@ -321,8 +320,8 @@ class TestOrchestratorTimerMessageHandlers:
     """
 
     def _make_received_message(self) -> ReceivedMessage:
-        inner = UserMessage(content="hello")
-        return ReceivedMessage(message=inner)
+        msg_id = uuid.uuid4()
+        return ReceivedMessage(message_id=msg_id)
 
     def _make_processed_message(self) -> ProcessedMessage:
         return ProcessedMessage(message_id=uuid.uuid4())

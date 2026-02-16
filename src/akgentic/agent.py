@@ -388,7 +388,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         )
         if isinstance(message, Message):
             self._current_message = message
-            self._notify_orchestrator(ReceivedMessage(message=message))
+            self._notify_orchestrator(ReceivedMessage(message_id=message.id))
             result = self._receiveMessage(message, message.sender)
             self._notify_orchestrator(ProcessedMessage(message_id=message.id))
             self._current_message = None

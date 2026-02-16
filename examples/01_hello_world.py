@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import time
 
-from akgentic import ActorAddress, ActorSystemImpl, Akgent, BaseConfig, BaseState, Message
+from akgentic import ActorAddress, ActorSystemImpl, Akgent, BaseConfig, BaseState
+from akgentic.messages import Message
 
 
 # =============================================================================

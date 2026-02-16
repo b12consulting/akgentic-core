@@ -228,10 +228,16 @@ class TestReceivedMessage:
     """Tests for ReceivedMessage orchestrator message."""
 
     def test_instantiation(self) -> None:
-        """Should instantiate with message."""
-        inner_msg = Message()
-        received = ReceivedMessage(message=inner_msg)
-        assert received.message is inner_msg
+        """Should instantiate with message_id."""
+        msg_id = uuid.uuid4()
+        received = ReceivedMessage(message_id=msg_id)
+        assert received.message_id == msg_id
+
+    def test_does_not_have_message_field(self) -> None:
+        """Should not have a message field."""
+        msg_id = uuid.uuid4()
+        received = ReceivedMessage(message_id=msg_id)
+        assert not hasattr(received, 'message')
 
 
 class TestProcessedMessage:

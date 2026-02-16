@@ -5,6 +5,7 @@ of UUID, datetime, ActorAddress, and nested Pydantic models.
 """
 
 from akgentic.utils.deserializer import (
+    ActorAddressDict,
     DeserializeContext,
     deserialize_object,
     import_class,
@@ -19,6 +20,7 @@ from akgentic.utils.serializer import (
 )
 
 __all__ = [
+    "ActorAddressDict",
     "DeserializeContext",
     "SerializableBaseModel",
     "deserialize_object",

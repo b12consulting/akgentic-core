@@ -354,13 +354,13 @@ class TestMessageSerialization:
         assert reconstructed.content == "Hello world"
         assert reconstructed.display_type == "human"
 
-    def test_nested_message_serialization(self) -> None:
-        """Should serialize nested messages."""
+    def test_received_message_serialization(self) -> None:
+        """Should serialize ReceivedMessage with message_id."""
         from akgentic.messages.orchestrator import ReceivedMessage
 
-        inner = UserMessage(content="Inner message")
-        outer = ReceivedMessage(message=inner)
-        data = outer.model_dump()
-        assert "message" in data
-        assert isinstance(data["message"], dict)
-        assert data["message"]["content"] == "Inner message"
+        msg_id = uuid.uuid4()
+        received = ReceivedMessage(message_id=msg_id)
+        data = received.model_dump()
+        assert "message_id" in data
+        assert data["message_id"] == str(msg_id)
+        assert "message" not in data

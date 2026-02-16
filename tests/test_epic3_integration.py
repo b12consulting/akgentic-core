@@ -18,7 +18,6 @@ import pykka
 import pytest
 
 from akgentic.agent_config import BaseConfig
-from akgentic.messages.message import UserMessage
 from akgentic.messages.orchestrator import ProcessedMessage, ReceivedMessage
 from akgentic.orchestrator import Orchestrator, Timer
 
@@ -55,8 +54,7 @@ class TestOrchestratorTimerIntegration:
 
         sender_ref, sender_addr = _make_external_sender_address("agent-1")
 
-        inner = UserMessage(content="start processing")
-        msg = ReceivedMessage(message=inner)
+        msg = ReceivedMessage(message_id=uuid.uuid4())
         orch.receiveMsg_ReceivedMessage(msg, sender_addr).get()
 
         assert timer.task_count == 1
@@ -76,8 +74,7 @@ class TestOrchestratorTimerIntegration:
         sender_ref, sender_addr = _make_external_sender_address("agent-2")
 
         # Simulate: agent receives message
-        inner = UserMessage(content="processing")
-        recv_msg = ReceivedMessage(message=inner)
+        recv_msg = ReceivedMessage(message_id=uuid.uuid4())
         orch.receiveMsg_ReceivedMessage(recv_msg, sender_addr).get()
         assert timer.task_count == 1
         assert timer._timer is None
@@ -121,7 +118,7 @@ class TestOrchestratorTimerIntegration:
 
         # Cycle 1
         orch.receiveMsg_ReceivedMessage(
-            ReceivedMessage(message=UserMessage(content="msg1")), sender_addr
+            ReceivedMessage(message_id=uuid.uuid4()), sender_addr
         ).get()
         assert timer.task_count == 1
 
@@ -133,7 +130,7 @@ class TestOrchestratorTimerIntegration:
 
         # Cycle 2 — new message arrives, timer cancels again
         orch.receiveMsg_ReceivedMessage(
-            ReceivedMessage(message=UserMessage(content="msg2")), sender_addr
+            ReceivedMessage(message_id=uuid.uuid4()), sender_addr
         ).get()
         assert timer.task_count == 1
         assert timer._timer is None  # timer cancelled again

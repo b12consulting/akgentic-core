@@ -35,13 +35,14 @@ class SentMessage(Message):
 class ReceivedMessage(Message):
     """Telemetry message indicating a message was received.
 
-    Records when an actor receives a message from another actor.
+    Records when an actor receives a message from another actor,
+    storing only the message ID for lightweight telemetry.
 
     Attributes:
-        message: The message that was received.
+        message_id: UUID of the received message.
     """
 
-    message: Message
+    message_id: uuid.UUID
 
 
 class ProcessedMessage(Message):
