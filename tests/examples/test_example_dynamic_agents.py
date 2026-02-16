@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-from akgentic import ActorAddress, ActorSystemImpl, Akgent, BaseConfig
+from akgentic import ActorAddress, ActorSystem, Akgent, BaseConfig
 from akgentic.messages import Message
 
 
@@ -23,27 +23,21 @@ class TestProcessTaskRequestMessage:
 
     def test_process_task_request_can_be_imported(self) -> None:
         """ProcessTaskRequest class can be imported from example."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
         spec = importlib.util.spec_from_file_location("dynamic_agents", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        assert (
-            hasattr(module, "ProcessTaskRequest")
-        ), "ProcessTaskRequest not defined in example"
-        assert issubclass(
-            module.ProcessTaskRequest, Message
-        ), "ProcessTaskRequest must extend Message"
+        assert hasattr(module, "ProcessTaskRequest"), "ProcessTaskRequest not defined in example"
+        assert issubclass(module.ProcessTaskRequest, Message), (
+            "ProcessTaskRequest must extend Message"
+        )
 
     def test_process_task_request_has_required_fields(self) -> None:
         """ProcessTaskRequest has task_id and data fields."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
         spec = importlib.util.spec_from_file_location("dynamic_agents", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
@@ -60,27 +54,19 @@ class TestTaskResultMessage:
 
     def test_task_result_can_be_imported(self) -> None:
         """TaskResult class can be imported from example."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
         spec = importlib.util.spec_from_file_location("dynamic_agents", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        assert (
-            hasattr(module, "TaskResult")
-        ), "TaskResult not defined in example"
-        assert issubclass(
-            module.TaskResult, Message
-        ), "TaskResult must extend Message"
+        assert hasattr(module, "TaskResult"), "TaskResult not defined in example"
+        assert issubclass(module.TaskResult, Message), "TaskResult must extend Message"
 
     def test_task_result_has_required_fields(self) -> None:
         """TaskResult has task_id, result, and worker_name fields."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
         spec = importlib.util.spec_from_file_location("dynamic_agents", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
@@ -98,9 +84,7 @@ class TestWorkerAgent:
 
     def test_worker_agent_can_be_imported(self) -> None:
         """WorkerAgent class can be imported from example."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
         spec = importlib.util.spec_from_file_location("dynamic_agents", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
@@ -112,18 +96,16 @@ class TestWorkerAgent:
 
     def test_worker_agent_has_message_handler(self) -> None:
         """WorkerAgent has receiveMsg_ProcessTaskRequest method."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
         spec = importlib.util.spec_from_file_location("dynamic_agents", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        assert (
-            hasattr(module.WorkerAgent, "receiveMsg_ProcessTaskRequest")
-        ), "WorkerAgent.receiveMsg_ProcessTaskRequest method not found"
+        assert hasattr(module.WorkerAgent, "receiveMsg_ProcessTaskRequest"), (
+            "WorkerAgent.receiveMsg_ProcessTaskRequest method not found"
+        )
 
 
 class TestManagerAgent:
@@ -131,9 +113,7 @@ class TestManagerAgent:
 
     def test_manager_agent_can_be_imported(self) -> None:
         """ManagerAgent class can be imported from example."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
         spec = importlib.util.spec_from_file_location("dynamic_agents", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
@@ -145,31 +125,27 @@ class TestManagerAgent:
 
     def test_manager_agent_has_message_handler(self) -> None:
         """ManagerAgent has receiveMsg_ProcessTasksCommand method."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
         spec = importlib.util.spec_from_file_location("dynamic_agents", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        assert (
-            hasattr(module.ManagerAgent, "receiveMsg_ProcessTasksCommand")
-        ), "ManagerAgent.receiveMsg_ProcessTasksCommand method not found"
+        assert hasattr(module.ManagerAgent, "receiveMsg_ProcessTasksCommand"), (
+            "ManagerAgent.receiveMsg_ProcessTasksCommand method not found"
+        )
 
     def test_manager_agent_creates_workers_dynamically(self) -> None:
         """ManagerAgent creates worker agents dynamically via createActor()."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
         spec = importlib.util.spec_from_file_location("dynamic_agents", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             # Create manager agent
             manager_addr = system.createActor(
@@ -203,16 +179,14 @@ class TestCreateActorPropagatesParentContext:
 
     def test_createactor_propagates_parent(self) -> None:
         """createActor propagates parent context to child agents."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
         spec = importlib.util.spec_from_file_location("dynamic_agents", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             # Create a manager agent
             manager_addr = system.createActor(
@@ -224,9 +198,7 @@ class TestCreateActorPropagatesParentContext:
             # We verify this by checking that workers can send results back to parent
             system.tell(
                 manager_addr,
-                module.ProcessTasksCommand(
-                    tasks=[{"task_id": "task-1", "data": "test"}]
-                ),
+                module.ProcessTasksCommand(tasks=[{"task_id": "task-1", "data": "test"}]),
             )
 
             # Wait for processing
@@ -240,16 +212,14 @@ class TestCreateActorPropagatesParentContext:
 
     def test_child_agents_can_send_results_to_parent(self) -> None:
         """Child agents can send results back to parent via parent context."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
         spec = importlib.util.spec_from_file_location("dynamic_agents", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             # Create manager with custom config
             manager_addr = system.createActor(
@@ -288,16 +258,14 @@ class TestChildrenTracking:
 
     def test_children_list_tracks_created_workers(self) -> None:
         """_children list tracks all created worker agents."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
         spec = importlib.util.spec_from_file_location("dynamic_agents", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             # Create a manager agent
             manager_addr = system.createActor(
@@ -336,9 +304,7 @@ class TestEndToEndExecution:
 
     def test_example_runs_without_exceptions(self) -> None:
         """Example runs end-to-end without errors."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
 
         result = subprocess.run(
             [sys.executable, str(example_path)],
@@ -356,9 +322,7 @@ class TestEndToEndExecution:
 
     def test_example_produces_expected_output(self) -> None:
         """Example produces expected output with task processing and results."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
 
         result = subprocess.run(
             [sys.executable, str(example_path)],
@@ -383,9 +347,7 @@ class TestEndToEndExecution:
 
     def test_example_completes_within_timeout(self) -> None:
         """Example completes execution within 10 seconds."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
 
         start = time.time()
         result = subprocess.run(
@@ -402,9 +364,7 @@ class TestEndToEndExecution:
 
     def test_example_shows_dynamic_creation_flow(self) -> None:
         """Example demonstrates dynamic agent creation flow."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
 
         result = subprocess.run(
             [sys.executable, str(example_path)],
@@ -434,16 +394,14 @@ class TestIntegration:
 
     def test_full_dynamic_creation_flow(self) -> None:
         """Test complete dynamic agent creation flow with actual agents."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
         spec = importlib.util.spec_from_file_location("dynamic_agents", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             # Create manager agent
             manager_addr = system.createActor(
@@ -480,16 +438,14 @@ class TestIntegration:
 
     def test_dynamic_creation_with_multiple_workers(self) -> None:
         """Test dynamic creation with multiple workers processing in parallel."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "03_dynamic_agents.py"
         spec = importlib.util.spec_from_file_location("dynamic_agents", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             # Create manager
             manager_addr = system.createActor(
@@ -498,10 +454,7 @@ class TestIntegration:
             )
 
             # Send 5 tasks to create 5 workers
-            tasks = [
-                {"task_id": f"task-{i+1}", "data": f"data{i+1}"}
-                for i in range(5)
-            ]
+            tasks = [{"task_id": f"task-{i + 1}", "data": f"data{i + 1}"} for i in range(5)]
             system.tell(
                 manager_addr,
                 module.ProcessTasksCommand(tasks=tasks),

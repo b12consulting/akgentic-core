@@ -1,11 +1,11 @@
-"""Tests for ActorSystemImpl and related classes."""
+"""Tests for ActorSystem and related classes."""
 
 import uuid
 from typing import cast
 
 from akgentic.actor_address_impl import ActorAddressImpl, ActorAddressProxy
 from akgentic.actor_system_impl import (
-    ActorSystemImpl,
+    ActorSystem,
     ActorSystemListener,
     ExecutionContext,
     ProxyWrapper,
@@ -48,12 +48,12 @@ class TestStatistics:
         assert stats.agent_count == 10
 
 
-class TestActorSystemImpl:
-    """Tests for ActorSystemImpl."""
+class TestActorSystem:
+    """Tests for ActorSystem."""
 
     def test_create_actor(self) -> None:
         """Test creating an actor returns a valid address."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         address = system.createActor(SimpleAgent, config=config)
         assert address is not None
@@ -62,7 +62,7 @@ class TestActorSystemImpl:
 
     def test_get_actor(self) -> None:
         """Test retrieving an actor by agent_id."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         address = system.createActor(SimpleAgent, config=config)
         found = system.get_actor(address)
@@ -72,7 +72,7 @@ class TestActorSystemImpl:
 
     def test_stat(self) -> None:
         """Test system statistics reporting."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         system.createActor(SimpleAgent, config=config)
         stats = system.stat()
@@ -82,7 +82,7 @@ class TestActorSystemImpl:
 
     def test_shutdown_cleans_up_actors(self) -> None:
         """Test that shutdown properly stops all actors."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         address = system.createActor(SimpleAgent, config=config)
         system.shutdown()
@@ -94,7 +94,7 @@ class TestProxyWrapper:
 
     def test_proxy_tell_mode(self) -> None:
         """Test proxy in tell mode (fire-and-forget)."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         address = system.createActor(SimpleAgent, config=config)
 
@@ -106,7 +106,7 @@ class TestProxyWrapper:
 
     def test_proxy_ask_mode(self) -> None:
         """Test proxy in ask mode (request-response)."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         address = system.createActor(SimpleAgent, config=config)
 
@@ -128,7 +128,7 @@ class TestExecutionContext:
 
     def test_private_context_manager(self) -> None:
         """Test that private context manager creates and cleans up contexts."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         with system.private() as ctx:
             assert ctx.listener_ref.is_alive()
         # After context exit, listener should be stopped
@@ -136,7 +136,7 @@ class TestExecutionContext:
 
     def test_tell_sends_message(self) -> None:
         """Test that tell sends messages to actors."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         address = system.createActor(SimpleAgent, config=config)
         ctx = ExecutionContext()
@@ -149,7 +149,7 @@ class TestExecutionContext:
 
     def test_ask_waits_for_response(self) -> None:
         """Test that ask waits for and returns a response."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         address = system.createActor(SimpleAgent, config=config)
         ctx = ExecutionContext()
@@ -189,12 +189,12 @@ class TestActorSystemListener:
         listener.stop()
 
 
-class TestActorSystemImplEdgeCases:
-    """Edge case tests for ActorSystemImpl."""
+class TestActorSystemEdgeCases:
+    """Edge case tests for ActorSystem."""
 
     def test_create_actor_with_string_class(self) -> None:
         """Test creating actor from string class path."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         address = system.createActor("tests.core.test_actor_system_impl.SimpleAgent", config=config)
         assert address is not None
@@ -203,7 +203,7 @@ class TestActorSystemImplEdgeCases:
 
     def test_create_actor_with_string_agent_id(self) -> None:
         """Test creating actor with string UUID."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         agent_id = str(uuid.uuid4())
         address = system.createActor(SimpleAgent, agent_id=agent_id, config=config)
@@ -212,7 +212,7 @@ class TestActorSystemImplEdgeCases:
 
     def test_create_actor_with_string_team_id(self) -> None:
         """Test creating actor with string team UUID."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         team_id = str(uuid.uuid4())
         address = system.createActor(SimpleAgent, team_id=team_id, config=config)
@@ -221,7 +221,7 @@ class TestActorSystemImplEdgeCases:
 
     def test_create_actor_with_user_context(self) -> None:
         """Test that user_id and team_id are properly passed to agent."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         test_user_id = "test_user_123"
         test_team_id = uuid.uuid4()
@@ -248,7 +248,7 @@ class TestActorSystemImplEdgeCases:
 
     def test_get_actor_returns_none_for_nonexistent(self) -> None:
         """Test that get_actor returns None for non-existent agent."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         fake_id = str(uuid.uuid4())
         fake_address = ActorAddressProxy(
             {
@@ -268,7 +268,7 @@ class TestActorSystemImplEdgeCases:
 
     def test_proxy_wrapper_repr(self) -> None:
         """Test ProxyWrapper string representation."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         address = system.createActor(SimpleAgent, config=config)
         proxy = ProxyWrapper(address, ask_mode=False)
@@ -278,7 +278,7 @@ class TestActorSystemImplEdgeCases:
 
     def test_proxy_ask_with_attribute_access(self) -> None:
         """Test ProxyWrapper accessing attributes in ask mode."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         address = system.createActor(SimpleAgent, config=config)
         proxy = ProxyWrapper(address, ask_mode=True, timeout=5.0)
@@ -313,7 +313,7 @@ class TestActorSystemImplEdgeCases:
 
     def test_private_context_shutdown_error(self) -> None:
         """Test private context handles cleanup errors gracefully."""
-        system = ActorSystemImpl()
+        system = ActorSystem()
         with system.private() as ctx:
             # Stop listener early to trigger error on context exit
             ctx.listener_ref.stop(timeout=1)
@@ -323,7 +323,7 @@ class TestActorSystemImplEdgeCases:
     def test_listen_with_future(self) -> None:
         """Test ExecutionContext.listen when message arrives via future."""
         ctx = ExecutionContext()
-        system = ActorSystemImpl()
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         address = system.createActor(SimpleAgent, config=config)
 
@@ -335,8 +335,8 @@ class TestActorSystemImplEdgeCases:
         system.shutdown()
 
     def test_proxy_tell_and_proxy_ask_methods(self) -> None:
-        """Test ActorSystemImpl proxy_tell and proxy_ask convenience methods."""
-        system = ActorSystemImpl()
+        """Test ActorSystem proxy_tell and proxy_ask convenience methods."""
+        system = ActorSystem()
         config = BaseConfig(name="test-agent", role="Tester")
         address = system.createActor(SimpleAgent, config=config)
 

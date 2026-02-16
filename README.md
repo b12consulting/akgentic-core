@@ -12,10 +12,10 @@ Unlike v1 (which requires Redis, PostgreSQL, Weaviate), v2's core runs entirely 
 
 ```python
 # Coming soon - after Story 1.10 (Public API Exports)
-from akgentic import ActorSystemImpl, Agent, Message
+from akgentic import ActorSystem, Agent, Message
 
 # Create local actor system - zero infrastructure required
-system = ActorSystemImpl()
+system = ActorSystem()
 ```
 
 ## Design Principles
@@ -50,4 +50,3 @@ Phase 3 (Future): Infrastructure plugins (Redis, HTTP, persistence)
 ## Migration from v1
 
 See `docs/migration_guide.md` (coming soon)
-

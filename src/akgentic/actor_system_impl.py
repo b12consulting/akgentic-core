@@ -176,7 +176,7 @@ class ExecutionContext:
             logger.error(f"Warning: Failed to stop listener actor: {e}")
 
 
-class ActorSystemImpl(ExecutionContext):
+class ActorSystem(ExecutionContext):
     """Concrete actor system implementation using Pykka for local in-memory runtime.
 
     This is the primary interface for creating, managing, and shutting down actors.
@@ -327,7 +327,7 @@ class ActorSystemImpl(ExecutionContext):
             ExecutionContext: A temporary execution context.
 
         Example:
-            >>> system = ActorSystemImpl()
+            >>> system = ActorSystem()
             >>> with system.private() as ctx:
             ...     ctx.tell(some_actor, "message")
         """

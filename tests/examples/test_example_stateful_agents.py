@@ -13,7 +13,7 @@ import sys
 import time
 from pathlib import Path
 
-from akgentic import ActorSystemImpl, Akgent, BaseConfig, BaseState, Orchestrator
+from akgentic import ActorSystem, BaseConfig, BaseState, Orchestrator
 from akgentic.messages import Message
 
 
@@ -108,7 +108,7 @@ class TestCounterAgentStateInitialization:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             counter_addr = system.createActor(
                 module.CounterAgent,
@@ -134,7 +134,7 @@ class TestCounterAgentStateInitialization:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             orchestrator_addr = system.createActor(
                 Orchestrator,
@@ -147,6 +147,7 @@ class TestCounterAgentStateInitialization:
                 orchestrator=orchestrator_addr,
             )
             from akgentic import ActorAddressImpl
+
             counter_addr = ActorAddressImpl(counter_ref)
 
             # Give time for initialization
@@ -175,7 +176,7 @@ class TestCounterAgentStateMutations:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             orchestrator_addr = system.createActor(
                 Orchestrator,
@@ -188,6 +189,7 @@ class TestCounterAgentStateMutations:
                 orchestrator=orchestrator_addr,
             )
             from akgentic import ActorAddressImpl
+
             counter_addr = ActorAddressImpl(counter_ref)
 
             # Send increment message
@@ -226,7 +228,7 @@ class TestCounterAgentStateMutations:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             orchestrator_addr = system.createActor(
                 Orchestrator,
@@ -239,6 +241,7 @@ class TestCounterAgentStateMutations:
                 orchestrator=orchestrator_addr,
             )
             from akgentic import ActorAddressImpl
+
             counter_addr = ActorAddressImpl(counter_ref)
 
             # Send increment then reset
@@ -283,7 +286,7 @@ class TestCounterAgentStateMutations:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             orchestrator_addr = system.createActor(
                 Orchestrator,
@@ -296,6 +299,7 @@ class TestCounterAgentStateMutations:
                 orchestrator=orchestrator_addr,
             )
             from akgentic import ActorAddressImpl
+
             counter_addr = ActorAddressImpl(counter_ref)
 
             # Send multiple operations
@@ -338,7 +342,7 @@ class TestOrchestratorStateTracking:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             orchestrator_addr = system.createActor(
                 Orchestrator,
@@ -351,6 +355,7 @@ class TestOrchestratorStateTracking:
                 orchestrator=orchestrator_addr,
             )
             from akgentic import ActorAddressImpl
+
             counter_addr = ActorAddressImpl(counter_ref)
 
             # Send some messages
@@ -380,7 +385,7 @@ class TestOrchestratorStateTracking:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             orchestrator_addr = system.createActor(
                 Orchestrator,
@@ -393,6 +398,7 @@ class TestOrchestratorStateTracking:
                 orchestrator=orchestrator_addr,
             )
             from akgentic import ActorAddressImpl
+
             counter_addr = ActorAddressImpl(counter_ref)
 
             # Send increment
@@ -417,7 +423,9 @@ class TestOrchestratorStateTracking:
             assert len(states) > 0, "Orchestrator should track agent states"
             final_state = next(iter(states.values()))
             assert isinstance(final_state, module.CounterState)
-            assert len(final_state.history) == 2, f"Expected 2 mutations, got {len(final_state.history)}"
+            assert len(final_state.history) == 2, (
+                f"Expected 2 mutations, got {len(final_state.history)}"
+            )
             assert final_state.count == 8, f"Expected count=8 (5+3), got {final_state.count}"
 
         finally:

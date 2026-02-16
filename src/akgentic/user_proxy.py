@@ -28,8 +28,8 @@ class UserProxy(Akgent[BaseConfig, BaseState]):
     to humans, and routes human responses back to the requesting agents.
 
     Usage:
-        >>> from akgentic import ActorSystemImpl, UserProxy, BaseConfig
-        >>> system = ActorSystemImpl()
+        >>> from akgentic import ActorSystem, UserProxy, BaseConfig
+        >>> system = ActorSystem()
         >>> config = BaseConfig(name="human", role="UserProxy")
         >>> proxy_addr = system.createActor(UserProxy, user_config=config)
 
@@ -61,9 +61,7 @@ class UserProxy(Akgent[BaseConfig, BaseState]):
         Example:
             >>> user_proxy.process_human_input("Approve the plan", original_msg)
         """
-        logger.info(
-            f"Received human input: {content}, at destination of: {message.sender}"
-        )
+        logger.info(f"Received human input: {content}, at destination of: {message.sender}")
         response = ResultMessage(content=content)
         self.send(message.sender, response)
 

@@ -5,7 +5,7 @@ from collections.abc import Generator
 import pykka
 import pytest
 
-from akgentic.actor_system_impl import ActorSystemImpl
+from akgentic.actor_system_impl import ActorSystem
 from akgentic.agent import Akgent
 from akgentic.agent_config import BaseConfig
 from akgentic.agent_state import BaseState
@@ -247,9 +247,9 @@ class TestIntegration:
     """Integration tests for Orchestrator with real agent system."""
 
     def test_orchestrator_integration_with_actor_system(self) -> None:
-        """Test orchestrator integrates with ActorSystemImpl."""
+        """Test orchestrator integrates with ActorSystem."""
         # Create actor system
-        system = ActorSystemImpl()
+        system = ActorSystem()
 
         # Create orchestrator - should integrate without errors
         orch_config = BaseConfig(name="orchestrator", role="Orchestrator")
@@ -271,7 +271,7 @@ class TestIntegration:
         from akgentic.messages.orchestrator import StartMessage
 
         # This test verifies orchestrator can be created and used without Redis/DB
-        system = ActorSystemImpl()
+        system = ActorSystem()
 
         # Create orchestrator - should not throw any connection errors
         orch_config = BaseConfig(name="orchestrator", role="Orchestrator")

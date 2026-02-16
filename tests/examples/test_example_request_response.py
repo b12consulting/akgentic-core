@@ -13,7 +13,7 @@ import sys
 import time
 from pathlib import Path
 
-from akgentic import ActorAddress, ActorSystemImpl, Akgent, BaseConfig
+from akgentic import ActorAddress, ActorSystem, Akgent, BaseConfig
 from akgentic.messages import Message
 
 
@@ -22,27 +22,21 @@ class TestCalculationMessageDefinitions:
 
     def test_calculation_request_can_be_imported(self) -> None:
         """CalculationRequest class can be imported from example."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
         spec = importlib.util.spec_from_file_location("request_response", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        assert (
-            hasattr(module, "CalculationRequest")
-        ), "CalculationRequest not defined in example"
-        assert issubclass(
-            module.CalculationRequest, Message
-        ), "CalculationRequest must extend Message"
+        assert hasattr(module, "CalculationRequest"), "CalculationRequest not defined in example"
+        assert issubclass(module.CalculationRequest, Message), (
+            "CalculationRequest must extend Message"
+        )
 
     def test_calculation_request_has_required_fields(self) -> None:
         """CalculationRequest has a, b, and operation fields."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
         spec = importlib.util.spec_from_file_location("request_response", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
@@ -56,28 +50,23 @@ class TestCalculationMessageDefinitions:
 
     def test_calculation_result_can_be_imported(self) -> None:
         """CalculationResult class can be imported from example."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
         spec = importlib.util.spec_from_file_location("request_response", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        assert (
-            hasattr(module, "CalculationResult")
-        ), "CalculationResult not defined in example"
-        assert issubclass(
-            module.CalculationResult, Message
-        ), "CalculationResult must extend Message"
+        assert hasattr(module, "CalculationResult"), "CalculationResult not defined in example"
+        assert issubclass(module.CalculationResult, Message), (
+            "CalculationResult must extend Message"
+        )
 
     def test_calculation_result_has_required_fields(self) -> None:
         """CalculationResult has result and request_id fields."""
         import uuid as uuid_module
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
         spec = importlib.util.spec_from_file_location("request_response", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
@@ -105,32 +94,26 @@ class TestCalculatorAgentHandler:
 
     def test_calculator_agent_can_be_imported(self) -> None:
         """CalculatorAgent class can be imported from example."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
         spec = importlib.util.spec_from_file_location("request_response", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        assert (
-            hasattr(module, "CalculatorAgent")
-        ), "CalculatorAgent not defined in example"
+        assert hasattr(module, "CalculatorAgent"), "CalculatorAgent not defined in example"
         assert issubclass(module.CalculatorAgent, Akgent), "CalculatorAgent must extend Akgent"
 
     def test_calculator_agent_handles_addition(self, capsys) -> None:
         """CalculatorAgent correctly processes addition requests."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
         spec = importlib.util.spec_from_file_location("request_response", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             # Create calculator agent
             calc_addr = system.createActor(
@@ -159,16 +142,14 @@ class TestCalculatorAgentHandler:
 
     def test_calculator_agent_handles_multiplication(self, capsys) -> None:
         """CalculatorAgent correctly processes multiplication requests."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
         spec = importlib.util.spec_from_file_location("request_response", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             # Create calculator agent
             calc_addr = system.createActor(
@@ -201,9 +182,7 @@ class TestClientAgentSender:
 
     def test_client_agent_can_be_imported(self) -> None:
         """ClientAgent class can be imported from example."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
         spec = importlib.util.spec_from_file_location("request_response", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
@@ -215,33 +194,29 @@ class TestClientAgentSender:
 
     def test_client_agent_send_request_tell_method_exists(self) -> None:
         """ClientAgent has send_request_tell method for fire-and-forget pattern."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
         spec = importlib.util.spec_from_file_location("request_response", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        assert (
-            hasattr(module.ClientAgent, "send_request_tell")
-        ), "ClientAgent.send_request_tell method not found"
+        assert hasattr(module.ClientAgent, "send_request_tell"), (
+            "ClientAgent.send_request_tell method not found"
+        )
 
     def test_client_agent_send_request_ask_method_exists(self) -> None:
         """ClientAgent has send_request_ask method for blocking pattern."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
         spec = importlib.util.spec_from_file_location("request_response", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        assert (
-            hasattr(module.ClientAgent, "send_request_ask")
-        ), "ClientAgent.send_request_ask method not found"
+        assert hasattr(module.ClientAgent, "send_request_ask"), (
+            "ClientAgent.send_request_ask method not found"
+        )
 
 
 class TestEndToEndExecution:
@@ -249,9 +224,7 @@ class TestEndToEndExecution:
 
     def test_example_runs_without_exceptions(self) -> None:
         """Example runs end-to-end without errors."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
 
         result = subprocess.run(
             [sys.executable, str(example_path)],
@@ -269,9 +242,7 @@ class TestEndToEndExecution:
 
     def test_example_produces_expected_output(self) -> None:
         """Example produces expected calculation results."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
 
         result = subprocess.run(
             [sys.executable, str(example_path)],
@@ -289,9 +260,7 @@ class TestEndToEndExecution:
 
     def test_example_completes_within_timeout(self) -> None:
         """Example completes execution within 5 seconds."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
 
         start = time.time()
         result = subprocess.run(
@@ -308,9 +277,7 @@ class TestEndToEndExecution:
 
     def test_example_shows_request_response_flow(self) -> None:
         """Example demonstrates request-response communication flow."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
 
         result = subprocess.run(
             [sys.executable, str(example_path)],
@@ -336,16 +303,14 @@ class TestIntegration:
 
     def test_full_request_response_flow(self) -> None:
         """Test complete request-response flow with actual agents."""
-        example_path = (
-            Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
-        )
+        example_path = Path(__file__).parent.parent.parent / "examples" / "02_request_response.py"
         spec = importlib.util.spec_from_file_location("request_response", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
         module = importlib.util.module_from_spec(spec)
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             # Create agents
             calc_addr = system.createActor(

@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import time
 
-from akgentic import ActorAddress, ActorSystemImpl, Akgent, BaseConfig, BaseState
+from akgentic import ActorAddress, ActorSystem, Akgent, BaseConfig, BaseState
 from akgentic.messages import Message
 
 # =============================================================================
@@ -210,8 +210,8 @@ def main() -> None:
     print("[Dynamic Agents] Starting dynamic agent creation demo...")
 
     # Create the actor system - this is the runtime that manages all agents
-    # ActorSystemImpl provides zero-dependency local execution (no Redis, etc.)
-    actor_system = ActorSystemImpl()
+    # ActorSystem provides zero-dependency local execution (no Redis, etc.)
+    actor_system = ActorSystem()
 
     try:
         # Create the ManagerAgent - it will create WorkerAgents dynamically

@@ -11,7 +11,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from akgentic import ActorSystemImpl, Akgent, BaseConfig
+from akgentic import ActorSystem, Akgent, BaseConfig
 from akgentic.messages import Message
 
 
@@ -56,7 +56,7 @@ class TestReceiverAgentHandler:
         spec.loader.exec_module(module)
 
         # Create receiver agent
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             receiver_addr = system.createActor(
                 module.ReceiverAgent,

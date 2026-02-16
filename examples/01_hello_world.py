@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import time
 
-from akgentic import ActorAddress, ActorSystemImpl, Akgent, BaseConfig, BaseState
+from akgentic import ActorAddress, ActorSystem, Akgent, BaseConfig, BaseState
 from akgentic.messages import Message
 
 # =============================================================================
@@ -117,8 +117,8 @@ def main() -> None:
     print("[Hello World] Starting two-agent message exchange...")
 
     # Create the actor system - this is the runtime that manages all agents
-    # ActorSystemImpl provides zero-dependency local execution (no Redis, etc.)
-    actor_system = ActorSystemImpl()
+    # ActorSystem provides zero-dependency local execution (no Redis, etc.)
+    actor_system = ActorSystem()
 
     try:
         # Create the ReceiverAgent first - it needs to exist before GreeterAgent

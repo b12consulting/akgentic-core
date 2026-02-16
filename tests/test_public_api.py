@@ -6,29 +6,25 @@ class TestAkgenticNamespace:
 
     def test_agent_primitives_importable(self) -> None:
         from akgentic import (
-            Akgent,
-            AkgentDeserializeContext,
-            ProxyWrapper,
-            ActorSystemImpl,
-            ExecutionContext,
-            ActorProxyWrapper,
-            Statistics,
             ActorAddress,
             ActorAddressImpl,
             ActorAddressProxy,
             ActorAddressStopped,
+            ActorSystem,
             AgentConfig,
-            BaseConfig,
-            ReadOnlyField,
+            Akgent,
+            AkgentDeserializeContext,
             AkgentStateObserver,
+            BaseConfig,
             BaseState,
+            ExecutionContext,
+            Statistics,
         )
+
         assert Akgent is not None
         assert AkgentDeserializeContext is not None
-        assert ProxyWrapper is not None
-        assert ActorSystemImpl is not None
+        assert ActorSystem is not None
         assert ExecutionContext is not None
-        assert ActorProxyWrapper is not None
         assert Statistics is not None
         assert ActorAddress is not None
         assert ActorAddressImpl is not None
@@ -36,36 +32,55 @@ class TestAkgenticNamespace:
         assert ActorAddressStopped is not None
         assert AgentConfig is not None
         assert BaseConfig is not None
-        assert ReadOnlyField is not None
         assert AkgentStateObserver is not None
         assert BaseState is not None
 
     def test_version_accessible(self) -> None:
         from akgentic import __version__
+
         assert __version__ == "2.0.0-alpha.1"
 
     def test_message_types_not_in_all(self) -> None:
         import akgentic
+
         message_types = {
-            "Message", "UserMessage", "ResultMessage", "StopRecursively",
-            "StartMessage", "StopMessage", "SentMessage", "ReceivedMessage",
-            "ProcessedMessage", "ErrorMessage", "StateChangedMessage",
-            "ContextChangedMessage", "ToolUpdateMessage", "date_time_factory",
+            "Message",
+            "UserMessage",
+            "ResultMessage",
+            "StopRecursively",
+            "StartMessage",
+            "StopMessage",
+            "SentMessage",
+            "ReceivedMessage",
+            "ProcessedMessage",
+            "ErrorMessage",
+            "StateChangedMessage",
+            "ContextChangedMessage",
+            "ToolUpdateMessage",
+            "date_time_factory",
         }
         assert not message_types.intersection(set(akgentic.__all__))
 
     def test_serialization_utils_not_in_all(self) -> None:
         import akgentic
+
         util_symbols = {
-            "SerializableBaseModel", "serialize", "serialize_base_model",
-            "serialize_type", "get_field_serializers_map", "ActorAddressDict",
-            "DeserializeContext", "deserialize_object", "import_class",
+            "SerializableBaseModel",
+            "serialize",
+            "serialize_base_model",
+            "serialize_type",
+            "get_field_serializers_map",
+            "ActorAddressDict",
+            "DeserializeContext",
+            "deserialize_object",
+            "import_class",
             "is_uuid_canonical",
         }
         assert not util_symbols.intersection(set(akgentic.__all__))
 
     def test_no_duplicate_symbols_in_all(self) -> None:
         import akgentic
+
         assert len(akgentic.__all__) == len(set(akgentic.__all__))
 
 
@@ -74,31 +89,55 @@ class TestMessagesNamespace:
 
     def test_all_message_types_importable(self) -> None:
         from akgentic.messages import (
-            Message,
-            UserMessage,
-            ResultMessage,
-            StopRecursively,
-            date_time_factory,
             ContextChangedMessage,
             ErrorMessage,
+            Message,
             ProcessedMessage,
             ReceivedMessage,
+            ResultMessage,
             SentMessage,
             StartMessage,
             StateChangedMessage,
             StopMessage,
+            StopRecursively,
             ToolUpdateMessage,
+            UserMessage,
+            date_time_factory,
         )
+
         assert Message is not None
         assert StartMessage is not None
+        assert StopMessage is not None
+        assert StopRecursively is not None
+        assert UserMessage is not None
+        assert ResultMessage is not None
+        assert SentMessage is not None
+        assert ReceivedMessage is not None
+        assert ProcessedMessage is not None
+        assert ErrorMessage is not None
+        assert StateChangedMessage is not None
+        assert ContextChangedMessage is not None
+        assert ToolUpdateMessage is not None
+        assert date_time_factory is not None
 
     def test_messages_all_defined(self) -> None:
         import akgentic.messages as msgs
+
         expected = {
-            "Message", "UserMessage", "ResultMessage", "StopRecursively",
-            "date_time_factory", "ContextChangedMessage", "ErrorMessage",
-            "ProcessedMessage", "ReceivedMessage", "SentMessage", "StartMessage",
-            "StateChangedMessage", "StopMessage", "ToolUpdateMessage",
+            "Message",
+            "UserMessage",
+            "ResultMessage",
+            "StopRecursively",
+            "date_time_factory",
+            "ContextChangedMessage",
+            "ErrorMessage",
+            "ProcessedMessage",
+            "ReceivedMessage",
+            "SentMessage",
+            "StartMessage",
+            "StateChangedMessage",
+            "StopMessage",
+            "ToolUpdateMessage",
         }
         assert expected.issubset(set(msgs.__all__))
 
@@ -108,26 +147,43 @@ class TestUtilsNamespace:
 
     def test_all_utils_importable(self) -> None:
         from akgentic.utils import (
+            ActorAddressDict,
+            DeserializeContext,
             SerializableBaseModel,
+            deserialize_object,
+            get_field_serializers_map,
+            import_class,
+            is_uuid_canonical,
             serialize,
             serialize_base_model,
             serialize_type,
-            get_field_serializers_map,
-            ActorAddressDict,
-            DeserializeContext,
-            deserialize_object,
-            import_class,
-            is_uuid_canonical,
         )
+
         assert SerializableBaseModel is not None
         assert ActorAddressDict is not None
+        assert DeserializeContext is not None
+        assert serialize is not None
+        assert serialize_base_model is not None
+        assert serialize_type is not None
+        assert get_field_serializers_map is not None
+        assert deserialize_object is not None
+        assert import_class is not None
+        assert is_uuid_canonical is not None
 
     def test_utils_all_defined(self) -> None:
         import akgentic.utils as utils
+
         expected = {
-            "SerializableBaseModel", "serialize", "serialize_base_model",
-            "serialize_type", "get_field_serializers_map", "ActorAddressDict",
-            "DeserializeContext", "deserialize_object", "import_class", "is_uuid_canonical",
+            "SerializableBaseModel",
+            "serialize",
+            "serialize_base_model",
+            "serialize_type",
+            "get_field_serializers_map",
+            "ActorAddressDict",
+            "DeserializeContext",
+            "deserialize_object",
+            "import_class",
+            "is_uuid_canonical",
         }
         assert expected.issubset(set(utils.__all__))
 
@@ -145,14 +201,11 @@ class TestNoSymbolOverlap:
         utils = set(akgentic.utils.__all__)
 
         assert not top_level.intersection(messages), (
-            f"Overlap between akgentic and akgentic.messages: "
-            f"{top_level.intersection(messages)}"
+            f"Overlap between akgentic and akgentic.messages: {top_level.intersection(messages)}"
         )
         assert not top_level.intersection(utils), (
-            f"Overlap between akgentic and akgentic.utils: "
-            f"{top_level.intersection(utils)}"
+            f"Overlap between akgentic and akgentic.utils: {top_level.intersection(utils)}"
         )
         assert not messages.intersection(utils), (
-            f"Overlap between akgentic.messages and akgentic.utils: "
-            f"{messages.intersection(utils)}"
+            f"Overlap between akgentic.messages and akgentic.utils: {messages.intersection(utils)}"
         )

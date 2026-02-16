@@ -1,7 +1,7 @@
 """Tests for UserProxy agent.
 
 Covers class structure, process_human_input routing, receiveMsg_UserMessage
-handler, and integration with ActorSystemImpl and Orchestrator.
+handler, and integration with ActorSystem and Orchestrator.
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ import pykka
 import pytest
 
 from akgentic import (
-    ActorSystemImpl,
+    ActorSystem,
     BaseConfig,
     Orchestrator,
     UserProxy,
@@ -49,8 +49,8 @@ class TestUserProxyCreation:
         ref.stop()
 
     def test_userproxy_creation_via_actor_system(self) -> None:
-        """UserProxy starts via ActorSystemImpl."""
-        system = ActorSystemImpl()
+        """UserProxy starts via ActorSystem."""
+        system = ActorSystem()
         addr = system.createActor(UserProxy, config=BaseConfig(name="human", role="UserProxy"))
         assert addr.is_alive()
         system.shutdown()

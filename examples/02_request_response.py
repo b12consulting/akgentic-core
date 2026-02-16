@@ -19,7 +19,7 @@ from __future__ import annotations
 import time
 import uuid
 
-from akgentic import ActorAddress, ActorSystemImpl, Akgent, BaseConfig, BaseState
+from akgentic import ActorAddress, ActorSystem, Akgent, BaseConfig, BaseState
 from akgentic.messages import Message
 
 # =============================================================================
@@ -208,8 +208,8 @@ def main() -> None:
     print("[Request-Response] Demonstrating synchronous agent communication...")
 
     # Create the actor system - this is the runtime that manages all agents
-    # ActorSystemImpl provides zero-dependency local execution (no Redis, etc.)
-    actor_system = ActorSystemImpl()
+    # ActorSystem provides zero-dependency local execution (no Redis, etc.)
+    actor_system = ActorSystem()
 
     try:
         # Create the CalculatorAgent first - it needs to exist before ClientAgent

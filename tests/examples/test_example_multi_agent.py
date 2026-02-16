@@ -16,7 +16,7 @@ from pathlib import Path
 
 from akgentic import (
     ActorAddressImpl,
-    ActorSystemImpl,
+    ActorSystem,
     Akgent,
     BaseConfig,
     BaseState,
@@ -134,7 +134,9 @@ class TestStateTypesDefinition:
         spec.loader.exec_module(module)
 
         assert hasattr(module, "CoordinatorState"), "CoordinatorState not defined"
-        assert issubclass(module.CoordinatorState, BaseState), "CoordinatorState must extend BaseState"
+        assert issubclass(module.CoordinatorState, BaseState), (
+            "CoordinatorState must extend BaseState"
+        )
 
         state = module.CoordinatorState()
         assert hasattr(state, "current_task"), "Missing current_task field"
@@ -151,7 +153,9 @@ class TestStateTypesDefinition:
         spec.loader.exec_module(module)
 
         assert hasattr(module, "SpecialistState"), "SpecialistState not defined"
-        assert issubclass(module.SpecialistState, BaseState), "SpecialistState must extend BaseState"
+        assert issubclass(module.SpecialistState, BaseState), (
+            "SpecialistState must extend BaseState"
+        )
 
         state = module.SpecialistState()
         assert hasattr(state, "items_processed"), "Missing items_processed field"
@@ -214,9 +218,9 @@ class TestUserProxyIntegration:
         from akgentic import UserProxy
 
         assert hasattr(module, "SimulatedUserProxy"), "SimulatedUserProxy not defined"
-        assert issubclass(
-            module.SimulatedUserProxy, UserProxy
-        ), "SimulatedUserProxy must extend UserProxy"
+        assert issubclass(module.SimulatedUserProxy, UserProxy), (
+            "SimulatedUserProxy must extend UserProxy"
+        )
 
     def test_user_proxy_handles_review_request(self):
         """SimulatedUserProxy handles ReviewRequest messages."""
@@ -227,9 +231,9 @@ class TestUserProxyIntegration:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        assert hasattr(
-            module.SimulatedUserProxy, "receiveMsg_ReviewRequest"
-        ), "Must have receiveMsg_ReviewRequest handler"
+        assert hasattr(module.SimulatedUserProxy, "receiveMsg_ReviewRequest"), (
+            "Must have receiveMsg_ReviewRequest handler"
+        )
 
 
 class TestSimpleLoggerSubscriber:
@@ -268,7 +272,7 @@ class TestMessageRoutingChain:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             orchestrator_addr = system.createActor(
                 Orchestrator,
@@ -331,7 +335,7 @@ class TestMessageRoutingChain:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             orchestrator_addr = system.createActor(
                 Orchestrator,
@@ -390,7 +394,7 @@ class TestMessageRoutingChain:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             orchestrator_addr = system.createActor(
                 Orchestrator,
@@ -434,7 +438,9 @@ class TestMessageRoutingChain:
             time.sleep(1.0)
 
             captured = capsys.readouterr()
-            assert "[UserProxy] Awaiting human input" in captured.out, "UserProxy should receive draft"
+            assert "[UserProxy] Awaiting human input" in captured.out, (
+                "UserProxy should receive draft"
+            )
 
         finally:
             system.shutdown(timeout=5)
@@ -452,7 +458,7 @@ class TestOrchestratorTracking:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             orchestrator_addr = system.createActor(
                 Orchestrator,
@@ -514,7 +520,7 @@ class TestOrchestratorTracking:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             orchestrator_addr = system.createActor(
                 Orchestrator,
@@ -566,7 +572,7 @@ class TestOrchestratorTracking:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        system = ActorSystemImpl()
+        system = ActorSystem()
         try:
             orchestrator_addr = system.createActor(
                 Orchestrator,

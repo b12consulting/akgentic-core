@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from akgentic import (
     ActorAddress,
     ActorAddressImpl,
-    ActorSystemImpl,
+    ActorSystem,
     Akgent,
     BaseConfig,
     BaseState,
@@ -493,7 +493,7 @@ def main() -> None:
     """Run the multi-agent coordination example."""
     print("[Multi-Agent] Starting multi-agent coordination demo...")
 
-    actor_system = ActorSystemImpl()
+    actor_system = ActorSystem()
 
     try:
         # Create Orchestrator to track all telemetry

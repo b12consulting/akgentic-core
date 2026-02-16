@@ -53,16 +53,16 @@ until you need custom fields (covered in later examples).
 
 ### ActorSystem
 
-`ActorSystemImpl` is the runtime. It:
+`ActorSystem` is the runtime. It:
 
 - creates agents and assigns them addresses
 - delivers messages between agents
 - manages the lifecycle (startup / shutdown)
 
 ```python
-from akgentic import ActorSystemImpl
+from akgentic import ActorSystem
 
-actor_system = ActorSystemImpl()
+actor_system = ActorSystem()
 ```
 
 ---
@@ -146,7 +146,7 @@ From `main()`, the actor system is the only entry point:
 - `shutdown()` cleanly stops all agents
 
 ```python
-actor_system = ActorSystemImpl()
+actor_system = ActorSystem()
 
 receiver_addr = actor_system.createActor(ReceiverAgent, config=BaseConfig(...))
 greeter_addr  = actor_system.createActor(GreeterAgent,  config=BaseConfig(...))

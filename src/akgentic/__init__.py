@@ -10,18 +10,14 @@ from akgentic.actor_address_impl import (
     ActorAddressStopped,
 )
 from akgentic.actor_system_impl import (
-    ActorSystemImpl,
+    ActorSystem,
     ExecutionContext,
     Statistics,
 )
-from akgentic.actor_system_impl import (
-    ProxyWrapper as ActorProxyWrapper,
-)
-from akgentic.agent import Akgent, AkgentDeserializeContext, ProxyWrapper
+from akgentic.agent import Akgent, AkgentDeserializeContext
 from akgentic.agent_config import (
     AgentConfig,
     BaseConfig,
-    ReadOnlyField,
 )
 from akgentic.agent_state import AkgentStateObserver, BaseState
 from akgentic.orchestrator import Orchestrator, OrchestratorEventSubscriber
@@ -35,11 +31,9 @@ __all__ = [
     # Agent base class and proxies
     "Akgent",
     "AkgentDeserializeContext",
-    "ProxyWrapper",
     # Actor system
-    "ActorSystemImpl",
+    "ActorSystem",
     "ExecutionContext",
-    "ActorProxyWrapper",
     "Statistics",
     # Actor addressing
     "ActorAddress",
@@ -49,7 +43,6 @@ __all__ = [
     # Agent configuration
     "AgentConfig",
     "BaseConfig",
-    "ReadOnlyField",
     # Agent state
     "AkgentStateObserver",
     "BaseState",

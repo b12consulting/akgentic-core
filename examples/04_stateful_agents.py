@@ -22,7 +22,7 @@ import time
 from akgentic import (
     ActorAddress,
     ActorAddressImpl,
-    ActorSystemImpl,
+    ActorSystem,
     Akgent,
     BaseConfig,
     BaseState,
@@ -167,7 +167,7 @@ def main() -> None:
     print("[Stateful Agents] Demonstrating state management with Orchestrator tracking...")
 
     # Create the actor system - this is the runtime that manages all agents
-    actor_system = ActorSystemImpl()
+    actor_system = ActorSystem()
 
     try:
         # Create an Orchestrator agent to track state changes

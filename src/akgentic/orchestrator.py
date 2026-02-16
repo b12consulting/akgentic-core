@@ -170,7 +170,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         subscribers: List of event subscribers for extensibility
 
     Example:
-        >>> system = ActorSystemImpl.start().proxy()
+        >>> system = ActorSystem.start().proxy()
         >>> orchestrator_ref = system.create_agent(
         ...     Orchestrator,
         ...     config=BaseConfig(name="orchestrator", role="Orchestrator")

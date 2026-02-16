@@ -130,9 +130,9 @@ class TestAgentInitialization:
 
             # Verify child creation propagates context correctly
             child_config = BaseConfig(name="child")
-            child_address = ref.proxy().createActor(
-                SampleAgent, uuid.uuid4(), child_config
-            ).get(timeout=5)
+            child_address = (
+                ref.proxy().createActor(SampleAgent, uuid.uuid4(), child_config).get(timeout=5)
+            )
             assert child_address.is_alive()
         finally:
             ref.stop()
@@ -304,9 +304,9 @@ class TestChildActorCreation:
         try:
             # Create child via proxy
             child_config = BaseConfig(name="child-agent")
-            child_address = ref.proxy().createActor(
-                SampleAgent, uuid.uuid4(), child_config
-            ).get(timeout=5)
+            child_address = (
+                ref.proxy().createActor(SampleAgent, uuid.uuid4(), child_config).get(timeout=5)
+            )
 
             assert child_address is not None
             assert child_address.is_alive()
@@ -323,9 +323,9 @@ class TestChildActorCreation:
         try:
             # Create child without squad_id
             child_config = BaseConfig(name="child-agent")
-            child_address = ref.proxy().createActor(
-                SampleAgent, uuid.uuid4(), child_config
-            ).get(timeout=5)
+            child_address = (
+                ref.proxy().createActor(SampleAgent, uuid.uuid4(), child_config).get(timeout=5)
+            )
 
             child_ref = cast(ActorAddressImpl, child_address)._actor_ref
             child_squad_id = child_ref.proxy().config.get().squad_id
@@ -344,9 +344,9 @@ class TestChildActorCreation:
         try:
             # Create child with explicit squad_id
             child_config = BaseConfig(name="child-agent", squad_id=child_squad_id)
-            child_address = ref.proxy().createActor(
-                SampleAgent, uuid.uuid4(), child_config
-            ).get(timeout=5)
+            child_address = (
+                ref.proxy().createActor(SampleAgent, uuid.uuid4(), child_config).get(timeout=5)
+            )
 
             child_ref = cast(ActorAddressImpl, child_address)._actor_ref
             actual_squad_id = child_ref.proxy().config.get().squad_id
@@ -404,9 +404,9 @@ class TestStopBehavior:
         try:
             # Create child
             child_config = BaseConfig(name="child-agent")
-            child_address = ref.proxy().createActor(
-                SampleAgent, uuid.uuid4(), child_config
-            ).get(timeout=5)
+            child_address = (
+                ref.proxy().createActor(SampleAgent, uuid.uuid4(), child_config).get(timeout=5)
+            )
 
             assert child_address.is_alive()
 

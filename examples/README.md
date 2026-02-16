@@ -31,7 +31,7 @@ Three building blocks are all you need to get started:
 | ----------- | ----------------------- | ----------------------------------------------------- |
 | **Message** | `Message`               | Typed data packet exchanged between agents            |
 | **Agent**   | `Akgent[Config, State]` | Isolated unit of state + behavior                     |
-| **Runtime** | `ActorSystemImpl`       | Manages agents, delivers messages, controls lifecycle |
+| **Runtime** | `ActorSystem`           | Manages agents, delivers messages, controls lifecycle |
 
 ---
 
@@ -76,7 +76,7 @@ Find the example where a specific concept first appears:
 | ------------------------------------------------ | ----------------------------------------------- |
 | `Message`                                        | [01 — Hello World](01-hello-world.md)           |
 | `Akgent[Config, State]`                          | [01 — Hello World](01-hello-world.md)           |
-| `ActorSystemImpl`                                | [01 — Hello World](01-hello-world.md)           |
+| `ActorSystem`                                    | [01 — Hello World](01-hello-world.md)           |
 | `receiveMsg_<Type>` dispatch                     | [01 — Hello World](01-hello-world.md)           |
 | `self.send()`                                    | [01 — Hello World](01-hello-world.md)           |
 | `actor_system.tell()`                            | [01 — Hello World](01-hello-world.md)           |
