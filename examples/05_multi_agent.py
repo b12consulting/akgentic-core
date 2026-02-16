@@ -90,7 +90,7 @@ class ReviewRequest(Message):
         reviewer_notes: Optional notes for the reviewer.
     """
 
-    draft: "DraftContent"
+    draft: DraftContent
     reviewer_notes: str = ""
 
 
@@ -166,9 +166,7 @@ class ResearchAgent(Akgent[BaseConfig, SpecialistState]):
         self.state = SpecialistState()
         self.state.observer(self)
 
-    def receiveMsg_TaskRequest(
-        self, message: TaskRequest, sender: ActorAddress | None
-    ) -> None:
+    def receiveMsg_TaskRequest(self, message: TaskRequest, sender: ActorAddress | None) -> None:
         """Handle task request by conducting research.
 
         Args:
@@ -176,7 +174,7 @@ class ResearchAgent(Akgent[BaseConfig, SpecialistState]):
             sender: CoordinatorAgent sending the request.
         """
         topic = message.topic
-        print(f"[ResearchAgent] Researching: \"{topic}\"")
+        print(f'[ResearchAgent] Researching: "{topic}"')
 
         # Simulate research - in real scenario would call APIs, search databases, etc.
         key_points = [
@@ -238,7 +236,7 @@ class WriterAgent(Akgent[BaseConfig, SpecialistState]):
         topic = message.topic
         key_points = message.key_points
 
-        print(f"[WriterAgent] Drafting content from research...")
+        print("[WriterAgent] Drafting content from research...")
 
         # Create draft content from research points
         content_lines = [
@@ -310,9 +308,7 @@ class CoordinatorAgent(Akgent[BaseConfig, CoordinatorState]):
         self.writer_agent = writer_agent
         self.user_proxy = user_proxy
 
-    def receiveMsg_TaskRequest(
-        self, message: TaskRequest, sender: ActorAddress | None
-    ) -> None:
+    def receiveMsg_TaskRequest(self, message: TaskRequest, sender: ActorAddress | None) -> None:
         """Handle task request by routing to ResearchAgent.
 
         Args:
@@ -320,7 +316,7 @@ class CoordinatorAgent(Akgent[BaseConfig, CoordinatorState]):
             sender: Sender of the request.
         """
         topic = message.topic
-        print(f"[CoordinatorAgent] Routing task: \"{topic}\"")
+        print(f'[CoordinatorAgent] Routing task: "{topic}"')
 
         # Update state
         self.state.current_task = topic
@@ -344,7 +340,7 @@ class CoordinatorAgent(Akgent[BaseConfig, CoordinatorState]):
             message: ResearchResult from ResearchAgent.
             sender: ResearchAgent address.
         """
-        print(f"[CoordinatorAgent] Received research, routing to WriterAgent")
+        print("[CoordinatorAgent] Received research, routing to WriterAgent")
 
         # Update state
         self.state.task_status = "drafting"
@@ -355,16 +351,14 @@ class CoordinatorAgent(Akgent[BaseConfig, CoordinatorState]):
         if self.writer_agent is not None:
             self.send(self.writer_agent, message)
 
-    def receiveMsg_DraftContent(
-        self, message: DraftContent, sender: ActorAddress | None
-    ) -> None:
+    def receiveMsg_DraftContent(self, message: DraftContent, sender: ActorAddress | None) -> None:
         """Handle draft content by sending to UserProxy for review.
 
         Args:
             message: DraftContent from WriterAgent.
             sender: WriterAgent address.
         """
-        print(f"[CoordinatorAgent] Sending draft to UserProxy for human review")
+        print("[CoordinatorAgent] Sending draft to UserProxy for human review")
 
         # Update state
         self.state.task_status = "reviewing"
@@ -391,7 +385,7 @@ class CoordinatorAgent(Akgent[BaseConfig, CoordinatorState]):
             sender: UserProxy address.
         """
         if message.approved:
-            print(f"[CoordinatorAgent] Task complete. Workflow finished.")
+            print("[CoordinatorAgent] Task complete. Workflow finished.")
         else:
             print(f"[CoordinatorAgent] Draft rejected. Feedback: {message.feedback}")
 
@@ -468,17 +462,15 @@ class SimulatedUserProxy(UserProxy):
     with UI systems (WebSocket, REST API, CLI, etc.).
     """
 
-    def receiveMsg_ReviewRequest(
-        self, message: ReviewRequest, sender: ActorAddress | None
-    ) -> None:
+    def receiveMsg_ReviewRequest(self, message: ReviewRequest, sender: ActorAddress | None) -> None:
         """Handle review request by simulating human approval.
 
         Args:
             message: ReviewRequest from CoordinatorAgent.
             sender: CoordinatorAgent address.
         """
-        print(f"[UserProxy] Awaiting human input for review...")
-        print(f"[UserProxy] Human approved the draft")
+        print("[UserProxy] Awaiting human input for review...")
+        print("[UserProxy] Human approved the draft")
 
         # Simulate human approval
         approval = ApprovalResponse(
@@ -549,7 +541,9 @@ def main() -> None:
         # Wait for agent initialization
         time.sleep(0.3)
 
-        print(f"[Orchestrator] Team assembled: CoordinatorAgent, ResearchAgent, WriterAgent, UserProxy")
+        print(
+            "[Orchestrator] Team assembled: CoordinatorAgent, ResearchAgent, WriterAgent, UserProxy"
+        )
 
         # Send initial task request
         actor_system.tell(

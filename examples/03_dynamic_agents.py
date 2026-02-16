@@ -16,11 +16,9 @@ Or with:  uv run python examples/03_dynamic_agents.py
 from __future__ import annotations
 
 import time
-import uuid
 
 from akgentic import ActorAddress, ActorSystemImpl, Akgent, BaseConfig, BaseState
 from akgentic.messages import Message
-
 
 # =============================================================================
 # STEP 1: Define message types for task processing
@@ -99,7 +97,9 @@ class WorkerAgent(Akgent[BaseConfig, BaseState]):
         if self._parent is not None:
             self.send(
                 self._parent,
-                TaskResult(task_id=task_id, result=result, worker_name=self.config.name or "unknown"),
+                TaskResult(
+                    task_id=task_id, result=result, worker_name=self.config.name or "unknown"
+                ),
             )
 
 

@@ -30,7 +30,6 @@ from akgentic import (
 )
 from akgentic.messages import Message
 
-
 # =============================================================================
 # STEP 1: Define the agent state
 # =============================================================================
@@ -130,16 +129,14 @@ class CounterAgent(Akgent[BaseConfig, CounterState]):
 
         # Print for visibility
         print(
-            f'[CounterAgent] Incremented by {message.amount} → count: {self.state.count} '
+            f"[CounterAgent] Incremented by {message.amount} → count: {self.state.count} "
             f'(label: "{message.label}")'
         )
 
         # Notify observer (Orchestrator) of state change
         self.state.notify_state_change()
 
-    def receiveMsg_ResetMessage(
-        self, message: ResetMessage, sender: ActorAddress | None
-    ) -> None:
+    def receiveMsg_ResetMessage(self, message: ResetMessage, sender: ActorAddress | None) -> None:
         """Handle reset message by clearing counter.
 
         Resets counter to zero, records reason in history, and notifies observer.
@@ -154,7 +151,7 @@ class CounterAgent(Akgent[BaseConfig, CounterState]):
         self.state.last_operation = f"Reset ({message.reason})"
 
         # Print for visibility
-        print(f"[CounterAgent] Reset → count: {self.state.count} (reason: \"{message.reason}\")")
+        print(f'[CounterAgent] Reset → count: {self.state.count} (reason: "{message.reason}")')
 
         # Notify observer (Orchestrator) of state change
         self.state.notify_state_change()

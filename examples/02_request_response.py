@@ -22,7 +22,6 @@ import uuid
 from akgentic import ActorAddress, ActorSystemImpl, Akgent, BaseConfig, BaseState
 from akgentic.messages import Message
 
-
 # =============================================================================
 # STEP 1: Define request and response message types
 # =============================================================================

@@ -1,11 +1,7 @@
 """Tests for ActorSystemImpl and related classes."""
 
 import uuid
-from collections.abc import Generator
 from typing import cast
-
-import pykka
-import pytest
 
 from akgentic.actor_address_impl import ActorAddressImpl, ActorAddressProxy
 from akgentic.actor_system_impl import (
@@ -23,7 +19,7 @@ from akgentic.agent_state import BaseState
 class SimpleAgent(Akgent[BaseConfig, BaseState]):
     """Simple agent for testing."""
 
-    def receiveMsg_str(self, msg: str, sender):  # type: ignore
+    def receiveMsg_str(self, msg: str, sender) -> str:  # type: ignore
         """Handle string messages by echoing them back."""
         return f"received: {msg}"
 
@@ -34,13 +30,6 @@ class SimpleAgent(Akgent[BaseConfig, BaseState]):
             "user_email": self._user_email,
             "team_id": self._team_id,
         }
-
-
-@pytest.fixture(autouse=True)
-def cleanup_actors() -> Generator[None, None, None]:
-    """Ensure all actors are stopped after each test."""
-    yield
-    pykka.ActorRegistry.stop_all()
 
 
 class TestStatistics:

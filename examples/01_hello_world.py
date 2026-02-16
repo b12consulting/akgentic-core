@@ -19,7 +19,6 @@ import time
 from akgentic import ActorAddress, ActorSystemImpl, Akgent, BaseConfig, BaseState
 from akgentic.messages import Message
 
-
 # =============================================================================
 # STEP 1: Define your message type
 # =============================================================================

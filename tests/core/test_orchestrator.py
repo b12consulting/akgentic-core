@@ -1,6 +1,5 @@
 """Tests for Orchestrator agent."""
 
-import uuid
 from collections.abc import Generator
 
 import pykka
@@ -10,8 +9,8 @@ from akgentic.actor_system_impl import ActorSystemImpl
 from akgentic.agent import Akgent
 from akgentic.agent_config import BaseConfig
 from akgentic.agent_state import BaseState
-from akgentic.messages.message import UserMessage
-from akgentic.orchestrator import Orchestrator, OrchestratorEventSubscriber
+from akgentic.orchestrator import Orchestrator
+from typing import Never
 
 
 @pytest.fixture(autouse=True)
@@ -24,35 +23,34 @@ def cleanup_actors() -> Generator[None, None, None]:
 class MockEventSubscriber:
     """Test event subscriber for verifying notification pattern."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize event tracking."""
         self.events: list[str] = []
 
-    def on_agent_started(self, msg):  # type: ignore
-        """Track agent started events."""
+    def on_agent_started(self) -> None:
         self.events.append("agent_started")
 
-    def on_agent_stopped(self, msg):  # type: ignore
+    def on_agent_stopped(self) -> None:
         """Track agent stopped events."""
         self.events.append("agent_stopped")
 
-    def on_state_changed(self, msg):  # type: ignore
-        """Track state changed events."""
+    def on_state_changed(self) -> None:
         self.events.append("state_changed")
 
-    def on_message_sent(self, msg):  # type: ignore
-        """Track message sent events."""
+    def on_message_sent(self) -> None:
         self.events.append("message_sent")
 
-    def on_message_received(self, msg):  # type: ignore
+    def on_message_received(
+        self,
+    ) -> None:
         """Track message received events."""
         self.events.append("message_received")
 
-    def on_message_processed(self, msg):  # type: ignore
+    def on_message_processed(self) -> None:
         """Track message processed events."""
         self.events.append("message_processed")
 
-    def on_error(self, msg):  # type: ignore
+    def on_error(self) -> None:
         """Track error events."""
         self.events.append("error")
 
@@ -60,31 +58,29 @@ class MockEventSubscriber:
 class FailingSubscriber:
     """Subscriber that raises exceptions to test fault tolerance."""
 
-    def on_agent_started(self, msg):  # type: ignore
+    def on_agent_started(self) -> Never:
         """Always raise exception."""
         raise RuntimeError("Subscriber failure")
 
-    def on_agent_stopped(self, msg):  # type: ignore
+    def on_agent_stopped(self) -> Never:
         """Always raise exception."""
         raise RuntimeError("Subscriber failure")
 
-    def on_state_changed(self, msg):  # type: ignore
+    def on_state_changed(self) -> Never:
         """Always raise exception."""
         raise RuntimeError("Subscriber failure")
 
-    def on_message_sent(self, msg):  # type: ignore
+    def on_message_sent(self) -> Never:
+        raise RuntimeError("Subscriber failure")
+
+    def on_message_received(self) -> Never:
+        raise RuntimeError("Subscriber failure")
+
+    def on_message_processed(self) -> Never:
         """Always raise exception."""
         raise RuntimeError("Subscriber failure")
 
-    def on_message_received(self, msg):  # type: ignore
-        """Always raise exception."""
-        raise RuntimeError("Subscriber failure")
-
-    def on_message_processed(self, msg):  # type: ignore
-        """Always raise exception."""
-        raise RuntimeError("Subscriber failure")
-
-    def on_error(self, msg):  # type: ignore
+    def on_error(self) -> Never:
         """Always raise exception."""
         raise RuntimeError("Subscriber failure")
 
@@ -92,7 +88,7 @@ class FailingSubscriber:
 class SimpleAgent(Akgent[BaseConfig, BaseState]):
     """Simple agent for testing orchestrator interaction."""
 
-    def receiveMsg_str(self, msg: str, sender):  # type: ignore
+    def receiveMsg_str(self, msg: str) -> str:
         """Handle string messages."""
         return f"received: {msg}"
 
