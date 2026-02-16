@@ -76,9 +76,9 @@ class TestCounterMessageTypes:
         assert hasattr(module, "IncrementMessage"), "IncrementMessage not defined"
         assert issubclass(module.IncrementMessage, Message), "IncrementMessage must extend Message"
 
-        msg = module.IncrementMessage(amount=5, label="test")
-        assert msg.amount == 5
-        assert msg.label == "test"
+        msg = module.IncrementMessage(amount=5, label="test")  # type: ignore
+        assert msg.amount == 5  # type: ignore
+        assert msg.label == "test"  # type: ignore
 
     def test_reset_message_definition(self):
         """ResetMessage has reason field."""
@@ -92,8 +92,8 @@ class TestCounterMessageTypes:
         assert hasattr(module, "ResetMessage"), "ResetMessage not defined"
         assert issubclass(module.ResetMessage, Message), "ResetMessage must extend Message"
 
-        msg = module.ResetMessage(reason="test reset")
-        assert msg.reason == "test reset"
+        msg = module.ResetMessage(reason="test reset")  # type: ignore
+        assert msg.reason == "test reset"  # type: ignore
 
 
 class TestCounterAgentStateInitialization:
@@ -214,7 +214,7 @@ class TestCounterAgentStateMutations:
             assert len(states) > 0, "Orchestrator should track agent state"
             final_state = next(iter(states.values()))
             assert isinstance(final_state, module.CounterState)
-            assert final_state.count == 5, f"Expected count=5, got {final_state.count}"
+            assert final_state.count == 5, f"Expected count=5, got {final_state.count}"  # type: ignore
 
         finally:
             system.shutdown(timeout=5)
@@ -272,7 +272,7 @@ class TestCounterAgentStateMutations:
             assert len(states) > 0
             final_state = next(iter(states.values()))
             assert isinstance(final_state, module.CounterState)
-            assert final_state.count == 0, f"Expected count=0 after reset, got {final_state.count}"
+            assert final_state.count == 0, f"Expected count=0 after reset, got {final_state.count}"  # type: ignore
 
         finally:
             system.shutdown(timeout=5)
@@ -323,8 +323,8 @@ class TestCounterAgentStateMutations:
             assert len(states) > 0
             final_state = next(iter(states.values()))
             assert isinstance(final_state, module.CounterState)
-            assert "op1" in final_state.history
-            assert "op2" in final_state.history
+            assert "op1" in final_state.history  # type: ignore
+            assert "op2" in final_state.history  # type: ignore
 
         finally:
             system.shutdown(timeout=5)
@@ -423,10 +423,10 @@ class TestOrchestratorStateTracking:
             assert len(states) > 0, "Orchestrator should track agent states"
             final_state = next(iter(states.values()))
             assert isinstance(final_state, module.CounterState)
-            assert len(final_state.history) == 2, (
-                f"Expected 2 mutations, got {len(final_state.history)}"
+            assert len(final_state.history) == 2, (  # type: ignore
+                f"Expected 2 mutations, got {len(final_state.history)}"  # type: ignore
             )
-            assert final_state.count == 8, f"Expected count=8 (5+3), got {final_state.count}"
+            assert final_state.count == 8, f"Expected count=8 (5+3), got {final_state.count}"  # type: ignore
 
         finally:
             system.shutdown(timeout=5)
