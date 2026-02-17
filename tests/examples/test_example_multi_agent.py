@@ -15,7 +15,6 @@ import time
 from pathlib import Path
 
 from akgentic import (
-    ActorAddressImpl,
     ActorSystem,
     Akgent,
     BaseConfig,
@@ -279,30 +278,21 @@ class TestMessageRoutingChain:
                 config=BaseConfig(name="orchestrator", role="Orchestrator"),
             )
 
-            # Create agents
-            research_ref = module.ResearchAgent.start(
-                config=BaseConfig(name="research", role="ResearchAgent"),
-                orchestrator=orchestrator_addr,
+            # Create agents via orchestrator proxy — correct pattern
+            orch_proxy = system.proxy_ask(orchestrator_addr, Orchestrator)
+            research_addr = orch_proxy.createActor(
+                module.ResearchAgent, config=BaseConfig(name="research", role="ResearchAgent")
             )
-            research_addr = ActorAddressImpl(research_ref)
-
-            writer_ref = module.WriterAgent.start(
-                config=BaseConfig(name="writer", role="WriterAgent"),
-                orchestrator=orchestrator_addr,
+            writer_addr = orch_proxy.createActor(
+                module.WriterAgent, config=BaseConfig(name="writer", role="WriterAgent")
             )
-            writer_addr = ActorAddressImpl(writer_ref)
-
-            user_proxy_ref = module.SimulatedUserProxy.start(
-                config=BaseConfig(name="human", role="UserProxy"),
-                orchestrator=orchestrator_addr,
+            user_proxy_addr = orch_proxy.createActor(
+                module.SimulatedUserProxy, config=BaseConfig(name="human", role="UserProxy")
             )
-            user_proxy_addr = ActorAddressImpl(user_proxy_ref)
-
-            coordinator_ref = module.CoordinatorAgent.start(
+            coordinator_addr = orch_proxy.createActor(
+                module.CoordinatorAgent,
                 config=BaseConfig(name="coordinator", role="CoordinatorAgent"),
-                orchestrator=orchestrator_addr,
             )
-            coordinator_addr = ActorAddressImpl(coordinator_ref)
 
             # Setup routing
             coordinator_proxy = system.proxy_tell(coordinator_addr, module.CoordinatorAgent)
@@ -342,29 +332,21 @@ class TestMessageRoutingChain:
                 config=BaseConfig(name="orchestrator", role="Orchestrator"),
             )
 
-            research_ref = module.ResearchAgent.start(
-                config=BaseConfig(name="research", role="ResearchAgent"),
-                orchestrator=orchestrator_addr,
+            # Create agents via orchestrator proxy — correct pattern
+            orch_proxy = system.proxy_ask(orchestrator_addr, Orchestrator)
+            research_addr = orch_proxy.createActor(
+                module.ResearchAgent, config=BaseConfig(name="research", role="ResearchAgent")
             )
-            research_addr = ActorAddressImpl(research_ref)
-
-            writer_ref = module.WriterAgent.start(
-                config=BaseConfig(name="writer", role="WriterAgent"),
-                orchestrator=orchestrator_addr,
+            writer_addr = orch_proxy.createActor(
+                module.WriterAgent, config=BaseConfig(name="writer", role="WriterAgent")
             )
-            writer_addr = ActorAddressImpl(writer_ref)
-
-            user_proxy_ref = module.SimulatedUserProxy.start(
-                config=BaseConfig(name="human", role="UserProxy"),
-                orchestrator=orchestrator_addr,
+            user_proxy_addr = orch_proxy.createActor(
+                module.SimulatedUserProxy, config=BaseConfig(name="human", role="UserProxy")
             )
-            user_proxy_addr = ActorAddressImpl(user_proxy_ref)
-
-            coordinator_ref = module.CoordinatorAgent.start(
+            coordinator_addr = orch_proxy.createActor(
+                module.CoordinatorAgent,
                 config=BaseConfig(name="coordinator", role="CoordinatorAgent"),
-                orchestrator=orchestrator_addr,
             )
-            coordinator_addr = ActorAddressImpl(coordinator_ref)
 
             coordinator_proxy = system.proxy_tell(coordinator_addr, module.CoordinatorAgent)
             coordinator_proxy.set_agents(research_addr, writer_addr, user_proxy_addr)
@@ -401,29 +383,21 @@ class TestMessageRoutingChain:
                 config=BaseConfig(name="orchestrator", role="Orchestrator"),
             )
 
-            research_ref = module.ResearchAgent.start(
-                config=BaseConfig(name="research", role="ResearchAgent"),
-                orchestrator=orchestrator_addr,
+            # Create agents via orchestrator proxy — correct pattern
+            orch_proxy = system.proxy_ask(orchestrator_addr, Orchestrator)
+            research_addr = orch_proxy.createActor(
+                module.ResearchAgent, config=BaseConfig(name="research", role="ResearchAgent")
             )
-            research_addr = ActorAddressImpl(research_ref)
-
-            writer_ref = module.WriterAgent.start(
-                config=BaseConfig(name="writer", role="WriterAgent"),
-                orchestrator=orchestrator_addr,
+            writer_addr = orch_proxy.createActor(
+                module.WriterAgent, config=BaseConfig(name="writer", role="WriterAgent")
             )
-            writer_addr = ActorAddressImpl(writer_ref)
-
-            user_proxy_ref = module.SimulatedUserProxy.start(
-                config=BaseConfig(name="human", role="UserProxy"),
-                orchestrator=orchestrator_addr,
+            user_proxy_addr = orch_proxy.createActor(
+                module.SimulatedUserProxy, config=BaseConfig(name="human", role="UserProxy")
             )
-            user_proxy_addr = ActorAddressImpl(user_proxy_ref)
-
-            coordinator_ref = module.CoordinatorAgent.start(
+            coordinator_addr = orch_proxy.createActor(
+                module.CoordinatorAgent,
                 config=BaseConfig(name="coordinator", role="CoordinatorAgent"),
-                orchestrator=orchestrator_addr,
             )
-            coordinator_addr = ActorAddressImpl(coordinator_ref)
 
             coordinator_proxy = system.proxy_tell(coordinator_addr, module.CoordinatorAgent)
             coordinator_proxy.set_agents(research_addr, writer_addr, user_proxy_addr)
@@ -465,29 +439,21 @@ class TestOrchestratorTracking:
                 config=BaseConfig(name="orchestrator", role="Orchestrator"),
             )
 
-            research_ref = module.ResearchAgent.start(
-                config=BaseConfig(name="research", role="ResearchAgent"),
-                orchestrator=orchestrator_addr,
+            # Create agents via orchestrator proxy — correct pattern
+            orch_proxy = system.proxy_ask(orchestrator_addr, Orchestrator)
+            research_addr = orch_proxy.createActor(
+                module.ResearchAgent, config=BaseConfig(name="research", role="ResearchAgent")
             )
-            research_addr = ActorAddressImpl(research_ref)
-
-            writer_ref = module.WriterAgent.start(
-                config=BaseConfig(name="writer", role="WriterAgent"),
-                orchestrator=orchestrator_addr,
+            writer_addr = orch_proxy.createActor(
+                module.WriterAgent, config=BaseConfig(name="writer", role="WriterAgent")
             )
-            writer_addr = ActorAddressImpl(writer_ref)
-
-            user_proxy_ref = module.SimulatedUserProxy.start(
-                config=BaseConfig(name="human", role="UserProxy"),
-                orchestrator=orchestrator_addr,
+            user_proxy_addr = orch_proxy.createActor(
+                module.SimulatedUserProxy, config=BaseConfig(name="human", role="UserProxy")
             )
-            user_proxy_addr = ActorAddressImpl(user_proxy_ref)
-
-            coordinator_ref = module.CoordinatorAgent.start(
+            coordinator_addr = orch_proxy.createActor(
+                module.CoordinatorAgent,
                 config=BaseConfig(name="coordinator", role="CoordinatorAgent"),
-                orchestrator=orchestrator_addr,
             )
-            coordinator_addr = ActorAddressImpl(coordinator_ref)
 
             coordinator_proxy = system.proxy_tell(coordinator_addr, module.CoordinatorAgent)
             coordinator_proxy.set_agents(research_addr, writer_addr, user_proxy_addr)
@@ -502,7 +468,6 @@ class TestOrchestratorTracking:
             time.sleep(1.0)
 
             # Query orchestrator
-            orch_proxy = system.proxy_ask(orchestrator_addr, Orchestrator)
             messages = orch_proxy.get_messages()
 
             # Should have many messages: StartMessages for each agent, SentMessages, etc.
@@ -527,34 +492,26 @@ class TestOrchestratorTracking:
                 config=BaseConfig(name="orchestrator", role="Orchestrator"),
             )
 
-            research_ref = module.ResearchAgent.start(
-                config=BaseConfig(name="research", role="ResearchAgent"),
-                orchestrator=orchestrator_addr,
+            # Create agents via orchestrator proxy — correct pattern
+            # This ensures StartMessages are delivered to orchestrator via auto-propagated orchestrator ref
+            orch_proxy = system.proxy_ask(orchestrator_addr, Orchestrator)
+            orch_proxy.createActor(
+                module.ResearchAgent, config=BaseConfig(name="research", role="ResearchAgent")
             )
-            research_addr = ActorAddressImpl(research_ref)
-
-            writer_ref = module.WriterAgent.start(
-                config=BaseConfig(name="writer", role="WriterAgent"),
-                orchestrator=orchestrator_addr,
+            orch_proxy.createActor(
+                module.WriterAgent, config=BaseConfig(name="writer", role="WriterAgent")
             )
-            writer_addr = ActorAddressImpl(writer_ref)
-
-            user_proxy_ref = module.SimulatedUserProxy.start(
-                config=BaseConfig(name="human", role="UserProxy"),
-                orchestrator=orchestrator_addr,
+            orch_proxy.createActor(
+                module.SimulatedUserProxy, config=BaseConfig(name="human", role="UserProxy")
             )
-            user_proxy_addr = ActorAddressImpl(user_proxy_ref)
-
-            coordinator_ref = module.CoordinatorAgent.start(
+            orch_proxy.createActor(
+                module.CoordinatorAgent,
                 config=BaseConfig(name="coordinator", role="CoordinatorAgent"),
-                orchestrator=orchestrator_addr,
             )
-            coordinator_addr = ActorAddressImpl(coordinator_ref)
 
             time.sleep(0.3)
 
             # Query orchestrator for team
-            orch_proxy = system.proxy_ask(orchestrator_addr, Orchestrator)
             team = orch_proxy.get_team()
 
             # Should have 4 agents (research, writer, coordinator, user_proxy)
@@ -579,29 +536,21 @@ class TestOrchestratorTracking:
                 config=BaseConfig(name="orchestrator", role="Orchestrator"),
             )
 
-            research_ref = module.ResearchAgent.start(
-                config=BaseConfig(name="research", role="ResearchAgent"),
-                orchestrator=orchestrator_addr,
+            # Create agents via orchestrator proxy — correct pattern
+            orch_proxy = system.proxy_ask(orchestrator_addr, Orchestrator)
+            research_addr = orch_proxy.createActor(
+                module.ResearchAgent, config=BaseConfig(name="research", role="ResearchAgent")
             )
-            research_addr = ActorAddressImpl(research_ref)
-
-            writer_ref = module.WriterAgent.start(
-                config=BaseConfig(name="writer", role="WriterAgent"),
-                orchestrator=orchestrator_addr,
+            writer_addr = orch_proxy.createActor(
+                module.WriterAgent, config=BaseConfig(name="writer", role="WriterAgent")
             )
-            writer_addr = ActorAddressImpl(writer_ref)
-
-            user_proxy_ref = module.SimulatedUserProxy.start(
-                config=BaseConfig(name="human", role="UserProxy"),
-                orchestrator=orchestrator_addr,
+            user_proxy_addr = orch_proxy.createActor(
+                module.SimulatedUserProxy, config=BaseConfig(name="human", role="UserProxy")
             )
-            user_proxy_addr = ActorAddressImpl(user_proxy_ref)
-
-            coordinator_ref = module.CoordinatorAgent.start(
+            coordinator_addr = orch_proxy.createActor(
+                module.CoordinatorAgent,
                 config=BaseConfig(name="coordinator", role="CoordinatorAgent"),
-                orchestrator=orchestrator_addr,
             )
-            coordinator_addr = ActorAddressImpl(coordinator_ref)
 
             coordinator_proxy = system.proxy_tell(coordinator_addr, module.CoordinatorAgent)
             coordinator_proxy.set_agents(research_addr, writer_addr, user_proxy_addr)
@@ -616,7 +565,6 @@ class TestOrchestratorTracking:
             time.sleep(1.0)
 
             # Query orchestrator for states
-            orch_proxy = system.proxy_ask(orchestrator_addr, Orchestrator)
             states = orch_proxy.get_states()
 
             # Should track at least 3 agents (research, writer, coordinator)

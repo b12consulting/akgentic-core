@@ -14,11 +14,14 @@ In [example 01](01-hello-world.md), messages only flowed in one direction. Here,
 handler gives you the address to reply to:
 
 ```python
-def receiveMsg_CalculationRequest(self, message: CalculationRequest, sender: ActorAddress | None) -> None:
+def receiveMsg_CalculationRequest(self, message: CalculationRequest, sender: ActorAddress) -> None:
     result = compute(message)
-    if sender is not None:
-        self.send(sender, CalculationResult(result=result, request_id=message.id))
+    self.send(sender, CalculationResult(result=result, request_id=message.id))
 ```
+
+When a message extends `Message`, `sender` is always a valid `ActorAddress` — no `None` check
+needed. The framework guarantees this: only messages that subclass `Message` carry a `sender`,
+so handlers for those message types always receive a real address.
 
 `message.id` is the built-in UUID every `Message` carries — useful for correlating a response
 back to its original request.

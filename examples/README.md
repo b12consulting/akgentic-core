@@ -63,7 +63,7 @@ on the previous.
 | 01  | `01_hello_world.py`      | Messages, agents, the actor system, fire-and-forget messaging |
 | 02  | `02_request_response.py` | Bidirectional communication, blocking calls, proxy wrappers   |
 | 03  | `03_dynamic_agents.py`   | Spawning child agents at runtime, parent-child hierarchy      |
-| 04  | `04_stateful_agents.py`  | Typed state, the observer pattern, Orchestrator telemetry     |
+| 04  | `04_stateful_agents.py`  | Custom config, typed state, the observer pattern, Orchestrator telemetry |
 | 05  | `05_multi_agent.py`      | Multi-agent workflows, human-in-the-loop, event subscribers   |
 
 ---
@@ -87,6 +87,8 @@ Find the example where a specific concept first appears:
 | `self.createActor()` (spawn child from agent)    | [03 — Dynamic Agents](03-dynamic-agents.md)     |
 | `self._parent`                                   | [03 — Dynamic Agents](03-dynamic-agents.md)     |
 | `init()` hook                                    | [03 — Dynamic Agents](03-dynamic-agents.md)     |
+| `BaseConfig` subclass (custom typed config)      | [04 — Stateful Agents](04-stateful-agents.md)   |
+| `self.config` in `init()` and message handlers  | [04 — Stateful Agents](04-stateful-agents.md)   |
 | `BaseState` subclass                             | [04 — Stateful Agents](04-stateful-agents.md)   |
 | `state.observer()` / `notify_state_change()`     | [04 — Stateful Agents](04-stateful-agents.md)   |
 | `Orchestrator`                                   | [04 — Stateful Agents](04-stateful-agents.md)   |

@@ -70,24 +70,6 @@ class BaseConfig(SerializableBaseModel):
     squad_id: uuid.UUID | None = None
 
 
-class PrivateConfig(SerializableBaseModel):
-    """Internal framework configuration for agent management.
-
-    Attributes:
-        team_id: Required team identifier for coordination.
-        user_id: Optional user identifier for multi-tenant scenarios.
-        user_email: Optional user email for notifications.
-        parent: ActorAddress of the parent agent in hierarchy.
-        orchestrator: ActorAddress of the orchestrating agent.
-    """
-
-    team_id: uuid.UUID
-    user_id: str | None = None
-    user_email: str | None = None
-    parent: ActorAddress | None = None
-    orchestrator: ActorAddress | None = None
-
-
 # Type alias for extensibility (AC: 2)
 AgentConfig = BaseConfig
 """Type alias for agent configuration.

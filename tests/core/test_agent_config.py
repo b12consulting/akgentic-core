@@ -15,7 +15,6 @@ from akgentic import ActorAddressProxy
 from akgentic.agent_config import (
     AgentConfig,
     BaseConfig,
-    PrivateConfig,
     ReadOnlyField,
 )
 
@@ -81,84 +80,6 @@ class TestCustomConfig:
         data = config.model_dump()
         assert data["name"] == "worker"
         assert data["max_tasks"] == 5
-
-
-class TestPrivateConfig:
-    """Tests for PrivateConfig class (AC: 3, 5, 8)."""
-
-    def test_requires_team_id(self) -> None:
-        """PrivateConfig requires team_id - raises ValidationError if missing."""
-        with pytest.raises(ValidationError) as exc_info:
-            PrivateConfig()  # type: ignore[call-arg]
-        assert "team_id" in str(exc_info.value)
-
-    def test_with_team_id_only(self) -> None:
-        """PrivateConfig accepts team_id with all other fields as None."""
-        team = uuid.uuid4()
-        config = PrivateConfig(team_id=team)
-        assert config.team_id == team
-        assert config.user_id is None
-        assert config.user_email is None
-        assert config.parent is None
-        assert config.orchestrator is None
-
-    def test_with_all_optional_fields(self) -> None:
-        """PrivateConfig accepts all optional fields."""
-        team = uuid.uuid4()
-        config = PrivateConfig(
-            team_id=team,
-            user_id="user-123",
-            user_email="user@example.com",
-        )
-        assert config.team_id == team
-        assert config.user_id == "user-123"
-        assert config.user_email == "user@example.com"
-
-    def test_with_actor_address_parent(self) -> None:
-        """PrivateConfig.parent accepts ActorAddress (AC: 8)."""
-        team = uuid.uuid4()
-        parent_address = ActorAddressProxy({
-            "__actor_address__": True,
-            "__actor_type__": "test.ParentAgent",
-            "agent_id": str(uuid.uuid4()),
-            "name": "parent-agent",
-            "role": "supervisor",
-            "team_id": str(team),
-            "squad_id": None,
-            "user_message": False,
-        })
-        config = PrivateConfig(team_id=team, parent=parent_address)
-        assert config.parent is parent_address
-        assert config.parent.name == "parent-agent"
-
-    def test_with_actor_address_orchestrator(self) -> None:
-        """PrivateConfig.orchestrator accepts ActorAddress (AC: 8)."""
-        team = uuid.uuid4()
-        orch_address = ActorAddressProxy({
-            "__actor_address__": True,
-            "__actor_type__": "test.Orchestrator",
-            "agent_id": str(uuid.uuid4()),
-            "name": "orchestrator",
-            "role": "coordinator",
-            "team_id": str(team),
-            "squad_id": None,
-            "user_message": True,
-        })
-        config = PrivateConfig(team_id=team, orchestrator=orch_address)
-        assert config.orchestrator is orch_address
-        assert config.orchestrator.role == "coordinator"
-
-    def test_serialization_to_dict(self) -> None:
-        """PrivateConfig serializes to dict (AC: 7)."""
-        team = uuid.uuid4()
-        config = PrivateConfig(
-            team_id=team,
-            user_id="user-456",
-        )
-        data = config.model_dump()
-        assert isinstance(data, dict)
-        assert data["user_id"] == "user-456"
-        assert "__model__" in data
 
 
 class TestAgentConfigAlias:

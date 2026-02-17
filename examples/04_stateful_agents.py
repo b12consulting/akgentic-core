@@ -3,11 +3,13 @@ Stateful Agents - Demonstrating State Management with Observer Pattern
 =======================================================================
 
 This example demonstrates how agents maintain and share state using BaseState
-with the observer pattern and Orchestrator tracking:
+with the observer pattern and Orchestrator tracking, and how to extend BaseConfig
+to pass typed, injectable parameters that drive agent behaviour:
 
+- Custom config type (CounterConfig) extending BaseConfig with domain fields
 - Custom state type (CounterState) with multiple fields
-- State initialization with observer attachment
-- Explicit state mutation with notification
+- State initialization driven by self.config inside init()
+- Explicit state mutation with notification, clamped via self.config
 - Orchestrator tracking of all state changes
 - Querying final state via Orchestrator.get_states()
 
@@ -21,7 +23,6 @@ import time
 
 from akgentic import (
     ActorAddress,
-    ActorAddressImpl,
     ActorSystem,
     Akgent,
     BaseConfig,
@@ -29,6 +30,29 @@ from akgentic import (
     Orchestrator,
 )
 from akgentic.messages import Message
+
+# =============================================================================
+# STEP 0: Define a custom configuration (extends BaseConfig)
+# =============================================================================
+# CounterConfig adds two fields that drive the agent's behaviour:
+# - max_increment: clamps how much a single IncrementMessage can add
+# - label_prefix:  tags every history entry for easy identification
+# Both fields are available as self.config.* inside init() and all handlers.
+
+
+class CounterConfig(BaseConfig):
+    """Configuration for CounterAgent with rate-limiting and audit labelling.
+
+    Attributes:
+        max_increment: Maximum amount a single IncrementMessage may apply.
+                       Requests above this value are clamped silently.
+        label_prefix:  String prepended to every history entry.
+                       Useful for distinguishing agents in multi-agent scenarios.
+    """
+
+    max_increment: int = 10
+    label_prefix: str = ""
+
 
 # =============================================================================
 # STEP 1: Define the agent state
@@ -84,19 +108,22 @@ class ResetMessage(Message):
 # STEP 3: Define the counter agent with state management
 # =============================================================================
 # CounterAgent demonstrates:
-# - Initializing state with observer attachment
+# - Initializing state with observer attachment, driven by self.config
 # - Mutating state and notifying observers
+# - Clamping increments using self.config.max_increment
+# - Prefixing history labels using self.config.label_prefix
 # - Orchestrator tracking state changes
 
 
-class CounterAgent(Akgent[BaseConfig, CounterState]):
+class CounterAgent(Akgent[CounterConfig, CounterState]):
     """An agent that maintains a counter with state tracking.
 
     This agent demonstrates:
+    - CounterConfig subclass with domain-specific fields
     - BaseState subclass with multiple fields
     - Observer pattern for state change notification
     - Orchestrator tracking of all state mutations
-    - Message handlers that modify state
+    - Message handlers that modify state using self.config
     """
 
     def init(self) -> None:
@@ -104,50 +131,68 @@ class CounterAgent(Akgent[BaseConfig, CounterState]):
 
         Called after __init__ completes. Sets up the agent's state and
         attaches this agent as an observer to receive state change notifications.
+        self.config is guaranteed to be set by the framework before init() is called.
         """
-        super().init()
-        # Initialize state with observer pattern
-        # state.observer(self) attaches self as observer and triggers initial notification
         self.state = CounterState()
+        # Read self.config to set an initial operation label — self.config is
+        # guaranteed to be set by the framework before init() is called.
+        if self.config.label_prefix:
+            self.state.last_operation = f"[{self.config.label_prefix}] Agent ready"
+        else:
+            self.state.last_operation = "Agent ready"
+        # state.observer(self) attaches self as observer and triggers initial notification
         self.state.observer(self)
 
-    def receiveMsg_IncrementMessage(
-        self, message: IncrementMessage, sender: ActorAddress | None
-    ) -> None:
+    def receiveMsg_IncrementMessage(self, message: IncrementMessage, sender: ActorAddress) -> None:
         """Handle increment message by updating state.
 
-        Increments counter, records in history, and notifies observer.
+        Clamps the requested amount using self.config.max_increment — self.config is
+        also readable inside message handlers.
 
         Args:
             message: IncrementMessage containing amount and label.
             sender: Address of sender (unused in this example).
         """
+        # Clamp the requested amount using the config
+        effective = min(message.amount, self.config.max_increment)
+        label = (
+            f"[{self.config.label_prefix}] {message.label}"
+            if self.config.label_prefix
+            else message.label
+        )
+
         # Update state fields
-        self.state.count += message.amount
-        self.state.history.append(message.label)
-        self.state.last_operation = f"Incremented by {message.amount}"
+        self.state.count += effective
+        self.state.history.append(label)
+        self.state.last_operation = f"Incremented by {effective} (requested {message.amount})"
 
         # Print for visibility
         print(
-            f"[CounterAgent] Incremented by {message.amount} → count: {self.state.count} "
-            f'(label: "{message.label}")'
+            f"[CounterAgent] Increment requested={message.amount} → effective={effective} "
+            f"→ count: {self.state.count} (label: \"{label}\")"
         )
 
         # Notify observer (Orchestrator) of state change
         self.state.notify_state_change()
 
-    def receiveMsg_ResetMessage(self, message: ResetMessage, sender: ActorAddress | None) -> None:
+    def receiveMsg_ResetMessage(self, message: ResetMessage, sender: ActorAddress) -> None:
         """Handle reset message by clearing counter.
 
-        Resets counter to zero, records reason in history, and notifies observer.
+        Resets counter to zero, records reason in history (prefixed), and notifies observer.
 
         Args:
             message: ResetMessage containing reason.
             sender: Address of sender (unused in this example).
         """
+        label = (
+            f"[{self.config.label_prefix}] {message.reason}"
+            if self.config.label_prefix
+            else message.reason
+        )
+
         # Update state fields
         self.state.count = 0
-        self.state.history.append(message.reason)
+        self.state.history.append(label)
         self.state.last_operation = f"Reset ({message.reason})"
 
         # Print for visibility
@@ -176,20 +221,24 @@ def main() -> None:
             config=BaseConfig(name="orchestrator", role="Orchestrator"),
         )
 
-        # Create the CounterAgent - need to manually pass orchestrator reference
-        # because actor_system.createActor doesn't support orchestrator parameter yet
-        counter_ref = CounterAgent.start(
-            agent_id=None,
-            config=BaseConfig(name="counter", role="Counter"),
-            user_id=None,
-            user_email=None,
-            team_id=None,
-            parent=None,
-            orchestrator=orchestrator_addr,
+        # Create orchestrator proxy — reused for both createActor and get_states
+        orch_proxy = actor_system.proxy_ask(orchestrator_addr, Orchestrator)
+
+        # Create CounterAgent via orchestrator with a CounterConfig instance —
+        # team_id, orchestrator, parent all auto-propagated.
+        # CounterConfig extends BaseConfig with max_increment and label_prefix.
+        counter_addr = orch_proxy.createActor(
+            CounterAgent,
+            config=CounterConfig(
+                name="counter",
+                role="Counter",
+                max_increment=5,
+                label_prefix="DEMO",
+            ),
         )
-        counter_addr = ActorAddressImpl(counter_ref)
 
         # Send increment messages to mutate state
+        # amount=5 → effective=5 (within max_increment=5)
         actor_system.tell(
             counter_addr,
             IncrementMessage(amount=5, label="first increment"),
@@ -198,9 +247,19 @@ def main() -> None:
         # Wait for async message processing
         time.sleep(0.2)
 
+        # amount=3 → effective=3 (within max_increment=5)
         actor_system.tell(
             counter_addr,
             IncrementMessage(amount=3, label="second increment"),
+        )
+
+        # Wait for async message processing
+        time.sleep(0.2)
+
+        # amount=10 → effective=5 (clamped by max_increment=5) — demonstrates clamping
+        actor_system.tell(
+            counter_addr,
+            IncrementMessage(amount=10, label="over-limit increment"),
         )
 
         # Wait for async message processing
@@ -214,6 +273,7 @@ def main() -> None:
         # Wait for async message processing
         time.sleep(0.2)
 
+        # amount=10 → effective=5 (clamped again after reset)
         actor_system.tell(
             counter_addr,
             IncrementMessage(amount=10, label="after reset"),
@@ -222,11 +282,8 @@ def main() -> None:
         # Wait for async message processing
         time.sleep(0.5)
 
-        # Query the orchestrator for tracked state
-        orchestrator_proxy = actor_system.proxy_ask(orchestrator_addr, Orchestrator)
-
-        # Get all tracked state
-        states = orchestrator_proxy.get_states()
+        # Get all tracked state (reuse orch_proxy created above)
+        states = orch_proxy.get_states()
 
         # Count state changes by the size of history in final state
         # (each mutation adds an entry to history)

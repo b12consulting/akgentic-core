@@ -21,15 +21,42 @@ from akgentic import UserProxy
 
 class SimulatedUserProxy(UserProxy):
 
-    def receiveMsg_ReviewRequest(self, message: ReviewRequest, sender: ActorAddress | None) -> None:
+    def receiveMsg_ReviewRequest(self, message: ReviewRequest, sender: ActorAddress) -> None:
         # In a real app: display to user, await input, return response
         approval = ApprovalResponse(approved=True, feedback="Looks good!")
-        if sender is not None:
-            self.send(sender, approval)
+        self.send(sender, approval)
 ```
 
 The rest of the system doesn't need to change to add or remove a human from the loop — the
 `UserProxy` is just another agent with an address.
+
+**Connecting an external system (frontend, API, CLI):** when the agent workflow reaches the
+`UserProxy` and is waiting for a human decision, your external system calls
+`process_human_input()` on the proxy — obtained via `actor_system.proxy_ask(user_proxy_addr, UserProxy)`:
+
+```python
+user_proxy = actor_system.proxy_ask(user_proxy_addr, UserProxy)
+
+# Called by your frontend / REST handler / CLI when the human responds:
+user_proxy.process_human_input(
+    content="Approved — publish it.",
+    message=original_review_request,   # the message the UserProxy received
+)
+```
+
+The default implementation wraps the human's response in a `ResultMessage` and sends it to
+`message.sender` — routing the reply back into the agent pipeline without any other wiring.
+
+Override `process_human_input` in a subclass to add validation, logging, or custom routing
+before the response is dispatched:
+
+```python
+class ValidatingUserProxy(UserProxy):
+    def process_human_input(self, content: str, message: Message) -> None:
+        if content.strip() not in ("approve", "reject"):
+            raise ValueError(f"Unexpected input: {content!r}")
+        super().process_human_input(content, message)
+```
 
 ---
 
@@ -45,6 +72,13 @@ from akgentic import OrchestratorEventSubscriber
 class SimpleLogger(OrchestratorEventSubscriber):
 
     def on_message(self, msg: Message) -> None:
+        # msg is one of the agent lifecycle telemetry types:
+        #   StartMessage      — agent started
+        #   StopMessage       — agent stopped
+        #   SentMessage       — agent sent a message to another agent
+        #   ReceivedMessage   — agent received a message
+        #   ProcessedMessage  — agent finished processing a message
+        #   ErrorMessage      — agent raised an error while processing
         self.message_count += 1
 
     def on_state_changed(self, msg: Message) -> None:
@@ -69,6 +103,23 @@ orch_proxy.subscribe(SimpleLogger())
 
 Subscribers are the extension point for adding external integrations — databases, WebSockets,
 dashboards — without modifying any agent logic.
+
+---
+
+### Team formation via `createActor()`
+
+All agents in a session must be created through `proxy_ask(orchestrator).createActor()` — never
+via the pykka-internal `.start()` class method directly.
+
+When `orch_proxy.createActor(SomeAgent, config=...)` is called:
+
+- The orchestrator's own `createActor` implementation calls `.start()` internally
+- `team_id`, `user_id`, `user_email`, `parent`, and `orchestrator` are propagated from the
+  orchestrator's own context into the new child agent
+- The new agent announces itself via `StartMessage` to the orchestrator on startup
+
+This is what `get_team()` uses to enumerate team members — it scans `StartMessage` history to
+find all agents that reported to this orchestrator.
 
 ---
 
@@ -101,51 +152,62 @@ independently testable.
 ## Message flow
 
 ```
-main()      ActorSystem   Orchestrator  Coordinator  Researcher   Writer    UserProxy
-  |              |             |             |            |          |           |
-  |--create(O)-->|             |             |            |          |           |
-  |              |--spawn----->|             |            |          |           |
-  |              |             |             |            |          |           |
-  |--subscribe(Logger)-------->|             |            |          |           |
-  |              |             |             |            |          |           |
-  |--create(R,W,U,C)---------->|             |            |          |           |
-  |              |--spawn------|------------>|            |          |           |
-  |              |--spawn------|-------------|----------->|          |           |
-  |              |--spawn------|-------------|------------|--------->|           |
-  |              |--spawn------|-------------|------------|----------|---------->|
-  |              |             |             |            |          |           |
-  |--tell(TaskRequest)---------|------------>|            |          |           |
-  |              |             |             |            |          |           |
-  |              |             |  receiveMsg_TaskRequest  |          |           |
-  |              |             |<--state_change(researching)         |           |
-  |              |             |             |--send(TaskRequest)--->|           |
-  |              |             |             |            |          |           |
-  |              |             |    receiveMsg_TaskRequest           |           |
-  |              |             |<--state_change(research done)       |           |
-  |              |             |             |<--send(ResearchResult)|           |
-  |              |             |             |            |          |           |
-  |              |             |  receiveMsg_ResearchResult          |           |
-  |              |             |<--state_change(drafting) |          |           |
-  |              |             |             |--send(ResearchResult)-|---------->|
-  |              |             |             |            |          |           |
-  |              |             |                receiveMsg_ResearchResult        |
-  |              |             |<--state_change(draft done)          |           |
-  |              |             |             |<--send(DraftContent)--|           |
-  |              |             |             |            |          |           |
-  |              |             |  receiveMsg_DraftContent |          |           |
-  |              |             |<--state_change(reviewing)|          |           |
-  |              |             |             |--send(ReviewRequest)--|---------->|
-  |              |             |             |            |          |           |
-  |              |             |                     receiveMsg_ReviewRequest    |
-  |              |             |             |<--send(ApprovalResponse)----------|
-  |              |             |             |            |          |           |
-  |              |             |  receiveMsg_ApprovalResponse        |           |
-  |              |             |<--state_change(done)     |          |           |
-  |              |             |             |            |          |           |
-  |--proxy_ask(get_team/messages/states)---->|            |          |           |
-  |<--{ summary }--------------|             |            |          |           |
-  |              |             |             |            |          |           |
-  |--shutdown()-->|            |             |            |          |           |
+main()         ActorSystem    Orchestrator   Coordinator   Researcher    Writer     UserProxy
+  |                 |              |              |             |           |            |
+  |-createActor(O)->|              |              |             |           |            |
+  |                 |--spawn------>|              |             |           |            |
+  |--proxy_ask(O)-->|         orch_proxy          |             |           |            |
+  |--subscribe(Logger)------------>|              |             |           |            |
+  |                 |              |              |             |           |            |
+  |--orch_proxy.createActor(R)---->|              |             |           |            |
+  |                 |              |--spawn------>|------------>|           |            |
+  |--orch_proxy.createActor(W)---->|              |             |           |            |
+  |                 |              |--spawn------>|-------------|---------->|            |
+  |--orch_proxy.createActor(U)---->|              |             |           |            |
+  |                 |              |--spawn------>|-------------|-----------|----------->|
+  |--orch_proxy.createActor(C)---->|              |             |           |            |
+  |                 |              |--spawn------>|             |           |            |
+  |                 |              | (team_id, orchestrator, parent: auto-propagated)   |
+  |--proxy_tell(C)->|              |              |             |           |            |
+  |                 |--set_agents(R,W,U)--------->|             |           |            |
+  |                 |              |              |             |           |            |
+  |--tell(TaskRequest)------------>|------------->|             |           |            |
+  |                 |              |              |             |           |            |
+  |                 |              |  receiveMsg_TaskRequest    |           |            |
+  |                 |              |<--notify_state_change()----|           |            |
+  |                 |              |              |--send(TaskRequest)----->|            |
+  |                 |              |              |             |           |            |
+  |                 |              |         receiveMsg_TaskRequest         |            |
+  |                 |              |<--notify_state_change()---|            |            |
+  |                 |              |              |<--send(ResearchResult)--|            |
+  |                 |              |              |             |           |            |
+  |                 |         receiveMsg_ResearchResult         |           |            |
+  |                 |              |<--notify_state_change()----|           |            |
+  |                 |              |              |--send(ResearchResult)--------------->|
+  |                 |              |              |             |           |            |
+  |                 |              |              |        receiveMsg_ResearchResult     |
+  |                 |              |<--notify_state_change()----|---------->|            |
+  |                 |              |              |<--send(DraftContent)----|            |
+  |                 |              |              |             |           |            |
+  |                 |         receiveMsg_DraftContent           |           |            |
+  |                 |              |<--notify_state_change()----|           |            |
+  |                 |              |              |--send(ReviewRequest)---------------->|
+  |                 |              |              |             |           |            |
+  |                 |              |              |             |      receiveMsg_ReviewRequest
+  |                 |              |              |<--send(ApprovalResponse)-------------|
+  |                 |              |              |             |           |            |
+  |                 |         receiveMsg_ApprovalResponse       |           |            |
+  |                 |              |<--notify_state_change()----|           |            |
+  |                 |              |              |             |           |            |
+  |--proxy_ask(O)-->|              |              |             |           |            |
+  |                 |-get_team()-->|              |             |           |            |
+  |<--team----------|--------------|              |             |           |            |
+  |                 |-get_messages()>|            |             |           |            |
+  |<--messages------|--------------|              |             |           |            |
+  |                 |-get_states()>|              |             |           |            |
+  |<--states--------|--------------|              |             |           |            |
+  |                 |              |              |             |           |            |
+  |--shutdown()---->|              |              |             |           |            |
 ```
 
 ---
@@ -155,20 +217,23 @@ main()      ActorSystem   Orchestrator  Coordinator  Researcher   Writer    User
 This example assembles all previous concepts into a realistic pipeline:
 
 **Setup**: The Orchestrator is created first, a `SimpleLogger` is subscribed to it, then all
-specialist agents are started with a reference to the Orchestrator so their state changes are
-tracked automatically.
+specialist agents are spawned via `orch_proxy.createActor(...)`. This single call auto-propagates
+`team_id`, `orchestrator`, and `parent` from the orchestrator's own context into every child
+agent — no manual threading of these fields is needed. Each child's startup `StartMessage` is
+automatically delivered to the Orchestrator, registering it as a team member visible via
+`get_team()`.
 
 **Routing**: The `CoordinatorAgent` holds references to all other agents and acts as the
 switchboard. When a message arrives it updates its own `CoordinatorState` (stage: researching /
 drafting / reviewing / done) and forwards the message on. Each stage transition is a
 `notify_state_change()`, giving the Orchestrator a complete audit trail.
 
-**The pipeline**:
+**The pipeline** (all replies route back through the Coordinator):
+
 ```
-TaskRequest → ResearchAgent → ResearchResult
-           → WriterAgent   → DraftContent
-           → UserProxy     → ApprovalResponse
-           → Coordinator   → done
+main  →  Coordinator  →  ResearchAgent  →(ResearchResult)→  Coordinator
+                      →  WriterAgent    →(DraftContent)  →  Coordinator
+                      →  UserProxy      →(ApprovalResponse)→ Coordinator  → done
 ```
 
 **Human-in-the-loop**: `SimulatedUserProxy` auto-approves in this demo. In a real application
@@ -226,13 +291,13 @@ State snapshots: 3 agents tracked
 
 You now have all the building blocks:
 
-| Concept | Example |
-|---|---|
-| Messages, agents, actor system | [01](01-hello-world.md) |
-| Bidirectional messaging, proxies | [02](02-request-response.md) |
-| Dynamic spawning, parent-child | [03](03-dynamic-agents.md) |
-| Typed state, observer, Orchestrator | [04](04-stateful-agents.md) |
-| UserProxy, subscribers, full telemetry | 05 (this file) |
+| Concept                                | Example                      |
+| -------------------------------------- | ---------------------------- |
+| Messages, agents, actor system         | [01](01-hello-world.md)      |
+| Bidirectional messaging, proxies       | [02](02-request-response.md) |
+| Dynamic spawning, parent-child         | [03](03-dynamic-agents.md)   |
+| Typed state, observer, Orchestrator    | [04](04-stateful-agents.md)  |
+| UserProxy, subscribers, full telemetry | 05 (this file)               |
 
 From here you can explore `akgentic-framework` to add LLM capabilities on top of these same
 patterns.

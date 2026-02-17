@@ -5,7 +5,7 @@ Dynamic Agent Creation - Runtime Actor Spawning and Parent-Child Communication
 This example demonstrates dynamic agent creation at runtime:
 - Custom message types (ProcessTaskRequest, TaskResult)
 - Creating child agents at runtime via createActor() within an existing agent
-- Parent-child communication patterns
+- Replying via sender (always valid ActorAddress for Message subclasses)
 - Context propagation from parent to child agents
 - Tracking created workers in _children list
 
@@ -58,23 +58,22 @@ class TaskResult(Message):
 # =============================================================================
 # WorkerAgent instances are created dynamically by ManagerAgent at runtime.
 # They demonstrate parent-child communication by:
-# - Accessing parent via self._parent (from Akgent base class)
-# - Sending results back to parent using self.send()
+# - Receiving tasks from the manager (sender is always a valid ActorAddress)
+# - Sending results back to sender using self.send()
 # - Processing tasks and returning results
 
 
 class WorkerAgent(Akgent[BaseConfig, BaseState]):
-    """A worker agent that processes tasks and reports results to parent.
+    """A worker agent that processes tasks and reports results to sender.
 
     This agent demonstrates:
     - Being dynamically created by a parent agent at runtime
     - Receiving task messages (ProcessTaskRequest)
-    - Processing tasks and sending results back to parent (TaskResult)
-    - Parent-child context propagation (parent stored in self._parent)
+    - Processing tasks and sending results back to sender (TaskResult)
     """
 
     def receiveMsg_ProcessTaskRequest(
-        self, message: ProcessTaskRequest, sender: ActorAddress | None
+        self, message: ProcessTaskRequest, sender: ActorAddress
     ) -> None:
         """Handle incoming task request by processing and sending result.
 
@@ -90,17 +89,12 @@ class WorkerAgent(Akgent[BaseConfig, BaseState]):
         print(f"[WorkerAgent-{self.config.name}] Processing task: {task_id} (data: {data!r})")
         result = data.upper()
 
-        # Send result back to the parent agent
-        # Note: self._parent is set by createActor() in the parent agent
-        # Context propagation: parent context (team_id, user_id, etc.) is
-        # automatically inherited from parent during createActor()
-        if self._parent is not None:
-            self.send(
-                self._parent,
-                TaskResult(
-                    task_id=task_id, result=result, worker_name=self.config.name or "unknown"
-                ),
-            )
+        # Send result back to the sender (ManagerAgent)
+        # sender is always a valid ActorAddress since ProcessTaskRequest extends Message
+        self.send(
+            sender,
+            TaskResult(task_id=task_id, result=result, worker_name=self.config.name or "unknown"),
+        )
 
 
 # =============================================================================
@@ -130,13 +124,12 @@ class ManagerAgent(Akgent[BaseConfig, BaseState]):
 
         Called after __init__ completes. Use for agent-specific setup.
         """
-        super().init()
         self.results: list[str] = []
         self.completed_tasks: int = 0
         self.expected_tasks: int = 0
 
     def receiveMsg_ProcessTasksCommand(
-        self, message: ProcessTasksCommand, sender: ActorAddress | None
+        self, message: ProcessTasksCommand, sender: ActorAddress
     ) -> None:
         """Handle command to process tasks by creating workers dynamically.
 
@@ -164,7 +157,7 @@ class ManagerAgent(Akgent[BaseConfig, BaseState]):
             # - Tracks child in self._children list
             worker_addr = self.createActor(
                 WorkerAgent,
-                user_config=BaseConfig(name=f"WorkerAgent-{i + 1}", role="Worker"),
+                config=BaseConfig(name=f"WorkerAgent-{i + 1}", role="Worker"),
             )
 
             # Send the task to the worker
@@ -175,7 +168,7 @@ class ManagerAgent(Akgent[BaseConfig, BaseState]):
                 if i + 1 < len(tasks):
                     print(f"[ManagerAgent] Creating worker for task: {tasks[i + 1]['task_id']}")
 
-    def receiveMsg_TaskResult(self, message: TaskResult, sender: ActorAddress | None) -> None:
+    def receiveMsg_TaskResult(self, message: TaskResult, sender: ActorAddress) -> None:
         """Handle incoming task result from a worker agent.
 
         Args:

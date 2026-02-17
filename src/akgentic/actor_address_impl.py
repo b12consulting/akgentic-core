@@ -110,7 +110,7 @@ class ActorAddressImpl(ActorAddress):
             return config.squad_id  # type: ignore[no-any-return]
         return None
 
-    def send(self, recipient: ActorAddress | None, message: Any) -> None:
+    def send(self, recipient: ActorAddress, message: Any) -> None:
         """Send a message via Pykka proxy.
 
         Uses the actor's send method via proxy to deliver the message.
@@ -255,7 +255,7 @@ class ActorAddressProxy(ActorAddress):
         squad_id_str = self.actor_address_dict.get("squad_id")
         return uuid.UUID(squad_id_str) if squad_id_str else None
 
-    def send(self, recipient: ActorAddress | None, message: Any) -> None:
+    def send(self, recipient: ActorAddress, message: Any) -> None:
         """Cannot send from a proxy address.
 
         Args:

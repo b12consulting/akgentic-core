@@ -263,7 +263,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         self,
         actor_class: type[Akgent[Any, Any]],
         agent_id: uuid.UUID | None = None,
-        user_config: BaseConfig = BaseConfig(),
+        config: BaseConfig = BaseConfig(),
     ) -> ActorAddress:
         """Create a child actor with context propagation.
 
@@ -273,7 +273,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         Args:
             actor_class: Class of the agent to instantiate.
             agent_id: Optional UUID for the new agent (defaults to uuid4()).
-            user_config: Configuration for the new agent.
+            config: Configuration for the new agent.
 
         Returns:
             ActorAddress of the newly created child agent.
@@ -282,15 +282,15 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             >>> child = self.createActor(
             ...     WorkerAgent,
             ...     agent_id=uuid.uuid4(),
-            ...     user_config=WorkerConfig(name="worker-1")
+            ...     config=WorkerConfig(name="worker-1")
             ... )
         """
         ## Priority on the new configuration for the squad_id over the parent one
-        user_config.squad_id = user_config.squad_id or self.config.squad_id
+        config.squad_id = config.squad_id or self.config.squad_id
 
         actor = actor_class.start(
             agent_id=agent_id,
-            config=user_config,
+            config=config,
             user_id=self._user_id,
             user_email=self._user_email,
             team_id=self._team_id,
@@ -421,7 +421,11 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             if hasattr(self, methodName):
                 for klass in inspect.getmro(self.__class__):
                     if hasattr(klass, methodName):
-                        r = getattr(klass, methodName)(self, message, sender)
+                        method = getattr(klass, methodName)
+                        if "sender" in inspect.signature(method).parameters:
+                            r = method(self, message, sender)
+                        else:
+                            r = method(self, message)
                         if r != self.SUPER:
                             return r
 
@@ -433,14 +437,11 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
     ##
     ## Stopping handling
     ##
-    def receiveMsg_StopRecursively(  # noqa: N802
-        self, msg: StopRecursively, sender: Any
-    ) -> None:
+    def receiveMsg_StopRecursively(self, msg: StopRecursively) -> None:
         """Handle recursive stop message.
 
         Args:
             msg: StopRecursively message.
-            sender: Sender address.
         """
         self.stop()
 

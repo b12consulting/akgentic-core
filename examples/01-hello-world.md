@@ -38,7 +38,7 @@ from akgentic import Akgent, BaseConfig, BaseState
 
 class ReceiverAgent(Akgent[BaseConfig, BaseState]):
 
-    def receiveMsg_HelloMessage(self, message: HelloMessage, sender: ActorAddress | None) -> None:
+    def receiveMsg_HelloMessage(self, message: HelloMessage, sender: ActorAddress) -> None:
         print(f"Received: {message.greeting}")
 ```
 

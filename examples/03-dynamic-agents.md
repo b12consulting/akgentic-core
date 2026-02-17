@@ -16,7 +16,7 @@ handler, using `self.createActor()`:
 ```python
 worker_addr = self.createActor(
     WorkerAgent,
-    user_config=BaseConfig(name=f"worker-{i}", role="Worker"),
+    config=BaseConfig(name=f"worker-{i}", role="Worker"),
 )
 ```
 
@@ -28,23 +28,23 @@ sized to the actual workload.
 ### Parent-child relationship
 
 When an agent calls `self.createActor()`, the framework automatically:
+
 - sets `self.myAddress` as the parent of the new child
 - stores the child in `self._children`
 - propagates context (user_id, team_id, orchestrator reference) from parent to child
 
-Inside the child, `self._parent` holds the address of the agent that created it:
+Because `ProcessTaskRequest` extends `Message`, `sender` is always a valid `ActorAddress` —
+the worker replies directly to it:
 
 ```python
 class WorkerAgent(Akgent[BaseConfig, BaseState]):
 
-    def receiveMsg_ProcessTaskRequest(self, message: ProcessTaskRequest, sender: ActorAddress | None) -> None:
+    def receiveMsg_ProcessTaskRequest(self, message: ProcessTaskRequest, sender: ActorAddress) -> None:
         result = message.data.upper()
-        if self._parent is not None:
-            self.send(self._parent, TaskResult(task_id=message.task_id, result=result, ...))
+        self.send(sender, TaskResult(task_id=message.task_id, result=result, ...))
 ```
 
-The child reports back to the parent without needing to know the parent's address explicitly —
-`self._parent` is always set.
+The child reports back to the manager via `sender` — no need to reference `self._parent` explicitly.
 
 ---
 
@@ -58,7 +58,6 @@ framework's setup):
 class ManagerAgent(Akgent[BaseConfig, BaseState]):
 
     def init(self) -> None:
-        super().init()
         self.results: list[str] = []
         self.completed_tasks: int = 0
         self.expected_tasks: int = 0
@@ -83,14 +82,14 @@ main()            ActorSystem         ManagerAgent        WorkerAgent-1       Wo
   |                   |                   |--send(Task-1)----->|                   |
   |                   |                   |--send(Task-2)------|------------------>|
   |                   |                   |                    |                   |
-  |                   |                   |   receiveMsg_ProcessTaskRequest        |
-  |                   |                   |<--send(TaskResult)--|                  |
+  |                   |                   |  receiveMsg_ProcessTaskRequest         |
+  |                   |                   |<--send(TaskResult)-|                   |
   |                   |                   |                    |                   |
-  |                   |                   |        receiveMsg_ProcessTaskRequest   |
-  |                   |                   |<--send(TaskResult)--|-------------------|
+  |                   |                   |                    | receiveMsg_ProcessTaskRequest
+  |                   |                   |<--send(TaskResult)-|-------------------|
   |                   |                   |                    |                   |
-  |                   |   receiveMsg_TaskResult (×2)           |                   |
-  |                   |   → all tasks complete                 |                   |
+  |                   |      receiveMsg_TaskResult (×2)        |                   |
+  |                   |        → all tasks complete            |                   |
   |                   |                   |                    |                   |
   |--shutdown()------>|                   |                    |                   |
 ```
@@ -106,16 +105,16 @@ creates a fresh `WorkerAgent` — the workers don't exist until they are needed.
 for i, task in enumerate(tasks):
     worker_addr = self.createActor(
         WorkerAgent,
-        user_config=BaseConfig(name=f"WorkerAgent-{i + 1}", role="Worker"),
+        config=BaseConfig(name=f"WorkerAgent-{i + 1}", role="Worker"),
     )
     self.send(worker_addr, ProcessTaskRequest(task_id=task["task_id"], data=task["data"]))
 ```
 
-Each worker processes its task independently and sends a `TaskResult` back via `self._parent`.
+Each worker processes its task independently and sends a `TaskResult` back to `sender`.
 The manager collects results and tracks completion:
 
 ```python
-def receiveMsg_TaskResult(self, message: TaskResult, sender: ActorAddress | None) -> None:
+def receiveMsg_TaskResult(self, message: TaskResult, sender: ActorAddress) -> None:
     self.results.append(message.result)
     self.completed_tasks += 1
     if self.completed_tasks == self.expected_tasks:
@@ -150,4 +149,4 @@ Expected output:
 ## What's next
 
 → [04 — Stateful Agents](04-stateful-agents.md): typed state, the observer pattern, and
-   Orchestrator telemetry.
+Orchestrator telemetry.

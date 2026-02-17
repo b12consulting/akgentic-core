@@ -1,11 +1,62 @@
 # 04 — Stateful Agents
 
 > A counter agent maintains typed state across messages, notifies an Orchestrator on every
-> change, and exposes the full audit trail — introducing state management and telemetry.
+> change, and exposes the full audit trail — introducing custom config, state management, and telemetry.
 
 ---
 
 ## Concepts introduced
+
+### `BaseConfig` — typed agent configuration
+
+Every `Akgent` receives a configuration object on creation. By default it is a plain
+`BaseConfig` with three built-in fields — `name`, `role`, and `squad_id`. Subclass it to add
+domain-specific parameters that Pydantic validates for you:
+
+```python
+from akgentic import BaseConfig
+
+class CounterConfig(BaseConfig):
+    max_increment: int = 10   # clamp per-message increments
+    label_prefix: str = ""    # prefix every audit-trail entry
+```
+
+Pass an instance as `config=` when creating the agent through the orchestrator proxy:
+
+```python
+counter_addr = orch_proxy.createActor(
+    CounterAgent,
+    config=CounterConfig(
+        name="counter",
+        role="Counter",
+        max_increment=5,
+        label_prefix="DEMO",
+    ),
+)
+```
+
+The framework assigns `self.config` **before** calling `init()`, so custom fields are
+available immediately at initialisation time:
+
+```python
+def init(self) -> None:
+    self.state = CounterState()
+    if self.config.label_prefix:
+        self.state.last_operation = f"[{self.config.label_prefix}] Agent ready"
+    else:
+        self.state.last_operation = "Agent ready"
+    self.state.observer(self)
+```
+
+`self.config` is equally accessible inside any message handler — read it whenever agent-level
+parameters need to influence message processing:
+
+```python
+# In receiveMsg_IncrementMessage:
+effective = min(message.amount, self.config.max_increment)
+```
+
+---
 
 ### `BaseState` — typed agent state
 
@@ -21,11 +72,11 @@ class CounterState(BaseState):
     last_operation: str = ""
 ```
 
-The type parameter on `Akgent[Config, StateType]` tells the framework which state type this
-agent uses:
+The type parameters on `Akgent[Config, StateType]` tell the framework which config and state
+types this agent uses:
 
 ```python
-class CounterAgent(Akgent[BaseConfig, CounterState]):
+class CounterAgent(Akgent[CounterConfig, CounterState]):
     ...
 ```
 
@@ -40,7 +91,6 @@ broadcast them. In `init()`, attach the agent itself as an observer of its own s
 
 ```python
 def init(self) -> None:
-    super().init()
     self.state = CounterState()
     self.state.observer(self)   # subscribe to state change events
 ```
@@ -48,10 +98,9 @@ def init(self) -> None:
 After mutating state in a handler, call `notify_state_change()` to fire the event:
 
 ```python
-def receiveMsg_IncrementMessage(self, message: IncrementMessage, sender: ActorAddress | None) -> None:
-    self.state.count += message.amount
-    self.state.history.append(message.label)
-    self.state.last_operation = f"Incremented by {message.amount}"
+def receiveMsg_IncrementMessage(self, message: IncrementMessage, sender: ActorAddress) -> None:
+    effective = min(message.amount, self.config.max_increment)
+    self.state.count += effective
     self.state.notify_state_change()   # broadcast the change
 ```
 
@@ -75,55 +124,84 @@ orchestrator_addr = actor_system.createActor(
 )
 ```
 
-Pass the orchestrator address when starting an agent so it can report to it:
-
-```python
-counter_ref = CounterAgent.start(
-    ...
-    orchestrator=orchestrator_addr,
-)
-```
-
-After the workflow completes, query the Orchestrator through a proxy:
+Spawn child agents through the orchestrator proxy so that `team_id`, `orchestrator`, and
+`parent` are propagated automatically:
 
 ```python
 orch_proxy = actor_system.proxy_ask(orchestrator_addr, Orchestrator)
+counter_addr = orch_proxy.createActor(
+    CounterAgent,
+    config=CounterConfig(name="counter", role="Counter", max_increment=5, label_prefix="DEMO"),
+)
+```
+
+The `orch_proxy` is reused for both `createActor()` and the later telemetry query:
+
+```python
 states = orch_proxy.get_states()   # { agent_id: StateSnapshot }
 ```
+
+---
+
+### Why `createActor()` via the orchestrator proxy?
+
+Every agent in a team must be created through `proxy_ask(orchestrator).createActor()` — never
+via the pykka-internal `.start()` class method.
+
+When you call `orch_proxy.createActor(SomeAgent, ...)`, the orchestrator's own `createActor`
+implementation:
+
+- Calls `.start()` internally (`.start()` is an implementation detail, not the application API)
+- Propagates `team_id`, `user_id`, `user_email`, `parent`, and `orchestrator` from the
+  orchestrator's own context into every child agent
+- Registers the child in the orchestrator's internal `_children` list
+
+Team membership (visible via `get_team()`) is tracked by the Orchestrator through `StartMessage`
+events — every agent created this way announces itself on startup, and the Orchestrator records
+it. Agents created via `.start()` directly do not propagate `orchestrator`, so their
+`StartMessage` never reaches the Orchestrator and they will not appear in `get_team()` results.
 
 ---
 
 ## Message flow
 
 ```
-main()            ActorSystem         Orchestrator         CounterAgent
-  |                   |                   |                    |
-  |--createActor(O)-->|                   |                    |
-  |                   |--spawn----------->|                    |
-  |                   |                   |                    |
-  |--CounterAgent.start(orchestrator=O)-->|                    |
-  |                   |--spawn------------|------------------- >|
-  |                   |                   |                    |
-  |--tell(Increment +5)------------------|-------------------->|
-  |                   |                   |                    |
-  |                   |             receiveMsg_IncrementMessage |
+main()            ActorSystem        Orchestrator         CounterAgent
+  |                   |                   |                     |
+  |--createActor(O)-->|                   |                     |
+  |                   |--spawn----------->|                     |
+  |                   |                   |                     |
+  |--orch_proxy.createActor(Counter,      |                     |
+  |    CounterConfig(max_increment=5,     |                     |
+  |     label_prefix="DEMO"))------------>|--spawn------------->|
+  |                   |                   |  (team_id, orch,    |
+  |                   |                   |   parent: auto)     |
+  |                   |                   |                     |
+  |--tell(Increment +5)-------------------|-------------------->|
+  |                   |                   |  receiveMsg_IncrementMessage
   |                   |                   |<--notify_state_change()
-  |                   |                   |  (StateChangedMsg) |
-  |                   |  on_state_changed |                    |
-  |                   |                   |                    |
-  |--tell(Increment +3)------------------|-------------------->|
+  |                   |                   |  (StateChangedMsg)  |
+  |                   |                   |                     |
+  |--tell(Increment +3)-------------------|-------------------->|
+  |                   |                   |  receiveMsg_IncrementMessage
   |                   |                   |<--notify_state_change()
-  |                   |                   |                    |
-  |--tell(Reset)-------------------------|-------------------->|
+  |                   |                   |                     |
+  |--tell(Increment +10 →clamped to +5)---|-------------------->|
+  |                   |                   |  receiveMsg_IncrementMessage
   |                   |                   |<--notify_state_change()
-  |                   |                   |                    |
-  |--tell(Increment +10)-----------------|-------------------->|
+  |                   |                   |                     |
+  |--tell(Reset)--------------------------|-------------------->|
+  |                   |                   |  receiveMsg_IncrementMessage
   |                   |                   |<--notify_state_change()
-  |                   |                   |                    |
-  |--proxy_ask(get_states)-------------->|                    |
-  |<--{ counter_id: CounterState }-------|                    |
-  |                   |                   |                    |
-  |--shutdown()------>|                   |                    |
+  |                   |                   |                     |
+  |--tell(Increment +10 →clamped to +5)---|-------------------->|
+  |                   |                   |  receiveMsg_IncrementMessage
+  |                   |                   |<--notify_state_change()
+  |                   |                   |                     |
+  |--orch_proxy.get_states()------------->|                     |
+  |<--{ counter_id: CounterState }--------|                     |
+  |                   |                   |                     |
+  |--shutdown()------>|                   |                     |
 ```
 
 ---
@@ -134,6 +212,18 @@ The counter agent maintains a `CounterState` with three fields: a running `count
 list (one entry per operation), and `last_operation`. After every mutation it fires
 `notify_state_change()`, which the Orchestrator intercepts and records.
 
+The agent is configured with `CounterConfig(max_increment=5, label_prefix="DEMO")`:
+
+- **`max_increment=5`**: any `IncrementMessage` with `amount > 5` is silently clamped to 5,
+  demonstrating that configuration can enforce invariants without changing the message protocol
+- \*\*`label_prefix="DEMO"`: every history entry is prefixed with `[DEMO]`, tagging the audit
+  trail — the same `CounterAgent` class could be deployed with different prefixes for different
+  environments
+
+`self.config` is read in `init()` to set the initial `last_operation`, and again in every
+message handler. This shows that **configuration is a first-class, uniform source of behaviour**
+across the agent's entire lifecycle.
+
 At the end, you can retrieve a snapshot of the final state:
 
 ```python
@@ -143,11 +233,8 @@ if states:
     print(f"count={final.count}, history={final.history}")
 ```
 
-The Orchestrator never needs to know about `CounterState` specifically — it stores whatever
-`BaseState` subclass the agent reports. This makes it reusable across any agent type.
-
-The combination of typed state + observer + Orchestrator gives you a full audit trail of an
-agent's lifecycle without modifying the agent's core logic.
+The Orchestrator never needs to know about `CounterState` or `CounterConfig` specifically — it
+stores whatever `BaseState` subclass the agent reports. This makes it reusable across any agent type.
 
 ---
 
@@ -161,18 +248,25 @@ Expected output:
 
 ```
 [Stateful Agents] Demonstrating state management with Orchestrator tracking...
-[CounterAgent] Incremented by 5 → count: 5 (label: "first increment")
-[CounterAgent] Incremented by 3 → count: 8 (label: "second increment")
+[CounterAgent] Increment requested=5 → effective=5 → count: 5 (label: "[DEMO] first increment")
+[CounterAgent] Increment requested=3 → effective=3 → count: 8 (label: "[DEMO] second increment")
+[CounterAgent] Increment requested=10 → effective=5 → count: 13 (label: "[DEMO] over-limit increment")
 [CounterAgent] Reset → count: 0 (reason: "starting new sequence")
-[CounterAgent] Incremented by 10 → count: 10 (label: "after reset")
-[Orchestrator] Tracked 4 state changes for CounterAgent
-[Orchestrator] Final state: count=10, history=['first increment', 'second increment', 'starting new sequence', 'after reset']
+[CounterAgent] Increment requested=10 → effective=5 → count: 5 (label: "[DEMO] after reset")
+[Orchestrator] Tracked 5 state changes for CounterAgent
+[Orchestrator] Final state: count=5, history=['[DEMO] first increment', '[DEMO] second increment', '[DEMO] over-limit increment', '[DEMO] starting new sequence', '[DEMO] after reset']
 [Stateful Agents] State management demo complete.
 ```
+
+Notice:
+
+- `amount=10` increments are clamped to `effective=5` by `max_increment=5`
+- Every history label carries the `[DEMO]` prefix from `label_prefix`
+- The reset reason also appears in history with the prefix — `self.config` is accessible in all handlers, not only `init()`
 
 ---
 
 ## What's next
 
 → [05 — Multi-Agent](05-multi-agent.md): full multi-agent workflow with a human-in-the-loop and
-   event subscribers.
+event subscribers.

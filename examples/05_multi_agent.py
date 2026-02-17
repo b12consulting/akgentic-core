@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING
 
 from akgentic import (
     ActorAddress,
-    ActorAddressImpl,
     ActorSystem,
     Akgent,
     BaseConfig,
@@ -162,11 +161,10 @@ class ResearchAgent(Akgent[BaseConfig, SpecialistState]):
 
     def init(self) -> None:
         """Initialize research agent state."""
-        super().init()
         self.state = SpecialistState()
         self.state.observer(self)
 
-    def receiveMsg_TaskRequest(self, message: TaskRequest, sender: ActorAddress | None) -> None:
+    def receiveMsg_TaskRequest(self, message: TaskRequest, sender: ActorAddress) -> None:
         """Handle task request by conducting research.
 
         Args:
@@ -199,8 +197,7 @@ class ResearchAgent(Akgent[BaseConfig, SpecialistState]):
         self.state.notify_state_change()
 
         # Send result back to coordinator
-        if sender is not None:
-            self.send(sender, result)
+        self.send(sender, result)
 
 
 # =============================================================================
@@ -220,13 +217,10 @@ class WriterAgent(Akgent[BaseConfig, SpecialistState]):
 
     def init(self) -> None:
         """Initialize writer agent state."""
-        super().init()
         self.state = SpecialistState()
         self.state.observer(self)
 
-    def receiveMsg_ResearchResult(
-        self, message: ResearchResult, sender: ActorAddress | None
-    ) -> None:
+    def receiveMsg_ResearchResult(self, message: ResearchResult, sender: ActorAddress) -> None:
         """Handle research result by drafting content.
 
         Args:
@@ -262,8 +256,7 @@ class WriterAgent(Akgent[BaseConfig, SpecialistState]):
         self.state.notify_state_change()
 
         # Send draft back to coordinator
-        if sender is not None:
-            self.send(sender, draft)
+        self.send(sender, draft)
 
 
 # =============================================================================
@@ -284,7 +277,6 @@ class CoordinatorAgent(Akgent[BaseConfig, CoordinatorState]):
 
     def init(self) -> None:
         """Initialize coordinator state."""
-        super().init()
         self.state = CoordinatorState()
         self.state.observer(self)
         self.research_agent: ActorAddress | None = None
@@ -308,7 +300,7 @@ class CoordinatorAgent(Akgent[BaseConfig, CoordinatorState]):
         self.writer_agent = writer_agent
         self.user_proxy = user_proxy
 
-    def receiveMsg_TaskRequest(self, message: TaskRequest, sender: ActorAddress | None) -> None:
+    def receiveMsg_TaskRequest(self, message: TaskRequest, sender: ActorAddress) -> None:
         """Handle task request by routing to ResearchAgent.
 
         Args:
@@ -331,9 +323,7 @@ class CoordinatorAgent(Akgent[BaseConfig, CoordinatorState]):
                 TaskRequest(topic=topic, requester_id="coordinator"),
             )
 
-    def receiveMsg_ResearchResult(
-        self, message: ResearchResult, sender: ActorAddress | None
-    ) -> None:
+    def receiveMsg_ResearchResult(self, message: ResearchResult, sender: ActorAddress) -> None:
         """Handle research result by routing to WriterAgent.
 
         Args:
@@ -351,7 +341,7 @@ class CoordinatorAgent(Akgent[BaseConfig, CoordinatorState]):
         if self.writer_agent is not None:
             self.send(self.writer_agent, message)
 
-    def receiveMsg_DraftContent(self, message: DraftContent, sender: ActorAddress | None) -> None:
+    def receiveMsg_DraftContent(self, message: DraftContent, sender: ActorAddress) -> None:
         """Handle draft content by sending to UserProxy for review.
 
         Args:
@@ -375,9 +365,7 @@ class CoordinatorAgent(Akgent[BaseConfig, CoordinatorState]):
         if self.user_proxy is not None:
             self.send(self.user_proxy, review)
 
-    def receiveMsg_ApprovalResponse(
-        self, message: ApprovalResponse, sender: ActorAddress | None
-    ) -> None:
+    def receiveMsg_ApprovalResponse(self, message: ApprovalResponse, sender: ActorAddress) -> None:
         """Handle approval response from UserProxy.
 
         Args:
@@ -462,7 +450,7 @@ class SimulatedUserProxy(UserProxy):
     with UI systems (WebSocket, REST API, CLI, etc.).
     """
 
-    def receiveMsg_ReviewRequest(self, message: ReviewRequest, sender: ActorAddress | None) -> None:
+    def receiveMsg_ReviewRequest(self, message: ReviewRequest, sender: ActorAddress) -> None:
         """Handle review request by simulating human approval.
 
         Args:
@@ -480,8 +468,7 @@ class SimulatedUserProxy(UserProxy):
         )
 
         # Send approval back to coordinator
-        if sender is not None:
-            self.send(sender, approval)
+        self.send(sender, approval)
 
 
 # =============================================================================
@@ -507,32 +494,23 @@ def main() -> None:
         logger = SimpleLogger()
         orch_proxy.subscribe(logger)
 
-        # Create specialized agents
-        research_ref = ResearchAgent.start(
-            config=BaseConfig(name="research", role="ResearchAgent"),
-            orchestrator=orchestrator_addr,
+        # Create specialized agents via orchestrator — team_id, orchestrator, parent all auto-propagated
+        research_addr = orch_proxy.createActor(
+            ResearchAgent, config=BaseConfig(name="research", role="ResearchAgent")
         )
-        research_addr = ActorAddressImpl(research_ref)
-
-        writer_ref = WriterAgent.start(
-            config=BaseConfig(name="writer", role="WriterAgent"),
-            orchestrator=orchestrator_addr,
+        writer_addr = orch_proxy.createActor(
+            WriterAgent, config=BaseConfig(name="writer", role="WriterAgent")
         )
-        writer_addr = ActorAddressImpl(writer_ref)
 
         # Create UserProxy for human-in-the-loop
-        user_proxy_ref = SimulatedUserProxy.start(
-            config=BaseConfig(name="human", role="UserProxy"),
-            orchestrator=orchestrator_addr,
+        user_proxy_addr = orch_proxy.createActor(
+            SimulatedUserProxy, config=BaseConfig(name="human", role="UserProxy")
         )
-        user_proxy_addr = ActorAddressImpl(user_proxy_ref)
 
         # Create and configure CoordinatorAgent
-        coordinator_ref = CoordinatorAgent.start(
-            config=BaseConfig(name="coordinator", role="CoordinatorAgent"),
-            orchestrator=orchestrator_addr,
+        coordinator_addr = orch_proxy.createActor(
+            CoordinatorAgent, config=BaseConfig(name="coordinator", role="CoordinatorAgent")
         )
-        coordinator_addr = ActorAddressImpl(coordinator_ref)
 
         # Set agent references in coordinator (for routing)
         coordinator_proxy = actor_system.proxy_tell(coordinator_addr, CoordinatorAgent)

@@ -53,7 +53,7 @@ class ReceiverAgent(Akgent[BaseConfig, BaseState]):
     - The sender parameter tells you who sent the message
     """
 
-    def receiveMsg_HelloMessage(self, message: HelloMessage, sender: ActorAddress | None) -> None:
+    def receiveMsg_HelloMessage(self, message: HelloMessage, sender: ActorAddress) -> None:
         """Handle incoming HelloMessage by printing the greeting.
 
         Args:
@@ -80,7 +80,7 @@ class GreeterAgent(Akgent[BaseConfig, BaseState]):
     """
 
     def receiveMsg_SendGreetingCommand(
-        self, message: SendGreetingCommand, sender: ActorAddress | None
+        self, message: SendGreetingCommand, sender: ActorAddress
     ) -> None:
         """Handle command to send a greeting to a target agent.
 

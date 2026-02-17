@@ -85,7 +85,7 @@ Work through them in order — each builds on the previous and introduces a smal
 | 01  | Two agents exchange a greeting — introduces `Message`, `Akgent`, and `ActorSystem`     | [01 — Hello World](examples/01-hello-world.md)           |
 | 02  | `proxy_tell` (fire-and-forget) vs `proxy_ask` (blocking) with request-response pairing | [02 — Request-Response](examples/02-request-response.md) |
 | 03  | A manager spawns worker agents at runtime — parent-child hierarchy and `createActor()` | [03 — Dynamic Agents](examples/03-dynamic-agents.md)     |
-| 04  | Typed state across messages, observer pattern, and Orchestrator telemetry              | [04 — Stateful Agents](examples/04-stateful-agents.md)   |
+| 04  | Custom `BaseConfig` subclass, typed state, observer pattern, and Orchestrator telemetry | [04 — Stateful Agents](examples/04-stateful-agents.md)   |
 | 05  | Multi-agent pipeline with human-in-the-loop approval and event subscribers             | [05 — Multi-Agent](examples/05-multi-agent.md)           |
 
 See [`examples/README.md`](examples/README.md) for the full concept index.

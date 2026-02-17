@@ -31,7 +31,7 @@ class UserProxy(Akgent[BaseConfig, BaseState]):
         >>> from akgentic import ActorSystem, UserProxy, BaseConfig
         >>> system = ActorSystem()
         >>> config = BaseConfig(name="human", role="UserProxy")
-        >>> proxy_addr = system.createActor(UserProxy, user_config=config)
+        >>> proxy_addr = system.createActor(UserProxy, config=config)
 
         # Agent requests human input
         >>> worker.send(proxy_addr, UserMessage(content="What should I do next?"))
@@ -50,8 +50,12 @@ class UserProxy(Akgent[BaseConfig, BaseState]):
         """Process human input and route it back to the requesting agent.
 
         Called externally (e.g., from a UI layer) to inject human responses
-        into the agent workflow. Creates a ResultMessage and sends it to
-        the original sender.
+        into the agent workflow. The default implementation creates a
+        ResultMessage with the human's response and sends it to the original
+        sender.
+
+        Override this method in subclasses to customize response handling,
+        validation, or routing logic for specific workflow requirements.
 
         Args:
             content: The human's text response.

@@ -98,7 +98,7 @@ class ActorAddress(ABC):
         ...
 
     @abstractmethod
-    def send(self, recipient: ActorAddress | None, message: Any) -> None:
+    def send(self, recipient: ActorAddress, message: Any) -> None:
         """Send a message from this agent to the recipient.
 
         Args:

@@ -76,7 +76,7 @@ class CalculatorAgent(Akgent[BaseConfig, BaseState]):
     """
 
     def receiveMsg_CalculationRequest(
-        self, message: CalculationRequest, sender: ActorAddress | None
+        self, message: CalculationRequest, sender: ActorAddress
     ) -> None:
         """Handle incoming calculation request by computing and sending result.
 
@@ -104,11 +104,10 @@ class CalculatorAgent(Akgent[BaseConfig, BaseState]):
             result = float("nan")
 
         # Send result back to the sender
-        if sender is not None:
-            self.send(
-                sender,
-                CalculationResult(result=result, request_id=message.id),
-            )
+        self.send(
+            sender,
+            CalculationResult(result=result, request_id=message.id),
+        )
 
 
 # =============================================================================
@@ -191,7 +190,7 @@ class ClientAgent(Akgent[BaseConfig, BaseState]):
         return {"result": result, "request_id": uuid.uuid4()}
 
     def receiveMsg_CalculationResult(
-        self, message: CalculationResult, sender: ActorAddress | None
+        self, message: CalculationResult, sender: ActorAddress
     ) -> None:
         """Handle incoming calculation result.
 
