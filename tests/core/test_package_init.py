@@ -7,7 +7,7 @@ import akgentic
 
 def test_package_version() -> None:
     """Test that package version is correctly set."""
-    assert akgentic.__version__ == "2.0.0-alpha.1"
+    assert akgentic.__version__ == "1.0.0-alpha.1"
 
 
 def test_package_metadata() -> None:

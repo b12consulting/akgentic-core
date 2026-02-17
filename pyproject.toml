@@ -1,10 +1,10 @@
 [project]
 name = "akgentic"
-version = "2.0.0-alpha.1"
-description = "Zero-dependency actor framework for building agent-based systems"
+version = "1.0.0-alpha.1"
+description = "Actor framework for building agent-based systems"
 readme = "README.md"
 authors = [
-    { name = "gpiroux", email = "geoffroy.piroux@b12-consulting.com" }
+    { name = "gpiroux", email = "geoffroy.piroux@weareyuma.com" }
 ]
 requires-python = ">=3.12"
 dependencies = ["pydantic>=2.0.0"]
@@ -38,7 +38,7 @@ fail_under = 80
 [tool.mypy]
 python_version = "3.12"
 strict = true
-warn_return_any = true
+# warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 
