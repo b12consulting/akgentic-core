@@ -1,16 +1,19 @@
 """
-Request-Response - Synchronous Ask/Reply Patterns Between Agents
-=================================================================
+Request-Response - Proxy Tell vs Proxy Ask Patterns
+====================================================
 
-This example demonstrates the request-response (ask/reply) synchronous pattern:
-- Custom request message type (CalculationRequest)
-- Custom response message type (CalculationResult)
-- Agent message handlers for processing requests
-- Two communication patterns:
-  1. tell (fire-and-forget): Send request without waiting for response
-  2. ask (blocking): Send request and wait for response
+This example demonstrates two ways to call agent methods from outside the actor system:
 
-Run with: python examples/02_request_response.py
+- **proxy_tell (fire-and-forget):** Calls an agent method without waiting for a return
+  value. The method sends a message to another agent, which replies asynchronously.
+- **proxy_ask (blocking):** Calls an agent method and blocks until the method returns.
+  The caller receives the return value directly — no inter-agent message is sent.
+
+Key types used:
+- CalculationRequest / CalculationResult: request-response message pair (tell path)
+- proxy_tell / proxy_ask: two proxy modes on ActorSystem
+
+Run with:  python examples/02_request_response.py
 Or with:  uv run python examples/02_request_response.py
 """
 
@@ -144,32 +147,34 @@ class ClientAgent(Akgent[BaseConfig, BaseState]):
         self.send(calculator_addr, request)
 
     def send_request_ask(
-        self, calculator_addr: ActorAddress, a: int, b: int, operation: str
+        self, _calculator_addr: ActorAddress, a: int, b: int, operation: str
     ) -> dict[str, float | uuid.UUID]:
-        """Send a calculation request using ask (blocking).
+        """Compute a calculation locally and return the result (ask pattern).
 
-        ask() sends the message and BLOCKS/WAITS for a response.
-        This is useful for synchronous communication patterns where you need
-        the result before proceeding. When called via proxy_ask, the ProxyWrapper
-        will block on the returned future until this method completes.
+        Unlike send_request_tell, this method does NOT send a message to the
+        CalculatorAgent. It computes the result directly and returns it.
+        When called via proxy_ask, the caller blocks until this method returns
+        and receives the return value — demonstrating the blocking proxy pattern.
 
-        This implementation demonstrates the blocking pattern by immediately
-        computing and returning the result synchronously.
+        The arithmetic logic is intentionally duplicated from CalculatorAgent
+        to keep each path self-contained for demonstration purposes.
 
         Args:
-            calculator_addr: Address of the calculator agent.
+            _calculator_addr: Unused — kept for API symmetry with
+                send_request_tell.
             a: First operand.
             b: Second operand.
             operation: Operation to perform.
 
         Returns:
-            Dictionary with the computed result and request ID.
+            Dictionary with the computed result and a standalone request ID
+            (not correlated to any message, since no message is sent).
         """
-        print(f"[ClientAgent] Sending calculation request (ask): {a} {operation} {b}")
-        # For the ask pattern to be truly blocking, we need to demonstrate
-        # synchronous computation. In a real scenario, we might use the actor
-        # system's ask() method to call a handler on the calculator.
-        # Here we show the blocking behavior by computing synchronously.
+        print(f"[ClientAgent] Computing calculation locally (ask): {a} {operation} {b}")
+        # No message is sent to another agent — the computation happens right
+        # here inside the ClientAgent. The proxy_ask caller will block until
+        # this method returns, then receive the return value directly.
+        # (Arithmetic is duplicated from CalculatorAgent intentionally.)
         result: float
         if operation == "+":
             result = float(a + b)
@@ -182,8 +187,7 @@ class ClientAgent(Akgent[BaseConfig, BaseState]):
         else:
             result = float("nan")
 
-        # Return immediately with result - ProxyWrapper waits for this
-        print(f"[ClientAgent] Ask result computed: {result}")
+        # request_id is an arbitrary UUID here (no correlated request message).
         return {"result": result, "request_id": uuid.uuid4()}
 
     def receiveMsg_CalculationResult(
@@ -204,8 +208,8 @@ class ClientAgent(Akgent[BaseConfig, BaseState]):
 
 
 def main() -> None:
-    """Run the Request-Response example demonstrating ask/tell patterns."""
-    print("[Request-Response] Demonstrating synchronous agent communication...")
+    """Run the Request-Response example demonstrating proxy_tell and proxy_ask."""
+    print("[Request-Response] Demonstrating proxy_tell and proxy_ask patterns...")
 
     # Create the actor system - this is the runtime that manages all agents
     # ActorSystem provides zero-dependency local execution (no Redis, etc.)
@@ -236,16 +240,17 @@ def main() -> None:
         # Wait for the async message to be processed
         time.sleep(0.2)
 
-        # Get a proxy to the client agent using ask pattern
-        # This allows us to call methods on the client and wait for responses
+        # Get a proxy to the client agent using ask pattern.
+        # proxy_ask blocks until the called method returns and gives back its
+        # return value — no inter-agent message is involved in this path.
         client_ask = actor_system.proxy_ask(client_addr, ClientAgent)
 
-        # Demonstrate ask pattern (blocking)
-        # In this example, we send another request through the client
-        client_ask.send_request_ask(calculator_addr, 20, 3, "*")
-
-        # Wait for the async message to be processed
-        time.sleep(0.2)
+        # Demonstrate ask pattern (blocking).
+        # send_request_ask computes locally inside ClientAgent and returns the
+        # result. proxy_ask blocks here until the method finishes, then we get
+        # the return value directly — unlike tell, no CalculatorAgent is used.
+        result = client_ask.send_request_ask(calculator_addr, 20, 3, "*")
+        print(f"[Request-Response] Ask result: {result}")
 
         print("[Request-Response] All calculations complete. Shutting down.")
 

@@ -1,7 +1,7 @@
-# 02 — Request-Response
+# 02 — Request-Response: Proxy Tell vs Proxy Ask
 
-> A client agent sends a calculation request and receives the result back, introducing
-> bidirectional messaging and the `ask` / `tell` distinction.
+> Introduces the two proxy modes — `proxy_tell` (fire-and-forget) and `proxy_ask`
+> (blocking) — along with request-response message pairing.
 
 ---
 
@@ -10,7 +10,7 @@
 ### Replying to a message
 
 In [example 01](01-hello-world.md), messages only flowed in one direction. Here, the
-`CalculatorAgent` sends a response *back* to the caller. The `sender` parameter of every
+`CalculatorAgent` sends a response _back_ to the caller. The `sender` parameter of every
 handler gives you the address to reply to:
 
 ```python
@@ -27,27 +27,30 @@ back to its original request.
 
 ### tell vs ask
 
-When calling agent methods from outside the actor system, you have two modes:
+When calling agent methods from outside the actor system, you have two proxy modes:
 
-| Mode | Method | Behaviour |
-|---|---|---|
-| **fire-and-forget** | `proxy_tell()` | Returns immediately; you don't get the result |
-| **blocking** | `proxy_ask()` | Blocks the caller until the agent method returns |
+| Mode                | Method         | Behaviour                                                                |
+| ------------------- | -------------- | ------------------------------------------------------------------------ |
+| **fire-and-forget** | `proxy_tell()` | Calls the method and returns immediately; you don't get the return value |
+| **blocking**        | `proxy_ask()`  | Calls the method and blocks until it returns; you get the return value   |
 
 Both modes require a **proxy**: a thin wrapper that lets you call agent methods as if they were
 regular Python functions, while the actual execution happens inside the agent's mailbox.
 
 ```python
-# Fire-and-forget: call the method, don't wait
+# Fire-and-forget: call the method, don't wait for a return value
 client_tell = actor_system.proxy_tell(client_addr, ClientAgent)
 client_tell.send_request_tell(calculator_addr, 10, 5, "+")
+# => [ClientAgent] Received result: 15.0
 
-# Blocking: call the method and wait for the return value
+# Blocking: call the method and get its return value
 client_ask = actor_system.proxy_ask(client_addr, ClientAgent)
 result = client_ask.send_request_ask(calculator_addr, 20, 3, "*")
+print(f"[Request-Response] Ask result: {result}")
+# => [Request-Response] Ask result: {'result': 60.0, 'request_id': UUID('...')}
 ```
 
-Use `tell` when you don't need the result. Use `ask` when you need to wait for it before
+Use `tell` when you don't need the return value. Use `ask` when you need it before
 continuing.
 
 ---
@@ -68,58 +71,69 @@ class CalculationResult(Message):
 ```
 
 The `request_id` field stores the `id` of the original `CalculationRequest`, so the caller can
-match each response to the request that triggered it. This is essential in systems where
-multiple requests may be in-flight simultaneously.
+match each response to the request that triggered it. This pairing is used in the **tell** path,
+where the response arrives as a separate message via `receiveMsg_CalculationResult`.
 
 ---
 
 ## Message flow
 
 ```
-main()               ActorSystem          ClientAgent          CalculatorAgent
-  |                      |                    |                      |
-  |--createActor(Calc)-->|                    |                      |
-  |                      |--spawn-------------|--------------------->|
-  |                      |                    |                      |
-  |--createActor(Cli)--->|                    |                      |
-  |                      |--spawn------------>|                      |
-  |                      |                    |                      |
-  |                                                                   |
-  |  [ tell pattern — fire and forget ]                               |
-  |                      |                    |                      |
-  |--proxy_tell()------->|                    |                      |
-  |                      |--send_request_tell>|                      |
-  |                      |                    |--send(CalcRequest)-->|
-  |                      |                    |                      |
-  |                      |                    |   receiveMsg_CalculationRequest
-  |                      |                    |<--send(CalcResult)---|
-  |                      |                    |                      |
-  |                      |  receiveMsg_CalculationResult             |
-  |                      |                    |                      |
-  |                                                                   |
-  |  [ ask pattern — blocking ]                                       |
-  |                      |                    |                      |
-  |--proxy_ask()-------->|                    |                      |
-  |                      |--send_request_ask->|                      |
-  |<-----result returned immediately (synchronous computation)--------|
-  |                      |                    |                      |
-  |--shutdown()--------->|                    |                      |
+main()               ActorSystem            ClientAgent          CalculatorAgent
+  |                      |                      |                      |
+  |--createActor(Calc)-->|                      |                      |
+  |                      |--spawn---------------|--------------------->|
+  |                      |                      |                      |
+  |--createActor(Cli)--->|                      |                      |
+  |                      |--spawn-------------->|                      |
+  |                      |                      |                      |
+  |  [ tell pattern — fire and forget ]         |                      |
+  |                      |                      |                      |
+  |--proxy_tell()------->|                      |                      |
+  |                      |--send_request_tell-->|                      |
+  |                      |                      |--send(CalcRequest)-->|
+  |                      |                      |                      |
+  |                      |                      |      receiveMsg_CalculationRequest
+  |                      |                      |                      |
+  |                      |                      |<--send(CalcResult)---|
+  |                      |                      |                      |
+  |                      |        receiveMsg_CalculationResult         |
+  |                      |                      |                      |
+  |  [ ask pattern — blocking, no message to CalculatorAgent ]         |
+  |                      |                      |                      |
+  |--proxy_ask()-------->|                      |                      |
+  |                      |--send_request_ask--->|                      |
+  |                      |                      | (computes locally)   |
+  |                      |<--return result------|                      |
+  |<--result-------------|                      |                      |
+  |                      |                      |                      |
+  |  print(result)       |                      |                      |
+  |                      |                      |                      |
+  |--shutdown()--------->|                      |                      |
 ```
 
 ---
 
 ## Walkthrough
 
-The key insight of this example is the two **communication modes** exposed by the proxy:
+The key insight of this example is the two **proxy modes** for calling agent methods from
+outside the actor system:
 
-**`proxy_tell`** wraps agent method calls in fire-and-forget mode. The main thread sends the
-command and moves on immediately. Any response will arrive later via `receiveMsg_CalculationResult`.
+**`proxy_tell`** wraps agent method calls in fire-and-forget mode. The main thread calls
+`send_request_tell`, which sends a `CalculationRequest` message to the `CalculatorAgent`.
+The calculator processes it and sends a `CalculationResult` back to the `ClientAgent`, which
+handles it in `receiveMsg_CalculationResult`. The main thread doesn't wait for any of this.
 
-**`proxy_ask`** wraps agent method calls in blocking mode. The main thread waits until the
-agent method returns. This is useful when you need the result before doing anything else.
+**`proxy_ask`** wraps agent method calls in blocking mode. The main thread calls
+`send_request_ask`, which computes the result **locally inside the ClientAgent** and returns
+it. No message is sent to the `CalculatorAgent`. The main thread blocks until the method
+returns, then receives the return value directly.
 
-The `CalculatorAgent` always uses `self.send(sender, result)` — it doesn't need to know which
-mode the caller used. The proxy layer handles the difference transparently.
+The two paths are intentionally different to highlight the contrast: `tell` triggers
+asynchronous inter-agent messaging, while `ask` gives you a synchronous return value from
+the called method itself. Note that in the `ask` path, the `request_id` in the returned
+dictionary is an arbitrary UUID — there is no correlated request message, unlike the `tell`
+path where `request_id` ties back to the original `CalculationRequest.id`.
 
 ---
 
@@ -132,11 +146,12 @@ uv run python examples/02_request_response.py
 Expected output:
 
 ```
-[Request-Response] Demonstrating synchronous agent communication...
+[Request-Response] Demonstrating proxy_tell and proxy_ask patterns...
 [ClientAgent] Sending calculation request: 10 + 5
+[CalculatorAgent] Processing request: 10 + 5
 [ClientAgent] Received result: 15.0
-[ClientAgent] Sending calculation request (ask): 20 * 3
-[ClientAgent] Ask result computed: 60.0
+[ClientAgent] Computing calculation locally (ask): 20 * 3
+[Request-Response] Ask result: {'result': 60.0, 'request_id': UUID('...')}
 [Request-Response] All calculations complete. Shutting down.
 ```
 
@@ -144,4 +159,4 @@ Expected output:
 
 ## What's next
 
-→ [03 — Dynamic Agents](03-dynamic-agents.md): agents that spawn other agents at runtime.
+> [03 — Dynamic Agents](03-dynamic-agents.md): agents that spawn other agents at runtime.
