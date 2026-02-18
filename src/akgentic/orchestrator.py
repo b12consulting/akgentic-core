@@ -13,6 +13,7 @@ from typing import Any, Protocol, overload, override
 
 from akgentic.actor_address import ActorAddress
 from akgentic.agent import Akgent
+from akgentic.agent_card import AgentCard
 from akgentic.agent_config import BaseConfig
 from akgentic.agent_state import BaseState
 from akgentic.messages.message import Message, StopRecursively
@@ -200,6 +201,9 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self.state_dict: dict[str, BaseState | dict[str, Any]] = {}
         self.llm_context_dict: dict[str, list[Any]] = {}
         self.tool_state_dict: dict[str, dict[str, Any]] = {}
+
+        # Agent profile catalog (keyed by role)
+        self.agent_cards: dict[str, AgentCard] = {}
 
         # Team roster cache
         self._current_team_members: list[ActorAddress] | None = None
@@ -540,3 +544,65 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self._timer.cancel()
         self._stopping = True
         super().stop()
+
+    # =============================================================================
+    # Agent Profile Catalog Management
+    # =============================================================================
+
+    def register_agent_profile(self, card: AgentCard) -> None:
+        """Register an agent profile in the team catalog.
+
+        Args:
+            card: AgentCard describing the profile
+        """
+        self.agent_cards[card.role] = card
+        logger.info(f"[Orchestrator] Registered agent profile: {card.role}")
+
+    def get_agent_catalog(self) -> list[AgentCard]:
+        """Get all available agent profiles in the team catalog.
+
+        Returns:
+            List of all registered AgentCards
+        """
+        return list(self.agent_cards.values())
+
+    def get_agent_profile(self, role: str) -> AgentCard | None:
+        """Get a specific agent profile by role.
+
+        Args:
+            role: The role to look up (e.g., "ResearchAgent")
+
+        Returns:
+            AgentCard if found, None otherwise
+        """
+        return self.agent_cards.get(role)
+
+    def get_profiles_by_skill(self, skill: str) -> list[AgentCard]:
+        """Find all agent profiles that have a specific skill.
+
+        Args:
+            skill: Skill to search for (e.g., "web_search")
+
+        Returns:
+            List of AgentCards with that skill
+        """
+        return [card for card in self.agent_cards.values() if card.has_skill(skill)]
+
+    def get_available_roles(self) -> list[str]:
+        """Get list of all roles available in the catalog.
+
+        Returns:
+            List of role names
+        """
+        return list(self.agent_cards.keys())
+
+    def get_available_skills(self) -> list[str]:
+        """Get unique set of all skills across all profiles.
+
+        Returns:
+            Sorted list of unique skills
+        """
+        skills = set()
+        for card in self.agent_cards.values():
+            skills.update(card.skills)
+        return sorted(skills)

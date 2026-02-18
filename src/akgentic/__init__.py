@@ -21,6 +21,7 @@ from akgentic.actor_system_impl import (
     Statistics,
 )
 from akgentic.agent import Akgent, AkgentDeserializeContext
+from akgentic.agent_card import AgentCard
 from akgentic.agent_config import (
     AgentConfig,
     BaseConfig,
@@ -49,6 +50,8 @@ __all__ = [
     # Agent configuration
     "AgentConfig",
     "BaseConfig",
+    # Agent card (profiles)
+    "AgentCard",
     # Agent state
     "AkgentStateObserver",
     "BaseState",
