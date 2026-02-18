@@ -9,6 +9,7 @@ Source: Migrated from akgentic-framework/libs/akgentic/akgentic/core/akgent_impl
 
 from __future__ import annotations
 
+import asyncio
 import inspect
 import logging
 import uuid
@@ -213,6 +214,12 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         """
         super().__init__(**kwargs)
 
+        ## Event loop for async operations (needed for Pykka actor threads)
+        # CRITICAL: Create event loop BEFORE initializing agent/model to ensure
+        # all async primitives (locks, events) in HTTP clients are bound to the correct loop
+        self._event_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._event_loop)
+
         self._current_message: Message | None = None
         self._children: list[ActorAddress] = []
 
@@ -319,7 +326,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             )
             cast(ActorAddressImpl, orchestrator)._actor_ref.tell(message)
 
-    def send(self, recipient: ActorAddress, message: Any) -> Any:
+    def send(self, recipient: ActorAddress | None, message: Any) -> Any:
         """Send a message to another actor with telemetry.
 
         Args:
@@ -474,6 +481,9 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
 
         Notifies orchestrator of stop event.
         """
+        if self._event_loop.is_running():
+            self._event_loop.stop()
+
         self._notify_orchestrator(StopMessage())
         logger.info(f"[{self.config.name}] Stopped.")
 

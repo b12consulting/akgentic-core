@@ -63,7 +63,7 @@ class BaseState(SerializableBaseModel):
 
     _observer: AkgentStateObserver | None = PrivateAttr(default=None)
 
-    def observer(self, observer: AkgentStateObserver | None) -> BaseState:
+    def observer(self, observer: AkgentStateObserver | None):  # noqa: ANN201
         """Attach an observer and trigger initial notification.
 
         This method is typically called during agent initialization

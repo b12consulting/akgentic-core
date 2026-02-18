@@ -179,6 +179,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         >>> messages = orchestrator_ref.get_messages().get()
     """
 
+    @override
     def init(self) -> None:
         """Initialize the Orchestrator with empty in-memory state.
 
@@ -222,7 +223,13 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     @override
     def on_stop(self) -> None:
         self._notify_subscribers("on_stop")
+        super().on_stop()
         logger.info(f">>> [{self.config.name}] Stopped !")
+
+    @override
+    def _notify_orchestrator(self, message: Message) -> None:
+        """Override to directly append orchestrator's own messages without telemetry cascade."""
+        pass
 
     def _timeout_handler(self) -> None:
         """Handle inactivity timeout by stopping the orchestrator.
@@ -235,11 +242,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         team_id = getattr(self.config, "team_id", "unknown")
         logger.info(f"Orchestrator timeout after {self._timer.delay}s inactivity (team={team_id})")
         self.send(self.myAddress, StopRecursively())
-
-    @override
-    def _notify_orchestrator(self, message: Message) -> None:
-        """Override to directly append orchestrator's own messages without telemetry cascade."""
-        pass
 
     def get_timer(self) -> Timer:
         """Return the inactivity Timer instance (for testing and introspection).

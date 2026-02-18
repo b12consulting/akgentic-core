@@ -23,7 +23,6 @@ from typing import Any
 
 from pydantic import Field
 
-from akgentic.actor_address import ActorAddress
 from akgentic.utils.serializer import SerializableBaseModel
 
 
