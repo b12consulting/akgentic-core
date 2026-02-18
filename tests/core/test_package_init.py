@@ -15,7 +15,7 @@ def test_package_metadata() -> None:
     metadata = importlib.metadata.metadata("akgentic")
     assert metadata["Name"] == "akgentic"
     # Python normalizes "alpha.1" to "a1" in package version
-    assert metadata["Version"] == "2.0.0a1"
+    assert metadata["Version"] == "1.0.0a1"
 
 
 def test_package_has_all_attribute() -> None:

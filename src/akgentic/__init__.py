@@ -3,6 +3,12 @@
 Phase 1 provides core actor primitives with minimal dependencies (pydantic for serialization).
 """
 
+# Extend __path__ to allow sub-packages from other workspace distributions
+# (e.g. akgentic-llm's akgentic.llm) to be discovered as part of this namespace.
+from pkgutil import extend_path
+
+__path__ = extend_path(__path__, __name__)  # type: ignore[assignment]
+
 from akgentic.actor_address import ActorAddress
 from akgentic.actor_address_impl import (
     ActorAddressImpl,
