@@ -2,7 +2,9 @@
 
 AgentCards describe available agent profiles/roles in a team, enabling
 dynamic discovery of capabilities and agent creation patterns.
-"""
+
+IMPORTANT: Always use get_config() to obtain config for agent instantiation.
+This ensures each agent gets an independent copy, preventing shared mutable state bugs."""
 
 from __future__ import annotations
 
@@ -25,7 +27,7 @@ class AgentCard(SerializableBaseModel):
         ...     description="Performs web research and data gathering",
         ...     skills=["web_search", "pdf_extraction"],
         ...     agent_class="examples.multi_agent.ResearchAgent",
-        ...     configuration=BaseConfig(name="research", role="ResearchAgent"),
+        ...     config=BaseConfig(name="research", role="ResearchAgent"),
         ...     routes_to=["WriterAgent", "AnalystAgent"]
         ... )
         >>> # Now other agents can discover this profile and its config
@@ -38,8 +40,8 @@ class AgentCard(SerializableBaseModel):
         role: Agent role/type identifier (e.g., "ResearchAgent")
         description: Human-readable description of what this agent does
         skills: List of capabilities this agent provides
-        agent_class: Fully qualified class name for dynamic instantiation
-        configuration: Default BaseConfig (or subclass) for this profile
+        agent_class: Fully qualified class name (str) or actual class (type) for instantiation
+        config: Default BaseConfig (or subclass) for this profile
         routes_to: List of roles this agent can send requests to.
                    Empty list means can route to any role (no restrictions).
                    Agents can always respond to requests regardless of this field.
@@ -49,21 +51,40 @@ class AgentCard(SerializableBaseModel):
     role: str
     description: str
     skills: list[str]
-    agent_class: str
-    configuration: BaseConfig | dict[str, Any] = {}
+    agent_class: str | type
+    config: BaseConfig | dict[str, Any] = {}
     routes_to: list[str] = []
     metadata: dict[str, Any] = {}
 
+    def __getattribute__(self, name: str) -> Any:
+        """Intercept config access to return copies."""
+        if name == "config":
+            # Call get_config() to return a copy
+            return object.__getattribute__(self, "get_config")()
+        return object.__getattribute__(self, name)
+
     def get_config(self) -> BaseConfig:
-        """Get configuration as BaseConfig instance.
+        """Get a deep copy of the config as BaseConfig instance.
+
+        **ALWAYS use this method when creating agents from an AgentCard.**
+        Returns a fresh copy to prevent shared mutable state across multiple
+        agent instances created from the same AgentCard.
 
         Returns:
-            BaseConfig instance (converts dict if needed)
+            Deep copy of BaseConfig instance (converts dict if needed)
+
+        Example:
+            >>> card = orchestrator.get_agent_card("Developer")
+            >>> config = card.get_config()  # Safe - returns independent copy
+            >>> config.name = "alice"  # Won't affect other agents
         """
-        if isinstance(self.configuration, BaseConfig):
-            return self.configuration
-        elif isinstance(self.configuration, dict):
-            return BaseConfig(**self.configuration)
+        # Access the actual field using object.__getattribute__ to avoid recursion
+        config_data = object.__getattribute__(self, "__dict__")["config"]
+
+        if isinstance(config_data, BaseConfig):
+            return config_data.model_copy(deep=True)
+        elif isinstance(config_data, dict):
+            return BaseConfig(**config_data)
         return BaseConfig()
 
     def has_skill(self, skill: str) -> bool:

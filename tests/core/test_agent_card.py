@@ -15,14 +15,14 @@ class TestAgentCard:
     """Test AgentCard creation and serialization."""
 
     def test_create_agent_card_with_config(self):
-        """AgentCard can store configuration."""
+        """AgentCard can store config."""
         config = BaseConfig(name="test", role="TestAgent")
         card = AgentCard(
             role="TestAgent",
             description="A test agent",
             skills=["testing", "validation"],
             agent_class="test.TestAgent",
-            configuration=config,
+            config=config,
         )
 
         assert card.role == "TestAgent"
@@ -32,18 +32,39 @@ class TestAgentCard:
         assert retrieved_config.name == "test"
 
     def test_create_agent_card_with_dict_config(self):
-        """AgentCard accepts dict configuration."""
+        """AgentCard accepts dict config."""
         card = AgentCard(
             role="TestAgent",
             description="A test agent",
             skills=["testing"],
             agent_class="test.TestAgent",
-            configuration={"name": "test", "role": "TestAgent"},
+            config={"name": "test", "role": "TestAgent"},
         )
 
         config = card.get_config()
         assert config.name == "test"
         assert config.role == "TestAgent"
+
+    def test_agent_class_accepts_string(self):
+        """AgentCard accepts agent_class as string."""
+        card = AgentCard(
+            role="TestAgent",
+            description="Test",
+            skills=["testing"],
+            agent_class="test.TestAgent",
+        )
+        assert card.agent_class == "test.TestAgent"
+
+    def test_agent_class_accepts_type(self):
+        """AgentCard accepts agent_class as actual type."""
+        card = AgentCard(
+            role="TestAgent",
+            description="Test",
+            skills=["testing"],
+            agent_class=Akgent,  # Using actual class type
+        )
+        assert card.agent_class == Akgent
+        assert isinstance(card.agent_class, type)
 
     def test_has_skill(self):
         """AgentCard.has_skill() checks for skill presence."""
@@ -110,6 +131,33 @@ class TestAgentCard:
         assert card.routes_to == []
         assert card.can_route_to("AnyRole") is True
 
+    def test_get_config_returns_independent_copies(self):
+        """get_config() returns independent copies to prevent shared state."""
+        card = AgentCard(
+            role="TestAgent",
+            description="Test",
+            skills=["testing"],
+            agent_class="test.Agent",
+            config=BaseConfig(name="original", role="TestAgent"),
+        )
+
+        # Get two configs from the same card
+        config1 = card.get_config()
+        config2 = card.get_config()
+
+        # Verify they are independent objects
+        assert config1 is not config2
+        assert config1 is not card.config
+
+        # Mutate config1
+        config1.name = "modified1"
+        config2.name = "modified2"
+
+        # Verify mutations are isolated
+        assert config1.name == "modified1"
+        assert config2.name == "modified2"
+        assert card.get_config().name == "original"  # Original unchanged
+
 
 class TestOrchestratorCatalog:
     """Test Orchestrator catalog management."""
@@ -131,7 +179,7 @@ class TestOrchestratorCatalog:
                 description="Test agent",
                 skills=["testing"],
                 agent_class="test.TestAgent",
-                configuration=BaseConfig(name="test", role="TestAgent"),
+                config=BaseConfig(name="test", role="TestAgent"),
             )
             orch_proxy.register_agent_profile(card)
 

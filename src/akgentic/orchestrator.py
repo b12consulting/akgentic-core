@@ -558,6 +558,15 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self.agent_cards[card.role] = card
         logger.info(f"[Orchestrator] Registered agent profile: {card.role}")
 
+    def register_agent_profiles(self, cards: list[AgentCard]) -> None:
+        """Register agent profiles in the team catalog.
+
+        Args:
+            card: AgentCard list describing the profile
+        """
+        for card in cards:
+            self.register_agent_profile(card)
+
     def get_agent_catalog(self) -> list[AgentCard]:
         """Get all available agent profiles in the team catalog.
 

@@ -7,7 +7,7 @@ Concepts:
 - AgentCard: Profile definitions for agent types
 - Catalog registration: Adding profiles to the orchestrator
 - Discovery: Agents finding profiles by role or skill
-- Configuration: Default config stored in cards
+- Config: Default config stored in cards
 """
 
 import time
@@ -118,7 +118,7 @@ def main() -> None:
                 description="Performs web research and data gathering",
                 skills=["web_search", "pdf_extraction", "arxiv_lookup"],
                 agent_class="examples.agent_cards.ResearchAgent",
-                configuration=BaseConfig(name="researcher", role="ResearchAgent"),
+                config=BaseConfig(name="researcher", role="ResearchAgent"),
                 routes_to=["WriterAgent", "AnalystAgent"],  # Can only route to these
                 metadata={"version": "1.0", "max_concurrent_tasks": 5},
             )
@@ -130,7 +130,7 @@ def main() -> None:
                 description="Writes content based on research findings",
                 skills=["writing", "summarization", "formatting"],
                 agent_class="examples.agent_cards.WriterAgent",
-                configuration=BaseConfig(name="writer", role="WriterAgent"),
+                config=BaseConfig(name="writer", role="WriterAgent"),
                 routes_to=["AnalystAgent"],  # Can only route to analyst
                 metadata={"version": "1.0", "max_words": 2000},
             )
@@ -142,7 +142,7 @@ def main() -> None:
                 description="Analyzes data and provides insights",
                 skills=["data_analysis", "visualization", "web_search"],
                 agent_class="examples.agent_cards.AnalystAgent",
-                configuration=BaseConfig(name="analyst", role="AnalystAgent"),
+                config=BaseConfig(name="analyst", role="AnalystAgent"),
                 routes_to=[],  # Empty = no restrictions, can route to anyone
                 metadata={"version": "1.0"},
             )
