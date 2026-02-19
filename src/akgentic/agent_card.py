@@ -56,14 +56,7 @@ class AgentCard(SerializableBaseModel):
     routes_to: list[str] = []
     metadata: dict[str, Any] = {}
 
-    def __getattribute__(self, name: str) -> Any:
-        """Intercept config access to return copies."""
-        if name == "config":
-            # Call get_config() to return a copy
-            return object.__getattribute__(self, "get_config")()
-        return object.__getattribute__(self, name)
-
-    def get_config(self) -> BaseConfig:
+    def get_config_copy(self) -> BaseConfig:
         """Get a deep copy of the config as BaseConfig instance.
 
         **ALWAYS use this method when creating agents from an AgentCard.**
@@ -78,14 +71,11 @@ class AgentCard(SerializableBaseModel):
             >>> config = card.get_config()  # Safe - returns independent copy
             >>> config.name = "alice"  # Won't affect other agents
         """
-        # Access the actual field using object.__getattribute__ to avoid recursion
-        config_data = object.__getattribute__(self, "__dict__")["config"]
 
-        if isinstance(config_data, BaseConfig):
-            return config_data.model_copy(deep=True)
-        elif isinstance(config_data, dict):
-            return BaseConfig(**config_data)
-        return BaseConfig()
+        if isinstance(self.config, BaseConfig):
+            return self.config.model_copy(deep=True)
+
+        return BaseConfig(**self.config)
 
     def has_skill(self, skill: str) -> bool:
         """Check if this profile has a specific skill.

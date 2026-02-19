@@ -28,7 +28,7 @@ class TestAgentCard:
         assert card.role == "TestAgent"
         assert card.description == "A test agent"
         assert "testing" in card.skills
-        retrieved_config = card.get_config()
+        retrieved_config = card.get_config_copy()
         assert retrieved_config.name == "test"
 
     def test_create_agent_card_with_dict_config(self):
@@ -41,7 +41,7 @@ class TestAgentCard:
             config={"name": "test", "role": "TestAgent"},
         )
 
-        config = card.get_config()
+        config = card.get_config_copy()
         assert config.name == "test"
         assert config.role == "TestAgent"
 
@@ -142,8 +142,8 @@ class TestAgentCard:
         )
 
         # Get two configs from the same card
-        config1 = card.get_config()
-        config2 = card.get_config()
+        config1 = card.get_config_copy()
+        config2 = card.get_config_copy()
 
         # Verify they are independent objects
         assert config1 is not config2
@@ -156,7 +156,7 @@ class TestAgentCard:
         # Verify mutations are isolated
         assert config1.name == "modified1"
         assert config2.name == "modified2"
-        assert card.get_config().name == "original"  # Original unchanged
+        assert card.get_config_copy().name == "original"  # Original unchanged
 
 
 class TestOrchestratorCatalog:

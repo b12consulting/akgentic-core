@@ -73,7 +73,7 @@ class CoordinatorAgent(Akgent):
             print(f"[{self.config.name}] Found ResearchAgent:")
             print(f"  Description: {research_profile.description}")
             print(f"  Skills: {research_profile.skills}")
-            config = research_profile.get_config()
+            config = research_profile.get_config_copy()
             print(f"  Default config: name={config.name}, role={config.role}")
 
             # Check routing permissions
