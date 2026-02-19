@@ -68,7 +68,7 @@ class CoordinatorAgent(Akgent):
 
         # Find specific profile
         print(f"\n[{self.config.name}] Looking for ResearchAgent profile...")
-        research_profile = self.discover_profile("ResearchAgent")
+        research_profile = self.get_agent_card("ResearchAgent")
         if research_profile:
             print(f"[{self.config.name}] Found ResearchAgent:")
             print(f"  Description: {research_profile.description}")

@@ -359,7 +359,7 @@ class TestAgentDiscovery:
             time.sleep(0.1)
 
             agent_proxy = system.proxy_ask(agent_addr, SimpleAgent)
-            profile = agent_proxy.discover_profile("ResearchAgent")
+            profile = agent_proxy.get_agent_card("ResearchAgent")
 
             assert profile is not None
             assert profile.role == "ResearchAgent"
@@ -425,7 +425,7 @@ class TestAgentDiscovery:
             catalog = agent_proxy.discover_catalog()
             assert catalog == []
 
-            profile = agent_proxy.discover_profile("SomeAgent")
+            profile = agent_proxy.get_agent_card("SomeAgent")
             assert profile is None
 
             matches = agent_proxy.find_agents_with_skill("some_skill")

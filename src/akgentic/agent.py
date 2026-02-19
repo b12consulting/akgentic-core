@@ -625,7 +625,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         orch_proxy = self.proxy_ask(self._orchestrator, Orchestrator)
         return orch_proxy.get_agent_catalog()
 
-    def discover_profile(self, role: str) -> AgentCard | None:
+    def get_agent_card(self, role: str) -> AgentCard | None:
         """Look up a specific agent profile by role.
 
         Args:
