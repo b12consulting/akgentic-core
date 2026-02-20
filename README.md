@@ -45,20 +45,71 @@ system.shutdown()
 - **Comprehensive type hints** (mypy strict mode)
 - **10-minute time-to-first-agent** target
 
-## Development
+## Installation
+
+### Standalone Package
 
 ```bash
-# Install development dependencies
-uv sync --dev
+# Install from PyPI (when published)
+pip install akgentic
+
+# Or with uv
+uv add akgentic
+```
+
+### Within Monorepo Workspace
+
+If you're developing in the Akgentic Platform v2 monorepo:
+
+```bash
+# From workspace root
+source .venv/bin/activate
+
+# Package is already installed in editable mode via workspace
+# No additional installation needed
+```
+
+## Development
+
+### Standalone Package Development
+
+```bash
+# Clone and enter package directory
+cd packages/akgentic-core
+
+# Create virtual environment
+uv venv
+
+# Activate it
+source .venv/bin/activate
+
+# Install in editable mode with dev dependencies
+uv pip install -e ".[dev]"
 
 # Run tests
-uv run pytest
+pytest
 
 # Type checking
-uv run mypy src/
+mypy src/
 
 # Linting
-uv run ruff check src/
+ruff check src/
+```
+
+### Monorepo Workspace Development
+
+```bash
+# From workspace root
+source .venv/bin/activate
+
+# Run tests
+pytest packages/akgentic-core/tests/
+
+# Type checking
+mypy packages/akgentic-core/src/
+
+# Linting
+ruff check packages/akgentic-core/src/
 ```
 
 ## Examples
@@ -80,13 +131,13 @@ uv run python examples/05_multi_agent.py
 
 Work through them in order — each builds on the previous and introduces a small set of new concepts.
 
-| #   | Description                                                                            | Guide                                                    |
-| --- | -------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| 01  | Two agents exchange a greeting — introduces `Message`, `Akgent`, and `ActorSystem`     | [01 — Hello World](examples/01-hello-world.md)           |
-| 02  | `proxy_tell` (fire-and-forget) vs `proxy_ask` (blocking) with request-response pairing | [02 — Request-Response](examples/02-request-response.md) |
-| 03  | A manager spawns worker agents at runtime — parent-child hierarchy and `createActor()` | [03 — Dynamic Agents](examples/03-dynamic-agents.md)     |
+| #   | Description                                                                             | Guide                                                    |
+| --- | --------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| 01  | Two agents exchange a greeting — introduces `Message`, `Akgent`, and `ActorSystem`      | [01 — Hello World](examples/01-hello-world.md)           |
+| 02  | `proxy_tell` (fire-and-forget) vs `proxy_ask` (blocking) with request-response pairing  | [02 — Request-Response](examples/02-request-response.md) |
+| 03  | A manager spawns worker agents at runtime — parent-child hierarchy and `createActor()`  | [03 — Dynamic Agents](examples/03-dynamic-agents.md)     |
 | 04  | Custom `BaseConfig` subclass, typed state, observer pattern, and Orchestrator telemetry | [04 — Stateful Agents](examples/04-stateful-agents.md)   |
-| 05  | Multi-agent pipeline with human-in-the-loop approval and event subscribers             | [05 — Multi-Agent](examples/05-multi-agent.md)           |
+| 05  | Multi-agent pipeline with human-in-the-loop approval and event subscribers              | [05 — Multi-Agent](examples/05-multi-agent.md)           |
 
 See [`examples/README.md`](examples/README.md) for the full concept index.
 
