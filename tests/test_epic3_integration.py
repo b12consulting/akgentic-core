@@ -117,9 +117,7 @@ class TestOrchestratorTimerIntegration:
         sender_ref, sender_addr = _make_external_sender_address("cycle-agent")
 
         # Cycle 1
-        orch.receiveMsg_ReceivedMessage(
-            ReceivedMessage(message_id=uuid.uuid4()), sender_addr
-        ).get()
+        orch.receiveMsg_ReceivedMessage(ReceivedMessage(message_id=uuid.uuid4()), sender_addr).get()
         assert timer.task_count == 1
 
         orch.receiveMsg_ProcessedMessage(
@@ -129,9 +127,7 @@ class TestOrchestratorTimerIntegration:
         timer_after_cycle1 = timer._timer
 
         # Cycle 2 — new message arrives, timer cancels again
-        orch.receiveMsg_ReceivedMessage(
-            ReceivedMessage(message_id=uuid.uuid4()), sender_addr
-        ).get()
+        orch.receiveMsg_ReceivedMessage(ReceivedMessage(message_id=uuid.uuid4()), sender_addr).get()
         assert timer.task_count == 1
         assert timer._timer is None  # timer cancelled again
 

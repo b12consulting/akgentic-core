@@ -201,11 +201,13 @@ class TestSentMessage:
         from akgentic.actor_address_impl import ActorAddressProxy
 
         inner_msg = Message()
-        recipient = ActorAddressProxy({
-            "name": "test",
-            "role": "Worker",
-            "agent_id": str(uuid.uuid4()),
-        })
+        recipient = ActorAddressProxy(
+            {
+                "name": "test",
+                "role": "Worker",
+                "agent_id": str(uuid.uuid4()),
+            }
+        )
         sent = SentMessage(message=inner_msg, recipient=recipient)
         assert sent.message is inner_msg
         assert sent.recipient == recipient
@@ -215,11 +217,13 @@ class TestSentMessage:
         from akgentic.actor_address_impl import ActorAddressProxy
 
         inner_msg = Message()
-        recipient = ActorAddressProxy({
-            "name": "test",
-            "role": "Worker",
-            "agent_id": str(uuid.uuid4()),
-        })
+        recipient = ActorAddressProxy(
+            {
+                "name": "test",
+                "role": "Worker",
+                "agent_id": str(uuid.uuid4()),
+            }
+        )
         sent = SentMessage(message=inner_msg, recipient=recipient)
         assert isinstance(sent.id, uuid.UUID)
 
@@ -237,7 +241,7 @@ class TestReceivedMessage:
         """Should not have a message field."""
         msg_id = uuid.uuid4()
         received = ReceivedMessage(message_id=msg_id)
-        assert not hasattr(received, 'message')
+        assert not hasattr(received, "message")
 
 
 class TestProcessedMessage:
@@ -275,11 +279,13 @@ class TestStartMessage:
         from akgentic.agent_config import BaseConfig
 
         config = BaseConfig(name="test", role="Worker")
-        parent = ActorAddressProxy({
-            "name": "parent",
-            "role": "Parent",
-            "agent_id": str(uuid.uuid4()),
-        })
+        parent = ActorAddressProxy(
+            {
+                "name": "parent",
+                "role": "Parent",
+                "agent_id": str(uuid.uuid4()),
+            }
+        )
         start = StartMessage(config=config, parent=parent)
         assert start.parent == parent
 

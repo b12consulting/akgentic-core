@@ -7,7 +7,10 @@ authors = [
     { name = "gpiroux", email = "geoffroy.piroux@weareyuma.com" }
 ]
 requires-python = ">=3.12"
-dependencies = ["pydantic>=2.0.0"]
+dependencies = [
+    "pydantic>=2.0.0",
+    "pykka>=4.0.0",
+]
 
 [project.optional-dependencies]
 dev = [
@@ -16,7 +19,6 @@ dev = [
     "pytest-cov>=4.1.0",
     "mypy>=1.8.0",
     "ruff>=0.1.0",
-    "pykka>=4.0.0",
 ]
 
 [build-system]

@@ -50,11 +50,16 @@ system.shutdown()
 ### Standalone Package
 
 ```bash
-# Install from PyPI (when published)
-pip install akgentic
+# Clone and enter package directory
+cd packages/akgentic-core
 
-# Or with uv
-uv add akgentic
+# Create virtual environment
+uv venv
+
+# Activate it
+source .venv/bin/activate
+
+uv pip install -e .
 ```
 
 ### Within Monorepo Workspace

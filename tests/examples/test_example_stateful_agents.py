@@ -57,7 +57,9 @@ class TestCounterConfigDefinition:
         module = _load_module()
         cfg = module.CounterConfig()  # type: ignore[attr-defined]
         assert hasattr(cfg, "max_increment"), "CounterConfig missing max_increment"
-        assert cfg.max_increment == 10, f"Expected default max_increment=10, got {cfg.max_increment}"
+        assert cfg.max_increment == 10, (
+            f"Expected default max_increment=10, got {cfg.max_increment}"
+        )
 
     def test_counter_config_has_label_prefix(self) -> None:
         """CounterConfig has label_prefix field defaulting to '' (AC 1)."""
@@ -253,7 +255,7 @@ class TestLabelPrefixing:
             system.tell(counter_addr, module.IncrementMessage(amount=3, label="my-op"))  # type: ignore[attr-defined]
             time.sleep(0.2)
             captured = capsys.readouterr()
-            assert '[DEMO] my-op' in captured.out
+            assert "[DEMO] my-op" in captured.out
             states = orch_proxy.get_states()
             final = next(iter(states.values()))
             assert isinstance(final, module.CounterState)  # type: ignore[attr-defined]
@@ -306,7 +308,9 @@ class TestLabelPrefixing:
             final = next(iter(states.values()))
             assert isinstance(final, module.CounterState)  # type: ignore[attr-defined]
             assert "plain" in final.history
-            assert "[" not in final.history[0], "Should not have bracket prefix when label_prefix=''"
+            assert "[" not in final.history[0], (
+                "Should not have bracket prefix when label_prefix=''"
+            )
         finally:
             system.shutdown(timeout=5)
 

@@ -169,7 +169,7 @@ class CounterAgent(Akgent[CounterConfig, CounterState]):
         # Print for visibility
         print(
             f"[CounterAgent] Increment requested={message.amount} → effective={effective} "
-            f"→ count: {self.state.count} (label: \"{label}\")"
+            f'→ count: {self.state.count} (label: "{label}")'
         )
 
         # Notify observer (Orchestrator) of state change
