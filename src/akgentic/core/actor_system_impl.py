@@ -17,14 +17,14 @@ from typing import TYPE_CHECKING, Any, TypeVar, cast
 import pykka
 from pydantic import BaseModel
 
-from akgentic.actor_address import ActorAddress
-from akgentic.actor_address_impl import ActorAddressImpl
-from akgentic.agent_config import BaseConfig
-from akgentic.messages.message import Message
-from akgentic.utils.deserializer import import_class
+from akgentic.core.actor_address import ActorAddress
+from akgentic.core.actor_address_impl import ActorAddressImpl
+from akgentic.core.agent_config import BaseConfig
+from akgentic.core.messages.message import Message
+from akgentic.core.utils.deserializer import import_class
 
 if TYPE_CHECKING:
-    from akgentic.agent import Akgent
+    from akgentic.core.agent import Akgent
 
 # Logger for agent operations
 logger = logging.getLogger(__name__)

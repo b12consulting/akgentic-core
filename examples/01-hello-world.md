@@ -12,7 +12,7 @@ A `Message` is the only way agents communicate. You define your own message type
 `Message` and adding typed fields:
 
 ```python
-from akgentic.messages import Message
+from akgentic.core.messages import Message
 
 class HelloMessage(Message):
     greeting: str
@@ -34,7 +34,7 @@ An `Akgent` is an actor: an isolated unit of state and behavior. You define an a
 subclassing `Akgent[ConfigType, StateType]` and adding **message handlers**:
 
 ```python
-from akgentic import Akgent, BaseConfig, BaseState
+from akgentic.core import Akgent, BaseConfig, BaseState
 
 class ReceiverAgent(Akgent[BaseConfig, BaseState]):
 
@@ -60,7 +60,7 @@ until you need custom fields (covered in later examples).
 - manages the lifecycle (startup / shutdown)
 
 ```python
-from akgentic import ActorSystem
+from akgentic.core import ActorSystem
 
 actor_system = ActorSystem()
 ```

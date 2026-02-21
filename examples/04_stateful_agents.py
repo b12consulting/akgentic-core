@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import time
 
-from akgentic import (
+from akgentic.core import (
     ActorAddress,
     ActorSystem,
     Akgent,
@@ -29,7 +29,7 @@ from akgentic import (
     BaseState,
     Orchestrator,
 )
-from akgentic.messages import Message
+from akgentic.core.messages import Message
 
 # =============================================================================
 # STEP 0: Define a custom configuration (extends BaseConfig)

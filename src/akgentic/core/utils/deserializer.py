@@ -127,7 +127,7 @@ def deserialize_object(
             address_dict = cast(ActorAddressDict, obj)
             if context is None:
                 # Import here to avoid circular imports at module level
-                from akgentic.actor_address_impl import ActorAddressProxy
+                from akgentic.core.actor_address_impl import ActorAddressProxy
 
                 return ActorAddressProxy(address_dict)
             return context.resolve_address(address_dict)

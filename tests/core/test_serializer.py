@@ -9,15 +9,15 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import BaseModel
 
-from akgentic.messages.message import Message, UserMessage
-from akgentic.utils.deserializer import (
+from akgentic.core.messages.message import Message, UserMessage
+from akgentic.core.utils.deserializer import (
     ActorAddressDict,
     DeserializeContext,
     deserialize_object,
     import_class,
     is_uuid_canonical,
 )
-from akgentic.utils.serializer import (
+from akgentic.core.utils.serializer import (
     SerializableBaseModel,
     get_field_serializers_map,
     serialize,
@@ -32,13 +32,13 @@ class TestSerializeType:
     def test_serializes_class(self) -> None:
         """Should serialize class to module.ClassName."""
         result = serialize_type(Message)
-        assert result == "akgentic.messages.message.Message"
+        assert result == "akgentic.core.messages.message.Message"
 
     def test_serializes_instance(self) -> None:
         """Should serialize instance to module.ClassName."""
         msg = Message()
         result = serialize_type(msg)
-        assert result == "akgentic.messages.message.Message"
+        assert result == "akgentic.core.messages.message.Message"
 
     def test_serializes_builtin_type(self) -> None:
         """Should serialize builtin types."""
@@ -189,7 +189,7 @@ class TestImportClass:
 
     def test_imports_known_class(self) -> None:
         """Should import class from module path."""
-        cls = import_class("akgentic.messages.message.Message")
+        cls = import_class("akgentic.core.messages.message.Message")
         assert cls is Message
 
     def test_raises_on_invalid_module(self) -> None:
@@ -200,7 +200,7 @@ class TestImportClass:
     def test_raises_on_invalid_class(self) -> None:
         """Should raise AttributeError for invalid class."""
         with pytest.raises(AttributeError):
-            import_class("akgentic.messages.message.NonexistentClass")
+            import_class("akgentic.core.messages.message.NonexistentClass")
 
 
 class TestIsUuidCanonical:
@@ -246,7 +246,7 @@ class TestDeserializeObject:
 
     def test_deserialize_type(self) -> None:
         """Should deserialize __type__ dict to actual type."""
-        result = deserialize_object({"__type__": "akgentic.messages.message.Message"})
+        result = deserialize_object({"__type__": "akgentic.core.messages.message.Message"})
         assert result is Message
 
     def test_deserialize_model(self) -> None:
@@ -258,7 +258,7 @@ class TestDeserializeObject:
 
     def test_deserialize_actor_address_without_context(self) -> None:
         """Should return ActorAddressProxy when no context for ActorAddress."""
-        from akgentic.actor_address_impl import ActorAddressProxy
+        from akgentic.core.actor_address_impl import ActorAddressProxy
 
         addr_dict: ActorAddressDict = {
             "__actor_address__": True,
@@ -286,7 +286,7 @@ class TestDeserializeObject:
     def test_deserialize_invalid_model_raises(self) -> None:
         """Should raise ValueError for invalid model data."""
         data = {
-            "__model__": "akgentic.messages.message.UserMessage",
+            "__model__": "akgentic.core.messages.message.UserMessage",
             # Missing required 'content' field
         }
         with pytest.raises(ValueError, match="Error deserializing model"):
@@ -356,7 +356,7 @@ class TestMessageSerialization:
 
     def test_received_message_serialization(self) -> None:
         """Should serialize ReceivedMessage with message_id."""
-        from akgentic.messages.orchestrator import ReceivedMessage
+        from akgentic.core.messages.orchestrator import ReceivedMessage
 
         msg_id = uuid.uuid4()
         received = ReceivedMessage(message_id=msg_id)

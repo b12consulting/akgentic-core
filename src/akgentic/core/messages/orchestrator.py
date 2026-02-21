@@ -11,10 +11,10 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from akgentic.actor_address import ActorAddress
-from akgentic.agent_config import BaseConfig
-from akgentic.agent_state import BaseState
-from akgentic.messages.message import Message
+from akgentic.core.actor_address import ActorAddress
+from akgentic.core.agent_config import BaseConfig
+from akgentic.core.agent_state import BaseState
+from akgentic.core.messages.message import Message
 
 
 class SentMessage(Message):

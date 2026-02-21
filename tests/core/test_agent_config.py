@@ -8,11 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-import pytest
-from pydantic import ValidationError
-
-from akgentic import ActorAddressProxy
-from akgentic.agent_config import (
+from akgentic.core.agent_config import (
     AgentConfig,
     BaseConfig,
     ReadOnlyField,

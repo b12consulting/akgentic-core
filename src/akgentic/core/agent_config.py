@@ -23,7 +23,7 @@ from typing import Any
 
 from pydantic import Field
 
-from akgentic.utils.serializer import SerializableBaseModel
+from akgentic.core.utils.serializer import SerializableBaseModel
 
 
 def ReadOnlyField(**kwargs: Any) -> Any:  # noqa: N802

@@ -11,8 +11,8 @@ import importlib.util
 import sys
 from pathlib import Path
 
-from akgentic import ActorSystem, Akgent, BaseConfig
-from akgentic.messages import Message
+from akgentic.core import ActorSystem, Akgent, BaseConfig
+from akgentic.core.messages import Message
 
 
 class TestHelloMessageDefinition:

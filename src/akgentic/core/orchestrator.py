@@ -11,13 +11,13 @@ import threading
 from collections.abc import Callable
 from typing import Any, Protocol, overload, override
 
-from akgentic.actor_address import ActorAddress
-from akgentic.agent import Akgent
-from akgentic.agent_card import AgentCard
-from akgentic.agent_config import BaseConfig
-from akgentic.agent_state import BaseState
-from akgentic.messages.message import Message, StopRecursively
-from akgentic.messages.orchestrator import (
+from akgentic.core.actor_address import ActorAddress
+from akgentic.core.agent import Akgent
+from akgentic.core.agent_card import AgentCard
+from akgentic.core.agent_config import BaseConfig
+from akgentic.core.agent_state import BaseState
+from akgentic.core.messages.message import Message, StopRecursively
+from akgentic.core.messages.orchestrator import (
     ContextChangedMessage,
     ErrorMessage,
     ProcessedMessage,

@@ -17,8 +17,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from akgentic import ActorSystem, BaseConfig, BaseState, Orchestrator
-from akgentic.messages import Message
+from akgentic.core import ActorSystem, BaseConfig, BaseState, Orchestrator
+from akgentic.core.messages import Message
 
 EXAMPLE_PATH = Path(__file__).parent.parent.parent / "examples" / "04_stateful_agents.py"
 

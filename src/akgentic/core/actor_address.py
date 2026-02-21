@@ -25,7 +25,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from akgentic.utils.deserializer import ActorAddressDict
+    from akgentic.core.utils.deserializer import ActorAddressDict
 
 
 class ActorAddress(ABC):

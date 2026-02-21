@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from akgentic.agent_state import BaseState
+from akgentic.core.agent_state import BaseState
 
 
 class Notification(BaseModel):

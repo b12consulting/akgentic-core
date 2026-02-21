@@ -16,8 +16,8 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
-from akgentic.actor_address import ActorAddress
-from akgentic.utils.deserializer import ActorAddressDict
+from akgentic.core.actor_address import ActorAddress
+from akgentic.core.utils.deserializer import ActorAddressDict
 
 if TYPE_CHECKING:
     from pykka import ActorRef

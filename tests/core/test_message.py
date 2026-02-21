@@ -6,14 +6,14 @@ Tests base Message class, UserMessage, ResultMessage, and orchestrator messages.
 import uuid
 from datetime import UTC, datetime
 
-from akgentic.messages.message import (
+from akgentic.core.messages.message import (
     Message,
     ResultMessage,
     StopRecursively,
     UserMessage,
     date_time_factory,
 )
-from akgentic.messages.orchestrator import (
+from akgentic.core.messages.orchestrator import (
     ContextChangedMessage,
     ErrorMessage,
     ProcessedMessage,
@@ -126,7 +126,7 @@ class TestMessage:
         msg = Message()
         data = msg.model_dump()
         assert "__model__" in data
-        assert "akgentic.messages.message.Message" in data["__model__"]
+        assert "akgentic.core.messages.message.Message" in data["__model__"]
 
 
 class TestStopRecursively:
@@ -198,7 +198,7 @@ class TestSentMessage:
 
     def test_instantiation(self) -> None:
         """Should instantiate with message and recipient."""
-        from akgentic.actor_address_impl import ActorAddressProxy
+        from akgentic.core.actor_address_impl import ActorAddressProxy
 
         inner_msg = Message()
         recipient = ActorAddressProxy(
@@ -214,7 +214,7 @@ class TestSentMessage:
 
     def test_inherits_message_fields(self) -> None:
         """Should inherit all Message fields."""
-        from akgentic.actor_address_impl import ActorAddressProxy
+        from akgentic.core.actor_address_impl import ActorAddressProxy
 
         inner_msg = Message()
         recipient = ActorAddressProxy(
@@ -259,7 +259,7 @@ class TestStartMessage:
 
     def test_instantiation(self) -> None:
         """Should instantiate with config."""
-        from akgentic.agent_config import BaseConfig
+        from akgentic.core.agent_config import BaseConfig
 
         config = BaseConfig(name="test", role="Worker")
         start = StartMessage(config=config)
@@ -267,7 +267,7 @@ class TestStartMessage:
 
     def test_parent_defaults_to_none(self) -> None:
         """parent should default to None."""
-        from akgentic.agent_config import BaseConfig
+        from akgentic.core.agent_config import BaseConfig
 
         config = BaseConfig(name="test", role="Worker")
         start = StartMessage(config=config)
@@ -275,8 +275,8 @@ class TestStartMessage:
 
     def test_parent_can_be_set(self) -> None:
         """parent can be explicitly set."""
-        from akgentic.actor_address_impl import ActorAddressProxy
-        from akgentic.agent_config import BaseConfig
+        from akgentic.core.actor_address_impl import ActorAddressProxy
+        from akgentic.core.agent_config import BaseConfig
 
         config = BaseConfig(name="test", role="Worker")
         parent = ActorAddressProxy(
@@ -356,7 +356,7 @@ class TestStateChangedMessage:
 
     def test_instantiation(self) -> None:
         """Should instantiate with state."""
-        from akgentic.agent_state import BaseState
+        from akgentic.core.agent_state import BaseState
 
         state = BaseState()
         state_changed = StateChangedMessage(state=state)
@@ -364,7 +364,7 @@ class TestStateChangedMessage:
 
     def test_err_defaults_to_none(self) -> None:
         """err should default to None."""
-        from akgentic.agent_state import BaseState
+        from akgentic.core.agent_state import BaseState
 
         state = BaseState()
         state_changed = StateChangedMessage(state=state)

@@ -10,7 +10,7 @@ from typing import Protocol
 
 from pydantic import PrivateAttr
 
-from akgentic.utils.serializer import SerializableBaseModel
+from akgentic.core.utils.serializer import SerializableBaseModel
 
 
 class AkgentStateObserver(Protocol):

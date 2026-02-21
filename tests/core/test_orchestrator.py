@@ -5,11 +5,11 @@ from collections.abc import Generator
 import pykka
 import pytest
 
-from akgentic.actor_system_impl import ActorSystem
-from akgentic.agent import Akgent
-from akgentic.agent_config import BaseConfig
-from akgentic.agent_state import BaseState
-from akgentic.orchestrator import Orchestrator
+from akgentic.core.actor_system_impl import ActorSystem
+from akgentic.core.agent import Akgent
+from akgentic.core.agent_config import BaseConfig
+from akgentic.core.agent_state import BaseState
+from akgentic.core.orchestrator import Orchestrator
 from typing import Never
 
 
@@ -98,7 +98,7 @@ class TestOrchestratorInitialization:
 
     def test_orchestrator_initializes_with_empty_state(self) -> None:
         """Test that orchestrator initializes with its own StartMessage."""
-        from akgentic.messages.orchestrator import StartMessage
+        from akgentic.core.messages.orchestrator import StartMessage
 
         config = BaseConfig(name="test-orchestrator", role="Orchestrator")
         orch_ref = Orchestrator.start(config=config)
@@ -150,7 +150,7 @@ class TestQueryMethods:
 
     def test_get_messages_all(self) -> None:
         """Test get_messages returns all messages when no filter."""
-        from akgentic.messages.orchestrator import StartMessage
+        from akgentic.core.messages.orchestrator import StartMessage
 
         config = BaseConfig(name="test-orchestrator", role="Orchestrator")
         orch_ref = Orchestrator.start(config=config)
@@ -216,7 +216,7 @@ class TestZeroDependencies:
 
     def test_no_redis_imports(self) -> None:
         """Test that orchestrator module has no Redis imports."""
-        import akgentic.orchestrator as orch_module
+        import akgentic.core.orchestrator as orch_module
 
         # Check module-level imports
         module_globals = vars(orch_module)
@@ -225,7 +225,7 @@ class TestZeroDependencies:
 
     def test_orchestrator_works_without_redis(self) -> None:
         """Test orchestrator functions without Redis."""
-        from akgentic.messages.orchestrator import StartMessage
+        from akgentic.core.messages.orchestrator import StartMessage
 
         config = BaseConfig(name="test-orchestrator", role="Orchestrator")
         orch_ref = Orchestrator.start(config=config)
@@ -268,7 +268,7 @@ class TestIntegration:
 
     def test_zero_infrastructure_requirements(self) -> None:
         """Test that orchestrator requires no external infrastructure."""
-        from akgentic.messages.orchestrator import StartMessage
+        from akgentic.core.messages.orchestrator import StartMessage
 
         # This test verifies orchestrator can be created and used without Redis/DB
         system = ActorSystem()

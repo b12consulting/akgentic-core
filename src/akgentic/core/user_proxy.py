@@ -9,13 +9,13 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from akgentic.agent import Akgent
-from akgentic.agent_config import BaseConfig
-from akgentic.agent_state import BaseState
-from akgentic.messages.message import Message, ResultMessage, UserMessage
+from akgentic.core.agent import Akgent
+from akgentic.core.agent_config import BaseConfig
+from akgentic.core.agent_state import BaseState
+from akgentic.core.messages.message import Message, ResultMessage, UserMessage
 
 if TYPE_CHECKING:
-    from akgentic.actor_address import ActorAddress
+    from akgentic.core.actor_address import ActorAddress
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ class UserProxy(Akgent[BaseConfig, BaseState]):
     to humans, and routes human responses back to the requesting agents.
 
     Usage:
-        >>> from akgentic import ActorSystem, UserProxy, BaseConfig
+        >>> from akgentic.core import ActorSystem, UserProxy, BaseConfig
         >>> system = ActorSystem()
         >>> config = BaseConfig(name="human", role="UserProxy")
         >>> proxy_addr = system.createActor(UserProxy, config=config)

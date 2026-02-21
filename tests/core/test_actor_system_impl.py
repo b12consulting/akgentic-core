@@ -3,17 +3,17 @@
 import uuid
 from typing import cast
 
-from akgentic.actor_address_impl import ActorAddressImpl, ActorAddressProxy
-from akgentic.actor_system_impl import (
+from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
+from akgentic.core.actor_system_impl import (
     ActorSystem,
     ActorSystemListener,
     ExecutionContext,
     ProxyWrapper,
     Statistics,
 )
-from akgentic.agent import Akgent
-from akgentic.agent_config import BaseConfig
-from akgentic.agent_state import BaseState
+from akgentic.core.agent import Akgent
+from akgentic.core.agent_config import BaseConfig
+from akgentic.core.agent_state import BaseState
 
 
 class SimpleAgent(Akgent[BaseConfig, BaseState]):

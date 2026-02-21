@@ -14,8 +14,8 @@ import sys
 import time
 from pathlib import Path
 
-from akgentic import ActorAddress, ActorSystem, Akgent, BaseConfig
-from akgentic.messages import Message
+from akgentic.core import ActorAddress, ActorSystem, Akgent, BaseConfig
+from akgentic.core.messages import Message
 
 
 class TestProcessTaskRequestMessage:

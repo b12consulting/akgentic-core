@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from akgentic.agent_config import BaseConfig
-from akgentic.utils.serializer import SerializableBaseModel
+from akgentic.core.agent_config import BaseConfig
+from akgentic.core.utils.serializer import SerializableBaseModel
 
 
 class AgentCard(SerializableBaseModel):

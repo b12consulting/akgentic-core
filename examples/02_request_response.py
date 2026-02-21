@@ -22,8 +22,8 @@ from __future__ import annotations
 import time
 import uuid
 
-from akgentic import ActorAddress, ActorSystem, Akgent, BaseConfig, BaseState
-from akgentic.messages import Message
+from akgentic.core import ActorAddress, ActorSystem, Akgent, BaseConfig, BaseState
+from akgentic.core.messages import Message
 
 # =============================================================================
 # STEP 1: Define request and response message types

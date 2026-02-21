@@ -13,16 +13,11 @@ from unittest.mock import MagicMock, patch
 import pykka
 import pytest
 
-from akgentic import (
-    ActorSystem,
-    BaseConfig,
-    Orchestrator,
-    UserProxy,
-)
-from akgentic.actor_address_impl import ActorAddressImpl
-from akgentic.agent import Akgent
-from akgentic.messages.message import Message, ResultMessage, UserMessage
-from akgentic.messages.orchestrator import SentMessage
+from akgentic.core import ActorSystem, BaseConfig, Orchestrator, UserProxy
+from akgentic.core.actor_address_impl import ActorAddressImpl
+from akgentic.core.agent import Akgent
+from akgentic.core.messages.message import Message, ResultMessage, UserMessage
+from akgentic.core.messages.orchestrator import SentMessage
 
 
 @pytest.fixture(autouse=True)

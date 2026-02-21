@@ -4,14 +4,14 @@ Provides base Message class and specialized message types for
 actor communication and orchestrator telemetry.
 """
 
-from akgentic.messages.message import (
+from akgentic.core.messages.message import (
     Message,
     ResultMessage,
     StopRecursively,
     UserMessage,
     date_time_factory,
 )
-from akgentic.messages.orchestrator import (
+from akgentic.core.messages.orchestrator import (
     ContextChangedMessage,
     ErrorMessage,
     ProcessedMessage,

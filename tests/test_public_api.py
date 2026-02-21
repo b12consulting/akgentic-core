@@ -5,7 +5,7 @@ class TestAkgenticNamespace:
     """Verify akgentic top-level exports agent primitives only."""
 
     def test_agent_primitives_importable(self) -> None:
-        from akgentic import (
+        from akgentic.core import (
             ActorAddress,
             ActorAddressImpl,
             ActorAddressProxy,
@@ -36,12 +36,12 @@ class TestAkgenticNamespace:
         assert BaseState is not None
 
     def test_version_accessible(self) -> None:
-        from akgentic import __version__
+        from akgentic.core import __version__
 
         assert __version__ == "1.0.0-alpha.1"
 
     def test_message_types_not_in_all(self) -> None:
-        import akgentic
+        import akgentic.core
 
         message_types = {
             "Message",
@@ -59,10 +59,10 @@ class TestAkgenticNamespace:
             "ToolUpdateMessage",
             "date_time_factory",
         }
-        assert not message_types.intersection(set(akgentic.__all__))
+        assert not message_types.intersection(set(akgentic.core.__all__))
 
     def test_serialization_utils_not_in_all(self) -> None:
-        import akgentic
+        import akgentic.core
 
         util_symbols = {
             "SerializableBaseModel",
@@ -76,19 +76,19 @@ class TestAkgenticNamespace:
             "import_class",
             "is_uuid_canonical",
         }
-        assert not util_symbols.intersection(set(akgentic.__all__))
+        assert not util_symbols.intersection(set(akgentic.core.__all__))
 
     def test_no_duplicate_symbols_in_all(self) -> None:
-        import akgentic
+        import akgentic.core
 
-        assert len(akgentic.__all__) == len(set(akgentic.__all__))
+        assert len(akgentic.core.__all__) == len(set(akgentic.core.__all__))
 
 
 class TestMessagesNamespace:
     """Verify akgentic.messages exports all message types."""
 
     def test_all_message_types_importable(self) -> None:
-        from akgentic.messages import (
+        from akgentic.core.messages import (
             ContextChangedMessage,
             ErrorMessage,
             Message,
@@ -121,7 +121,7 @@ class TestMessagesNamespace:
         assert date_time_factory is not None
 
     def test_messages_all_defined(self) -> None:
-        import akgentic.messages as msgs
+        import akgentic.core.messages as msgs
 
         expected = {
             "Message",
@@ -146,7 +146,7 @@ class TestUtilsNamespace:
     """Verify akgentic.utils exports serialization infrastructure."""
 
     def test_all_utils_importable(self) -> None:
-        from akgentic.utils import (
+        from akgentic.core.utils import (
             ActorAddressDict,
             DeserializeContext,
             SerializableBaseModel,
@@ -171,7 +171,7 @@ class TestUtilsNamespace:
         assert is_uuid_canonical is not None
 
     def test_utils_all_defined(self) -> None:
-        import akgentic.utils as utils
+        import akgentic.core.utils as utils
 
         expected = {
             "SerializableBaseModel",
@@ -192,13 +192,13 @@ class TestNoSymbolOverlap:
     """Verify no symbol appears in more than one __all__."""
 
     def test_no_overlap_between_namespaces(self) -> None:
-        import akgentic
-        import akgentic.messages
-        import akgentic.utils
+        import akgentic.core
+        import akgentic.core.messages
+        import akgentic.core.utils
 
-        top_level = set(akgentic.__all__)
-        messages = set(akgentic.messages.__all__)
-        utils = set(akgentic.utils.__all__)
+        top_level = set(akgentic.core.__all__)
+        messages = set(akgentic.core.messages.__all__)
+        utils = set(akgentic.core.utils.__all__)
 
         assert not top_level.intersection(messages), (
             f"Overlap between akgentic and akgentic.messages: {top_level.intersection(messages)}"

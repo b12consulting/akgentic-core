@@ -17,13 +17,13 @@ from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, override
 
 import pykka
 
-from akgentic.actor_address import ActorAddress
-from akgentic.actor_address_impl import ActorAddressImpl
-from akgentic.agent_card import AgentCard
-from akgentic.agent_config import BaseConfig
-from akgentic.agent_state import BaseState
-from akgentic.messages.message import Message, StopRecursively
-from akgentic.messages.orchestrator import (
+from akgentic.core.actor_address import ActorAddress
+from akgentic.core.actor_address_impl import ActorAddressImpl
+from akgentic.core.agent_card import AgentCard
+from akgentic.core.agent_config import BaseConfig
+from akgentic.core.agent_state import BaseState
+from akgentic.core.messages.message import Message, StopRecursively
+from akgentic.core.messages.orchestrator import (
     ContextChangedMessage,
     ErrorMessage,
     ProcessedMessage,
@@ -33,11 +33,11 @@ from akgentic.messages.orchestrator import (
     StateChangedMessage,
     StopMessage,
 )
-from akgentic.utils.deserializer import DeserializeContext, deserialize_object
+from akgentic.core.utils.deserializer import DeserializeContext, deserialize_object
 
 if TYPE_CHECKING:
-    from akgentic.actor_address_impl import ActorAddressProxy, ActorAddressStopped
-    from akgentic.orchestrator import Orchestrator
+    from akgentic.core.actor_address_impl import ActorAddressProxy, ActorAddressStopped
+    from akgentic.core.orchestrator import Orchestrator
 
 # Type variables for generic Agent configuration and state
 ConfigType = TypeVar("ConfigType", bound=BaseConfig)
@@ -76,7 +76,7 @@ class AkgentDeserializeContext(DeserializeContext):
             Live ActorAddress if available, otherwise stopped/proxy address.
         """
         # Lazy import to avoid circular dependencies
-        from akgentic.actor_address_impl import ActorAddressStopped
+        from akgentic.core.actor_address_impl import ActorAddressStopped
 
         address_stopped = ActorAddressStopped(address_dict)
         orch = self.akgent._orchestrator
@@ -620,7 +620,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         if not self._orchestrator:
             return []
 
-        from akgentic.orchestrator import Orchestrator
+        from akgentic.core.orchestrator import Orchestrator
 
         orch_proxy = self.proxy_ask(self._orchestrator, Orchestrator)
         return orch_proxy.get_agent_catalog()
@@ -637,7 +637,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         if not self._orchestrator:
             return None
 
-        from akgentic.orchestrator import Orchestrator
+        from akgentic.core.orchestrator import Orchestrator
 
         orch_proxy = self.proxy_ask(self._orchestrator, Orchestrator)
         return orch_proxy.get_agent_profile(role)
@@ -654,7 +654,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         if not self._orchestrator:
             return []
 
-        from akgentic.orchestrator import Orchestrator
+        from akgentic.core.orchestrator import Orchestrator
 
         orch_proxy = self.proxy_ask(self._orchestrator, Orchestrator)
         return orch_proxy.get_profiles_by_skill(skill)
@@ -668,7 +668,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         if not self._orchestrator:
             return []
 
-        from akgentic.orchestrator import Orchestrator
+        from akgentic.core.orchestrator import Orchestrator
 
         orch_proxy = self.proxy_ask(self._orchestrator, Orchestrator)
         return orch_proxy.get_available_roles()

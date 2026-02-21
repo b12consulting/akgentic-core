@@ -14,7 +14,7 @@ Every `Akgent` receives a configuration object on creation. By default it is a p
 domain-specific parameters that Pydantic validates for you:
 
 ```python
-from akgentic import BaseConfig
+from akgentic.core import BaseConfig
 
 class CounterConfig(BaseConfig):
     max_increment: int = 10   # clamp per-message increments
@@ -64,7 +64,7 @@ Every `Akgent` carries a `state` field. By default it is a plain `BaseState`, bu
 subclass it to add your own fields:
 
 ```python
-from akgentic import BaseState
+from akgentic.core import BaseState
 
 class CounterState(BaseState):
     count: int = 0
@@ -116,7 +116,7 @@ snapshot of each agent's state. It acts as a lightweight telemetry hub without c
 to each other:
 
 ```python
-from akgentic import Orchestrator
+from akgentic.core import Orchestrator
 
 orchestrator_addr = actor_system.createActor(
     Orchestrator,

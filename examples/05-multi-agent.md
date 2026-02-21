@@ -17,7 +17,7 @@ means waiting for actual user input via a UI or CLI), and sends messages back.
 Subclass it to define how your application bridges the actor system to a real human:
 
 ```python
-from akgentic import UserProxy
+from akgentic.core import UserProxy
 
 class SimulatedUserProxy(UserProxy):
 
@@ -67,7 +67,7 @@ messages flow through the system. You can subscribe any object to receive these 
 implementing `OrchestratorEventSubscriber`:
 
 ```python
-from akgentic import OrchestratorEventSubscriber
+from akgentic.core import OrchestratorEventSubscriber
 
 class SimpleLogger(OrchestratorEventSubscriber):
 

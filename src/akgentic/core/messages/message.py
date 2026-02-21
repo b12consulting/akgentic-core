@@ -15,8 +15,8 @@ from typing import Any, Literal
 
 from pydantic import Field, model_serializer
 
-from akgentic.actor_address import ActorAddress
-from akgentic.utils.serializer import SerializableBaseModel, serialize_base_model
+from akgentic.core.actor_address import ActorAddress
+from akgentic.core.utils.serializer import SerializableBaseModel, serialize_base_model
 
 
 def date_time_factory() -> datetime:

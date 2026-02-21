@@ -14,14 +14,14 @@ import sys
 import time
 from pathlib import Path
 
-from akgentic import (
+from akgentic.core import (
     ActorSystem,
     Akgent,
     BaseConfig,
     BaseState,
     Orchestrator,
 )
-from akgentic.messages import Message
+from akgentic.core.messages import Message
 
 
 class TestMessageTypesDefinition:
@@ -214,7 +214,7 @@ class TestUserProxyIntegration:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        from akgentic import UserProxy
+        from akgentic.core import UserProxy
 
         assert hasattr(module, "SimulatedUserProxy"), "SimulatedUserProxy not defined"
         assert issubclass(module.SimulatedUserProxy, UserProxy), (
@@ -247,7 +247,7 @@ class TestSimpleLoggerSubscriber:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        from akgentic import OrchestratorEventSubscriber
+        from akgentic.core import OrchestratorEventSubscriber
 
         assert hasattr(module, "SimpleLogger"), "SimpleLogger not defined"
         # Check that it has required methods

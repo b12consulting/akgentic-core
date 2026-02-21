@@ -16,8 +16,8 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, ValidationInfo, model_serializer, model_validator
 from pydantic_core import to_jsonable_python
 
-from akgentic.actor_address import ActorAddress
-from akgentic.utils.deserializer import ActorAddressDict, deserialize_object
+from akgentic.core.actor_address import ActorAddress
+from akgentic.core.utils.deserializer import ActorAddressDict, deserialize_object
 
 
 def serialize_type(value: type[Any] | Any) -> str:

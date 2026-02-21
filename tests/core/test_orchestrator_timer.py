@@ -10,9 +10,9 @@ from unittest.mock import MagicMock, patch
 import pykka
 import pytest
 
-from akgentic.agent_config import BaseConfig
-from akgentic.messages.orchestrator import ErrorMessage, ProcessedMessage, ReceivedMessage
-from akgentic.orchestrator import TIMER_DELAY, Orchestrator, Timer
+from akgentic.core.agent_config import BaseConfig
+from akgentic.core.messages.orchestrator import ErrorMessage, ProcessedMessage, ReceivedMessage
+from akgentic.core.orchestrator import TIMER_DELAY, Orchestrator, Timer
 
 
 @pytest.fixture(autouse=True)

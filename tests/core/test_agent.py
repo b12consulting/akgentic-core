@@ -17,12 +17,12 @@ from unittest.mock import MagicMock
 import pykka
 import pytest
 
-from akgentic.actor_address import ActorAddress
-from akgentic.actor_address_impl import ActorAddressImpl
-from akgentic.agent import Akgent, ProxyWrapper
-from akgentic.agent_config import BaseConfig
-from akgentic.agent_state import BaseState
-from akgentic.messages.message import Message, StopRecursively
+from akgentic.core.actor_address import ActorAddress
+from akgentic.core.actor_address_impl import ActorAddressImpl
+from akgentic.core.agent import Akgent, ProxyWrapper
+from akgentic.core.agent_config import BaseConfig
+from akgentic.core.agent_state import BaseState
+from akgentic.core.messages.message import Message, StopRecursively
 
 
 class SampleMessage(Message):
@@ -528,7 +528,7 @@ class TestOrchestratorIntegration:
             # Verify StartMessage sent
             assert mock_orch_ref.tell.called
             call_args = mock_orch_ref.tell.call_args_list[0][0]
-            from akgentic.messages.orchestrator import StartMessage
+            from akgentic.core.messages.orchestrator import StartMessage
 
             assert any(isinstance(arg, StartMessage) for arg in call_args)
         finally:
@@ -563,7 +563,7 @@ class TestOrchestratorIntegration:
             ref.proxy().send(recipient_address, msg).get(timeout=5)
 
             # Verify SentMessage sent to orchestrator
-            from akgentic.messages.orchestrator import SentMessage
+            from akgentic.core.messages.orchestrator import SentMessage
 
             sent_calls = [
                 call

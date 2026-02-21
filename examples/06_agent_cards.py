@@ -12,7 +12,7 @@ Concepts:
 
 import time
 
-from akgentic import (
+from akgentic.core import (
     ActorSystem,
     AgentCard,
     Akgent,

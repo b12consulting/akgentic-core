@@ -18,7 +18,7 @@ from __future__ import annotations
 import time
 from typing import TYPE_CHECKING
 
-from akgentic import (
+from akgentic.core import (
     ActorAddress,
     ActorSystem,
     Akgent,
@@ -28,7 +28,7 @@ from akgentic import (
     OrchestratorEventSubscriber,
     UserProxy,
 )
-from akgentic.messages import Message
+from akgentic.core.messages import Message
 
 if TYPE_CHECKING:
     pass

@@ -8,18 +8,18 @@ verifying that:
   - Manual stop cancels the timer cleanly
 """
 
+import os
 import time
 import uuid
 from collections.abc import Generator
 from unittest.mock import patch
 
-import os
 import pykka
 import pytest
 
-from akgentic.agent_config import BaseConfig
-from akgentic.messages.orchestrator import ProcessedMessage, ReceivedMessage
-from akgentic.orchestrator import Orchestrator, Timer
+from akgentic.core.agent_config import BaseConfig
+from akgentic.core.messages.orchestrator import ProcessedMessage, ReceivedMessage
+from akgentic.core.orchestrator import Orchestrator
 
 
 @pytest.fixture(autouse=True)

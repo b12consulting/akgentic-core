@@ -8,7 +8,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from akgentic.utils.deserializer import ActorAddressDict
+from akgentic.core.utils.deserializer import ActorAddressDict
 
 
 class TestActorAddressABC:
@@ -16,7 +16,7 @@ class TestActorAddressABC:
 
     def test_cannot_instantiate_abc(self) -> None:
         """ActorAddress ABC cannot be instantiated directly."""
-        from akgentic.actor_address import ActorAddress
+        from akgentic.core.actor_address import ActorAddress
 
         with pytest.raises(TypeError):
             ActorAddress()  # type: ignore[abstract]
@@ -41,7 +41,7 @@ class TestActorAddressProxy:
 
     def test_properties_from_dict(self, sample_address_dict: ActorAddressDict) -> None:
         """All properties should be read from dict."""
-        from akgentic.actor_address_impl import ActorAddressProxy
+        from akgentic.core.actor_address_impl import ActorAddressProxy
 
         proxy = ActorAddressProxy(sample_address_dict)
         assert proxy.agent_id == uuid.UUID("12345678-1234-5678-1234-567812345678")
@@ -54,15 +54,15 @@ class TestActorAddressProxy:
 
     def test_send_raises_runtime_error(self, sample_address_dict: ActorAddressDict) -> None:
         """send should raise RuntimeError for proxy addresses."""
-        from akgentic.actor_address_impl import ActorAddressProxy
+        from akgentic.core.actor_address_impl import ActorAddressProxy
 
         proxy = ActorAddressProxy(sample_address_dict)
         with pytest.raises(RuntimeError, match="Cannot send message from mock actor address"):
-            proxy.send(None, {"content": "test"})
+            proxy.send(proxy, {"content": "test"})
 
     def test_serialize_returns_dict(self, sample_address_dict: ActorAddressDict) -> None:
         """serialize should return the original ActorAddressDict."""
-        from akgentic.actor_address_impl import ActorAddressProxy
+        from akgentic.core.actor_address_impl import ActorAddressProxy
 
         proxy = ActorAddressProxy(sample_address_dict)
         serialized = proxy.serialize()
@@ -71,7 +71,7 @@ class TestActorAddressProxy:
 
     def test_equality_and_hashing(self, sample_address_dict: ActorAddressDict) -> None:
         """Equality and hash should be based on agent_id."""
-        from akgentic.actor_address_impl import ActorAddressProxy
+        from akgentic.core.actor_address_impl import ActorAddressProxy
 
         proxy1 = ActorAddressProxy(sample_address_dict)
         proxy2 = ActorAddressProxy(sample_address_dict)
@@ -90,7 +90,7 @@ class TestActorAddressStopped:
 
     def test_is_alive_returns_false(self) -> None:
         """is_alive should return False for stopped addresses."""
-        from akgentic.actor_address_impl import ActorAddressProxy, ActorAddressStopped
+        from akgentic.core.actor_address_impl import ActorAddressProxy, ActorAddressStopped
 
         address_dict: ActorAddressDict = {
             "__actor_address__": True,
@@ -149,7 +149,7 @@ class TestActorAddressImpl:
 
     def test_properties_from_actor(self, mock_actor_ref: MagicMock) -> None:
         """All properties should come from the underlying actor via config objects."""
-        from akgentic.actor_address_impl import ActorAddressImpl
+        from akgentic.core.actor_address_impl import ActorAddressImpl
 
         impl = ActorAddressImpl(mock_actor_ref)
         assert impl.agent_id == mock_actor_ref._actor.agent_id
@@ -162,7 +162,7 @@ class TestActorAddressImpl:
 
     def test_team_id_reads_flat_attribute(self, mock_actor_ref: MagicMock) -> None:
         """team_id should read _team_id directly from actor, not via _config."""
-        from akgentic.actor_address_impl import ActorAddressImpl
+        from akgentic.core.actor_address_impl import ActorAddressImpl
 
         expected = uuid.UUID("87654321-4321-8765-4321-876543218765")
         mock_actor_ref._actor._team_id = expected
@@ -172,7 +172,7 @@ class TestActorAddressImpl:
 
     def test_team_id_returns_none_when_absent(self, mock_actor_ref: MagicMock) -> None:
         """team_id should return None when _team_id is not set on the actor."""
-        from akgentic.actor_address_impl import ActorAddressImpl
+        from akgentic.core.actor_address_impl import ActorAddressImpl
 
         # spec=object prevents MagicMock from auto-creating _team_id
         mock_actor_ref._actor = MagicMock(spec=["agent_id", "config"])
@@ -182,7 +182,7 @@ class TestActorAddressImpl:
 
     def test_is_alive_delegates_to_ref(self, mock_actor_ref: MagicMock) -> None:
         """is_alive should delegate to ActorRef."""
-        from akgentic.actor_address_impl import ActorAddressImpl
+        from akgentic.core.actor_address_impl import ActorAddressImpl
 
         impl = ActorAddressImpl(mock_actor_ref)
         assert impl.is_alive() is True
@@ -191,7 +191,7 @@ class TestActorAddressImpl:
 
     def test_serialize_produces_correct_dict(self, mock_actor_ref: MagicMock) -> None:
         """serialize should produce correct ActorAddressDict with actual agent class."""
-        from akgentic.actor_address_impl import ActorAddressImpl
+        from akgentic.core.actor_address_impl import ActorAddressImpl
 
         impl = ActorAddressImpl(mock_actor_ref)
         serialized = impl.serialize()
@@ -204,7 +204,7 @@ class TestActorAddressImpl:
 
     def test_equality_and_hashing(self, mock_actor_ref: MagicMock) -> None:
         """Equality and hash should be based on agent_id."""
-        from akgentic.actor_address_impl import ActorAddressImpl
+        from akgentic.core.actor_address_impl import ActorAddressImpl
 
         impl1 = ActorAddressImpl(mock_actor_ref)
         impl2 = ActorAddressImpl(mock_actor_ref)

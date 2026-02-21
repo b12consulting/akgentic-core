@@ -9,8 +9,8 @@ as documented:
 
 import time
 
-from akgentic import ActorAddress, ActorSystem, Akgent
-from akgentic.messages import Message
+from akgentic.core import ActorAddress, ActorSystem, Akgent
+from akgentic.core.messages import Message
 
 # ---------------------------------------------------------------------------
 # Replicate the README snippet as local classes so tests are self-contained.

@@ -1,5 +1,5 @@
-from akgentic import ActorAddress, ActorSystem, Akgent
-from akgentic.messages import Message
+from akgentic.core import ActorAddress, ActorSystem, Akgent
+from akgentic.core.messages import Message
 
 
 # Define a simple message class
