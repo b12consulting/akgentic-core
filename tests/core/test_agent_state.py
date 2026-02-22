@@ -30,7 +30,7 @@ class MockObserver:
     def __init__(self) -> None:
         self.notifications: list[Notification] = []
 
-    def state_changed(self, state: BaseState) -> None:
+    def notify_state_change(self, state: BaseState) -> None:
         """Called when observed state changes.
 
         Extracts data from state and creates a notification record.
@@ -45,9 +45,9 @@ class TestAkgentStateObserver:
     """Test the observer protocol definition."""
 
     def test_observer_protocol_defined(self) -> None:
-        """Verify observer has state_changed method."""
+        """Verify observer has notify_state_change method."""
         observer = MockObserver()
-        assert hasattr(observer, "state_changed")
+        assert hasattr(observer, "notify_state_change")
 
     def test_observer_receives_state_changes(self) -> None:
         """Verify observer receives and records state changes."""
@@ -55,7 +55,7 @@ class TestAkgentStateObserver:
         state = WorkerState(dummy_field="test")
 
         # Manually trigger state change
-        observer.state_changed(state)
+        observer.notify_state_change(state)
 
         # Observer should have recorded the notification
         assert len(observer.notifications) == 1

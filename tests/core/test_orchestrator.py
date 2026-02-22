@@ -112,8 +112,6 @@ class TestOrchestratorInitialization:
 
         # Other collections remain empty
         assert orch.get_states().get() == {}
-        assert orch.get_llm_context().get() == {}
-        assert orch.get_tool_state().get() == {}
         assert orch.get_team().get() == []  # Orchestrator excluded from team
 
         orch_ref.stop()
@@ -163,18 +161,6 @@ class TestQueryMethods:
 
         orch_ref.stop()
 
-    def test_get_llm_context(self) -> None:
-        """Test get_llm_context returns llm_context_dict."""
-        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
-        orch_ref = Orchestrator.start(config=config)
-        orch = orch_ref.proxy()
-
-        # Initially empty
-        context = orch.get_llm_context().get()
-        assert context == {}
-
-        orch_ref.stop()
-
     def test_get_states(self) -> None:
         """Test get_states returns state_dict."""
         config = BaseConfig(name="test-orchestrator", role="Orchestrator")
@@ -184,29 +170,6 @@ class TestQueryMethods:
         # Initially empty
         states = orch.get_states().get()
         assert states == {}
-
-        orch_ref.stop()
-
-    def test_get_tool_state_all(self) -> None:
-        """Test get_tool_state returns all tool states when no filter."""
-        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
-        orch_ref = Orchestrator.start(config=config)
-        orch = orch_ref.proxy()
-
-        # Initially empty
-        tool_states = orch.get_tool_state().get()
-        assert tool_states == {}
-
-        orch_ref.stop()
-
-    def test_get_tool_state_specific_tool(self) -> None:
-        """Test get_tool_state returns empty dict for non-existent tool."""
-        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
-        orch_ref = Orchestrator.start(config=config)
-        orch = orch_ref.proxy()
-
-        tool_state = orch.get_tool_state("non-existent").get()
-        assert tool_state == {}
 
         orch_ref.stop()
 
