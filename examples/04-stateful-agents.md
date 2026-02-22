@@ -111,9 +111,7 @@ simply announces "I changed"; it doesn't need to know who is listening.
 
 ### Orchestrator — telemetry hub
 
-The `Orchestrator` is a built-in agent that listens for state change events and stores a
-snapshot of each agent's state. It acts as a lightweight telemetry hub without coupling agents
-to each other:
+The `Orchestrator` is a built-in agent that monitors message exchanges (see example [05 — Multi-Agent](05-multi-agent.md)) and state changes from its child agents (the agent team). It acts as a centralized telemetry hub, enabling observability without coupling agents to each other:
 
 ```python
 from akgentic.core import Orchestrator
@@ -124,8 +122,7 @@ orchestrator_addr = actor_system.createActor(
 )
 ```
 
-Spawn child agents through the orchestrator proxy so that `team_id`, `orchestrator`, and
-`parent` are propagated automatically:
+When creating an orchestrator from the `actor_system`, a `team_id` is automatically assigned to it. All child agents of the orchestrator automatically belong to the same team (the `team_id` and orchestrator address propagate to them automatically).
 
 ```python
 orch_proxy = actor_system.proxy_ask(orchestrator_addr, Orchestrator)
@@ -135,31 +132,13 @@ counter_addr = orch_proxy.createActor(
 )
 ```
 
-The `orch_proxy` is reused for both `createActor()` and the later telemetry query:
+In the example, the `orch_proxy` is reused for both `createActor()` and the later telemetry query:
 
 ```python
 states = orch_proxy.get_states()   # { agent_id: StateSnapshot }
 ```
 
----
-
-### Why `createActor()` via the orchestrator proxy?
-
-Every agent in a team must be created through `proxy_ask(orchestrator).createActor()` — never
-via the pykka-internal `.start()` class method.
-
-When you call `orch_proxy.createActor(SomeAgent, ...)`, the orchestrator's own `createActor`
-implementation:
-
-- Calls `.start()` internally (`.start()` is an implementation detail, not the application API)
-- Propagates `team_id`, `user_id`, `user_email`, `parent`, and `orchestrator` from the
-  orchestrator's own context into every child agent
-- Registers the child in the orchestrator's internal `_children` list
-
-Team membership (visible via `get_team()`) is tracked by the Orchestrator through `StartMessage`
-events — every agent created this way announces itself on startup, and the Orchestrator records
-it. Agents created via `.start()` directly do not propagate `orchestrator`, so their
-`StartMessage` never reaches the Orchestrator and they will not appear in `get_team()` results.
+Note that the team membership (`orch_proxy.get_team()`) is tracked by the Orchestrator through `StartMessage` events. Every agent created this way announces itself on startup, and the Orchestrator records it.
 
 ---
 

@@ -99,48 +99,27 @@ class ErrorMessage(Message):
     current_message: Message | None = None
 
 
-class ContextChangedMessage(Message):
-    """Telemetry message for context changes.
-
-    Records when an actor's conversation context changes,
-    typically due to new messages being added.
-
-    Attributes:
-        messages: List of messages in the updated context.
-        err: Optional exception if context change failed.
-    """
-
-    messages: list[Any]
-    err: BaseException | None = None
-
-
 class StateChangedMessage(Message):
     """Telemetry message for state changes.
 
-    Records when an actor's state changes, including the
-    new state and any errors during the transition.
+    Records when an actor's state changes.
 
     Attributes:
         state: The new state after the change.
-        err: Optional exception if state change failed.
     """
 
     state: BaseState
-    err: BaseException | None = None
 
 
-class ToolUpdateMessage(Message):
-    """Telemetry message for tool execution updates.
+class EventMessage(Message):
+    """Telemetry message for actor events.
 
-    Records updates from tool executions, including the tool
-    name, returned data, and optional metadata.
+    Records domain events or custom events emitted by actors during
+    their execution, allowing for event-driven monitoring and logging.
 
     Attributes:
-        tool: Name of the tool that generated the update.
-        data: Data returned by the tool.
-        metadata: Optional additional metadata about the execution.
+        event: Event payload containing the event data.
     """
 
-    tool: str
-    data: Any
-    metadata: dict[str, Any] | None = None
+    type: str
+    event: Any

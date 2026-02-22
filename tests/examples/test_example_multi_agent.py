@@ -5,7 +5,7 @@ Verifies the example demonstrates multi-agent patterns:
 - Specialized agents (ResearchAgent, WriterAgent, CoordinatorAgent)
 - Orchestrator telemetry tracking of complete message flow
 - UserProxy integration for human-in-the-loop review
-- SimpleLogger subscriber implementing OrchestratorEventSubscriber pattern
+- SimpleLogger subscriber implementing EventSubscriber pattern
 """
 
 import importlib.util
@@ -236,10 +236,10 @@ class TestUserProxyIntegration:
 
 
 class TestSimpleLoggerSubscriber:
-    """Tests for SimpleLogger implementing OrchestratorEventSubscriber."""
+    """Tests for SimpleLogger implementing EventSubscriber."""
 
     def test_simple_logger_definition(self):
-        """SimpleLogger is defined and implements OrchestratorEventSubscriber."""
+        """SimpleLogger is defined and implements EventSubscriber."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
         assert spec is not None, f"Example file not found: {example_path}"
@@ -247,15 +247,12 @@ class TestSimpleLoggerSubscriber:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        from akgentic.core import OrchestratorEventSubscriber
+        from akgentic.core import EventSubscriber
 
         assert hasattr(module, "SimpleLogger"), "SimpleLogger not defined"
         # Check that it has required methods
         logger = module.SimpleLogger()
         assert hasattr(logger, "on_message"), "Must have on_message method"
-        assert hasattr(logger, "on_state_changed"), "Must have on_state_changed method"
-        assert hasattr(logger, "on_llm_context_changed"), "Must have on_llm_context_changed method"
-        assert hasattr(logger, "on_tool_update"), "Must have on_tool_update method"
         assert hasattr(logger, "on_stop"), "Must have on_stop method"
 
 

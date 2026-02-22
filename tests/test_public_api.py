@@ -55,8 +55,7 @@ class TestAkgenticNamespace:
             "ProcessedMessage",
             "ErrorMessage",
             "StateChangedMessage",
-            "ContextChangedMessage",
-            "ToolUpdateMessage",
+            "EventMessage",
             "date_time_factory",
         }
         assert not message_types.intersection(set(akgentic.core.__all__))
@@ -89,8 +88,8 @@ class TestMessagesNamespace:
 
     def test_all_message_types_importable(self) -> None:
         from akgentic.core.messages import (
-            ContextChangedMessage,
             ErrorMessage,
+            EventMessage,
             Message,
             ProcessedMessage,
             ReceivedMessage,
@@ -100,7 +99,6 @@ class TestMessagesNamespace:
             StateChangedMessage,
             StopMessage,
             StopRecursively,
-            ToolUpdateMessage,
             UserMessage,
             date_time_factory,
         )
@@ -116,8 +114,7 @@ class TestMessagesNamespace:
         assert ProcessedMessage is not None
         assert ErrorMessage is not None
         assert StateChangedMessage is not None
-        assert ContextChangedMessage is not None
-        assert ToolUpdateMessage is not None
+        assert EventMessage is not None
         assert date_time_factory is not None
 
     def test_messages_all_defined(self) -> None:
@@ -129,7 +126,6 @@ class TestMessagesNamespace:
             "ResultMessage",
             "StopRecursively",
             "date_time_factory",
-            "ContextChangedMessage",
             "ErrorMessage",
             "ProcessedMessage",
             "ReceivedMessage",
@@ -137,7 +133,7 @@ class TestMessagesNamespace:
             "StartMessage",
             "StateChangedMessage",
             "StopMessage",
-            "ToolUpdateMessage",
+            "EventMessage",
         }
         assert expected.issubset(set(msgs.__all__))
 

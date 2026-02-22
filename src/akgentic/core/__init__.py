@@ -27,7 +27,7 @@ from akgentic.core.agent_config import (
     BaseConfig,
 )
 from akgentic.core.agent_state import AkgentStateObserver, BaseState
-from akgentic.core.orchestrator import Orchestrator, OrchestratorEventSubscriber
+from akgentic.core.orchestrator import EventSubscriber, Orchestrator
 from akgentic.core.user_proxy import UserProxy
 
 __version__ = "1.0.0-alpha.1"
@@ -57,7 +57,7 @@ __all__ = [
     "BaseState",
     # Orchestrator
     "Orchestrator",
-    "OrchestratorEventSubscriber",
+    "EventSubscriber",
     # UserProxy
     "UserProxy",
 ]

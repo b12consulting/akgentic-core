@@ -24,8 +24,8 @@ from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message, StopRecursively
 from akgentic.core.messages.orchestrator import (
-    ContextChangedMessage,
     ErrorMessage,
+    EventMessage,
     ProcessedMessage,
     ReceivedMessage,
     SentMessage,
@@ -489,9 +489,15 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         logger.info(f"[{self.config.name}] Stopped.")
 
     ##
-    ## State and LLM context
+    ## Event
     ##
-    def state_changed(self, state: BaseState) -> None:
+    def notify_event(self, event_message: EventMessage) -> None:
+        self._notify_orchestrator(event_message)
+
+    ##
+    ## State
+    ##
+    def notify_state_change(self, state: BaseState) -> None:
         """Notify orchestrator of state change.
 
         Implements AkgentStateObserver protocol - called by BaseState when
@@ -540,30 +546,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         """
         state._observer = self.state._observer
         self.state = state
-        self.state_changed(self.state)
-
-    def llm_context_changed(self, messages: list[Any]) -> None:
-        """Notify the orchestrator of a change in the LLM context.
-
-        Args:
-            messages: New LLM context messages.
-        """
-        self._notify_orchestrator(
-            ContextChangedMessage(messages=messages),
-        )
-
-    def init_llm_context(self, messages: list[Any]) -> None:
-        """Initialize the LLM context of the agent and notify the orchestrator.
-
-        Phase 1: Stores messages as-is without validation.
-        Phase 2+: Will validate against pydantic_ai types.
-
-        Args:
-            messages: LLM context messages to initialize.
-        """
-        # Note: pydantic_ai import removed for Phase 1 (no LLM dependency)
-        self.llm_context = messages
-        self.llm_context_changed(self.llm_context)
+        self.notify_state_change(self.state)
 
     ##
     ## Proxy helpers

@@ -22,11 +22,11 @@ class AkgentStateObserver(Protocol):
 
     Example:
         >>> class MyObserver:
-        ...     def state_changed(self, state: BaseState) -> None:
+        ...     def notify_state_change(self, state: BaseState) -> None:
         ...         print(f"State changed: {state}")
     """
 
-    def state_changed(self, state: BaseState) -> None:
+    def notify_state_change(self, state: BaseState) -> None:
         """Called when the observed state changes.
 
         Args:
@@ -93,7 +93,7 @@ class BaseState(SerializableBaseModel):
         If no observer is attached, this method does nothing.
         """
         if self._observer is not None:
-            self._observer.state_changed(self)
+            self._observer.notify_state_change(self)
 
     def serializable_copy(self) -> BaseState:
         """Create a copy of the state without the observer for serialization.

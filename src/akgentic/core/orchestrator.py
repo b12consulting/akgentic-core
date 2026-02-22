@@ -11,6 +11,8 @@ import threading
 from collections.abc import Callable
 from typing import Any, Protocol, overload, override
 
+from pydantic import BaseModel, Field
+
 from akgentic.core.actor_address import ActorAddress
 from akgentic.core.agent import Akgent
 from akgentic.core.agent_card import AgentCard
@@ -18,16 +20,16 @@ from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message, StopRecursively
 from akgentic.core.messages.orchestrator import (
-    ContextChangedMessage,
     ErrorMessage,
+    EventMessage,
     ProcessedMessage,
     ReceivedMessage,
     SentMessage,
     StartMessage,
     StateChangedMessage,
     StopMessage,
-    ToolUpdateMessage,
 )
+from akgentic.core.utils.serializer import SerializableBaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +95,12 @@ class Timer:
             self.start()
 
 
-class OrchestratorEventSubscriber(Protocol):
+class Event(SerializableBaseModel):
+    event_type: type | str = Field(..., description="Event type")
+    event: BaseModel | dict = Field(..., description="Event body")
+
+
+class EventSubscriber(Protocol):
     """Protocol for subscribing to orchestrator events.
 
     Implementations can provide custom handling for workflow events such as
@@ -117,33 +124,11 @@ class OrchestratorEventSubscriber(Protocol):
             - ReceivedMessage
             - ProcessedMessage
             - ErrorMessage
+            - StateChangedMessage
+            - EventMessage
 
         Args:
             msg: Orchestrator telemetry message
-        """
-        ...
-
-    def on_state_changed(self, msg: StateChangedMessage) -> None:
-        """Called when an agent's state changes.
-
-        Args:
-            msg: StateChangedMessage containing updated state
-        """
-        ...
-
-    def on_llm_context_changed(self, msg: ContextChangedMessage) -> None:
-        """Called when an agent's LLM context changes.
-
-        Args:
-            msg: ContextChangedMessage containing updated LLM context
-        """
-        ...
-
-    def on_tool_update(self, msg: ToolUpdateMessage) -> None:
-        """Called when a tool's state is updated.
-
-        Args:
-            msg: ToolUpdateMessage containing tool state update
         """
         ...
 
@@ -198,9 +183,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self.messages: list[Message] = []
 
         # Per-agent state tracking
-        self.state_dict: dict[str, BaseState | dict[str, Any]] = {}
-        self.llm_context_dict: dict[str, list[Any]] = {}
-        self.tool_state_dict: dict[str, dict[str, Any]] = {}
+        self.state_dict: dict[str, BaseState] = {}
 
         # Agent profile catalog (keyed by role)
         self.agent_cards: dict[str, AgentCard] = {}
@@ -212,7 +195,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self._stopping: bool = False
 
         # Event subscribers for Phase 3 extensibility
-        self.subscribers: list[OrchestratorEventSubscriber] = []
+        self.subscribers: list[EventSubscriber] = []
 
         # Inactivity timer — configurable via env var, defaults to TIMER_DELAY
         timer_delay = int(os.environ.get("ORCHESTRATOR_TIMEOUT_DELAY", str(TIMER_DELAY)))
@@ -255,11 +238,11 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         """
         return self._timer
 
-    def subscribe(self, subscriber: OrchestratorEventSubscriber) -> None:
+    def subscribe(self, subscriber: EventSubscriber) -> None:
         """Add an event subscriber to receive orchestrator events.
 
         Args:
-            subscriber: Subscriber implementing OrchestratorEventSubscriber protocol
+            subscriber: Subscriber implementing EventSubscriber protocol
         """
         self.subscribers.append(subscriber)
 
@@ -375,35 +358,16 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             sender: ActorAddress of sending agent
         """
         self.state_dict[str(sender.agent_id)] = message.state
-        self._notify_subscribers("on_state_changed", message)
+        self._notify_subscribers("on_message", message)
 
-    def receiveMsg_ContextChangedMessage(
-        self, message: ContextChangedMessage, sender: ActorAddress
-    ) -> None:
-        """Handle LLM context change events.
+    def receiveMsg_EventMessage(self, message: EventMessage, sender: ActorAddress) -> None:
+        """Handle agent event message.
 
         Args:
-            message: ContextChangedMessage containing updated LLM context
+            message: EventMessage containing the event type and payload
             sender: ActorAddress of sending agent
         """
-        self.llm_context_dict[str(sender.agent_id)] = message.messages
-        self._notify_subscribers("on_llm_context_changed", message)
-
-    def receiveMsg_ToolUpdateMessage(
-        self, message: ToolUpdateMessage, sender: ActorAddress
-    ) -> None:
-        """Handle tool state update events.
-
-        Args:
-            message: ToolUpdateMessage containing tool state update
-            sender: ActorAddress of sending agent
-        """
-        timestamp = message.timestamp.isoformat() if message.timestamp else None
-        self.tool_state_dict[message.tool] = {
-            "data": message.data,
-            "timestamp": timestamp,
-        }
-        self._notify_subscribers("on_tool_update", message)
+        self._notify_subscribers("on_message", message)
 
     def get_team(self) -> list[ActorAddress]:
         """Get list of active agents (excludes Orchestrator role).
@@ -504,35 +468,13 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
         return self.messages
 
-    def get_llm_context(self) -> dict[str, list[Any]]:
-        """Get all LLM contexts tracked by orchestrator.
-
-        Returns:
-            Dictionary mapping agent_id (as string) to LLM message list
-        """
-        return self.llm_context_dict
-
-    def get_states(self) -> dict[str, BaseState | dict[str, Any]]:
+    def get_states(self) -> dict[str, BaseState]:
         """Get all agent states tracked by orchestrator.
 
         Returns:
             Dictionary mapping agent_id (as string) to agent state
         """
         return self.state_dict
-
-    def get_tool_state(self, tool: str | None = None) -> dict[str, Any]:
-        """Get tool state for specific tool or all tools.
-
-        Args:
-            tool: Tool name to get state for. If None, returns all tool states.
-
-        Returns:
-            If tool is None: dictionary of all tool states
-            If tool provided: dictionary with tool state (or empty dict if not found)
-        """
-        if tool:
-            return self.tool_state_dict.get(tool, {})
-        return self.tool_state_dict
 
     def stop(self) -> None:
         """Override stop to cancel timer and set _stopping flag before shutdown.

@@ -7,7 +7,7 @@
 
 ## Concepts introduced
 
-### `self.createActor()` — spawning from inside an agent
+### `self.createActor()` — spawning from inside an agent thread
 
 In [example 01](01-hello-world.md), agents were created from `main()` using
 `actor_system.createActor()`. An agent can also create other agents from within its own message

@@ -14,7 +14,6 @@ from akgentic.core.messages.message import (
     date_time_factory,
 )
 from akgentic.core.messages.orchestrator import (
-    ContextChangedMessage,
     ErrorMessage,
     ProcessedMessage,
     ReceivedMessage,
@@ -22,7 +21,6 @@ from akgentic.core.messages.orchestrator import (
     StartMessage,
     StateChangedMessage,
     StopMessage,
-    ToolUpdateMessage,
 )
 
 
@@ -330,27 +328,6 @@ class TestErrorMessage:
         assert error.current_message is msg
 
 
-class TestContextChangedMessage:
-    """Tests for ContextChangedMessage orchestrator message."""
-
-    def test_instantiation(self) -> None:
-        """Should instantiate with messages list."""
-        messages = [Message(), Message()]
-        ctx_changed = ContextChangedMessage(messages=messages)
-        assert ctx_changed.messages == messages
-
-    def test_err_defaults_to_none(self) -> None:
-        """err should default to None."""
-        ctx_changed = ContextChangedMessage(messages=[])
-        assert ctx_changed.err is None
-
-    def test_err_can_be_set(self) -> None:
-        """err can be explicitly set."""
-        err = ValueError("test error")
-        ctx_changed = ContextChangedMessage(messages=[], err=err)
-        assert ctx_changed.err is err
-
-
 class TestStateChangedMessage:
     """Tests for StateChangedMessage orchestrator message."""
 
@@ -361,32 +338,3 @@ class TestStateChangedMessage:
         state = BaseState()
         state_changed = StateChangedMessage(state=state)
         assert state_changed.state == state
-
-    def test_err_defaults_to_none(self) -> None:
-        """err should default to None."""
-        from akgentic.core.agent_state import BaseState
-
-        state = BaseState()
-        state_changed = StateChangedMessage(state=state)
-        assert state_changed.err is None
-
-
-class TestToolUpdateMessage:
-    """Tests for ToolUpdateMessage orchestrator message."""
-
-    def test_instantiation(self) -> None:
-        """Should instantiate with tool and data."""
-        tool_update = ToolUpdateMessage(tool="my_tool", data={"result": 42})
-        assert tool_update.tool == "my_tool"
-        assert tool_update.data == {"result": 42}
-
-    def test_metadata_defaults_to_none(self) -> None:
-        """metadata should default to None."""
-        tool_update = ToolUpdateMessage(tool="my_tool", data=None)
-        assert tool_update.metadata is None
-
-    def test_metadata_can_be_set(self) -> None:
-        """metadata can be explicitly set."""
-        metadata = {"execution_time": 1.5}
-        tool_update = ToolUpdateMessage(tool="my_tool", data=None, metadata=metadata)
-        assert tool_update.metadata == metadata

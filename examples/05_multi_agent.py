@@ -7,7 +7,7 @@ This example demonstrates the most complex coordination pattern:
 - Custom message types for multi-stage workflow
 - Orchestrator telemetry tracking complete message flow
 - UserProxy for human-in-the-loop review and approval
-- SimpleLogger subscriber implementing OrchestratorEventSubscriber pattern
+- SimpleLogger subscriber implementing EventSubscriber pattern
 
 Run with: python examples/05_multi_agent.py
 Or with:  uv run python examples/05_multi_agent.py
@@ -24,8 +24,8 @@ from akgentic.core import (
     Akgent,
     BaseConfig,
     BaseState,
+    EventSubscriber,
     Orchestrator,
-    OrchestratorEventSubscriber,
     UserProxy,
 )
 from akgentic.core.messages import Message
@@ -384,12 +384,12 @@ class CoordinatorAgent(Akgent[BaseConfig, CoordinatorState]):
 
 
 # =============================================================================
-# STEP 6: Define SimpleLogger - demonstrates OrchestratorEventSubscriber
+# STEP 6: Define SimpleLogger - demonstrates EventSubscriber
 # =============================================================================
 
 
-class SimpleLogger(OrchestratorEventSubscriber):
-    """Simple event logger implementing OrchestratorEventSubscriber.
+class SimpleLogger(EventSubscriber):
+    """Simple event logger implementing EventSubscriber.
 
     This demonstrates the subscriber pattern for extensibility.
     In Phase 3, this pattern enables Redis publishers, WebSocket streams,
@@ -407,30 +407,6 @@ class SimpleLogger(OrchestratorEventSubscriber):
             msg: The Message being logged.
         """
         self.message_count += 1
-
-    def on_state_changed(self, msg: Message) -> None:
-        """Called when agent state changes.
-
-        Args:
-            msg: The StateChangedMessage.
-        """
-        pass
-
-    def on_llm_context_changed(self, msg: Message) -> None:
-        """Called when LLM context changes.
-
-        Args:
-            msg: The ContextChangedMessage.
-        """
-        pass
-
-    def on_tool_update(self, msg: Message) -> None:
-        """Called when tool state is updated.
-
-        Args:
-            msg: The ToolUpdateMessage.
-        """
-        pass
 
     def on_stop(self) -> None:
         """Called when orchestrator stops."""

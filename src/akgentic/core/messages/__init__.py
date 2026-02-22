@@ -12,20 +12,19 @@ from akgentic.core.messages.message import (
     date_time_factory,
 )
 from akgentic.core.messages.orchestrator import (
-    ContextChangedMessage,
     ErrorMessage,
+    EventMessage,
     ProcessedMessage,
     ReceivedMessage,
     SentMessage,
     StartMessage,
     StateChangedMessage,
     StopMessage,
-    ToolUpdateMessage,
 )
 
 __all__ = [
-    "ContextChangedMessage",
     "ErrorMessage",
+    "EventMessage",
     "Message",
     "ProcessedMessage",
     "ReceivedMessage",
@@ -35,7 +34,6 @@ __all__ = [
     "StateChangedMessage",
     "StopMessage",
     "StopRecursively",
-    "ToolUpdateMessage",
     "UserMessage",
     "date_time_factory",
 ]

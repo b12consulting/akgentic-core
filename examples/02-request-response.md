@@ -38,13 +38,14 @@ When calling agent methods from outside the actor system, you have two proxy mod
 | **blocking**        | `proxy_ask()`  | Calls the method and blocks until it returns; you get the return value   |
 
 Both modes require a **proxy**: a thin wrapper that lets you call agent methods as if they were
-regular Python functions, while the actual execution happens inside the agent's mailbox.
+regular Python functions, while the actual execution happens inside the agent's thread.
 
 ```python
 # Fire-and-forget: call the method, don't wait for a return value
 client_tell = actor_system.proxy_tell(client_addr, ClientAgent)
 client_tell.send_request_tell(calculator_addr, 10, 5, "+")
-# => [ClientAgent] Received result: 15.0
+# => [ClientAgent] Sending calculation request: 10 + 5
+
 
 # Blocking: call the method and get its return value
 client_ask = actor_system.proxy_ask(client_addr, ClientAgent)
