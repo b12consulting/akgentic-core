@@ -118,8 +118,7 @@ class EventMessage(Message):
     their execution, allowing for event-driven monitoring and logging.
 
     Attributes:
-        event: Event payload containing the event data.
+        event: Domain event object emitted by a component.
     """
 
-    type: str
     event: Any

@@ -9,9 +9,9 @@ import logging
 import os
 import threading
 from collections.abc import Callable
-from typing import Any, Protocol, overload, override
+from typing import Protocol, overload, override
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from akgentic.core.actor_address import ActorAddress
 from akgentic.core.agent import Akgent
@@ -96,8 +96,7 @@ class Timer:
 
 
 class Event(SerializableBaseModel):
-    event_type: type | str = Field(..., description="Event type")
-    event: BaseModel | dict = Field(..., description="Event body")
+    event: object = Field(..., description="Domain event object")
 
 
 class EventSubscriber(Protocol):

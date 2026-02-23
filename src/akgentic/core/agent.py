@@ -491,8 +491,8 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
     ##
     ## Event
     ##
-    def notify_event(self, event_message: EventMessage) -> None:
-        self._notify_orchestrator(event_message)
+    def notify_event(self, event: object) -> None:
+        self._notify_orchestrator(EventMessage(event=event))
 
     ##
     ## State
