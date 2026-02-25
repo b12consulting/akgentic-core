@@ -405,7 +405,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self._current_team_members = active
         return active
 
-    def get_team_member(self, member: str) -> ActorAddress | None:
+    def get_team_member(self, name: str) -> ActorAddress | None:
         """Get a team member by name or agent_id.
 
         Args:
@@ -415,11 +415,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             ActorAddress if found, None otherwise
         """
         return next(
-            (
-                mbr
-                for mbr in self.get_team()
-                if mbr.name == str(member) or str(mbr.agent_id) == str(member)
-            ),
+            (mbr for mbr in self.get_team() if mbr.name == name),
             None,
         )
 

@@ -12,19 +12,17 @@ import uuid
 from collections import deque
 from collections.abc import Generator
 from contextlib import contextmanager
-from typing import TYPE_CHECKING, Any, TypeVar, cast
+from typing import Any, TypeVar, cast
 
 import pykka
 from pydantic import BaseModel
 
 from akgentic.core.actor_address import ActorAddress
 from akgentic.core.actor_address_impl import ActorAddressImpl
+from akgentic.core.agent import Akgent
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.messages.message import Message
 from akgentic.core.utils.deserializer import import_class
-
-if TYPE_CHECKING:
-    from akgentic.core.agent import Akgent
 
 # Logger for agent operations
 logger = logging.getLogger(__name__)
@@ -314,7 +312,9 @@ class ActorSystem(ExecutionContext):
             team_id=team_id,
             restoring=restoring,
         )
-        return ActorAddressImpl(actor)
+        actor_addr = ActorAddressImpl(actor)
+        self.proxy_tell(actor_addr, Akgent).init()
+        return actor_addr
 
     @contextmanager
     def private(self) -> Generator[ExecutionContext, None, None]:
