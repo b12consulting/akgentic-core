@@ -313,7 +313,6 @@ class ActorSystem(ExecutionContext):
             restoring=restoring,
         )
         actor_addr = ActorAddressImpl(actor)
-        self.proxy_tell(actor_addr, Akgent).init()
         return actor_addr
 
     @contextmanager

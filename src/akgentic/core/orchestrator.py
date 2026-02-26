@@ -165,7 +165,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     """
 
     @override
-    def init(self) -> None:
+    def on_start(self) -> None:
         """Initialize the Orchestrator with empty in-memory state.
 
         The inactivity timer delay is configurable via the
@@ -406,10 +406,10 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         return active
 
     def get_team_member(self, name: str) -> ActorAddress | None:
-        """Get a team member by name or agent_id.
+        """Get a team member by name.
 
         Args:
-            member: Agent name or agent_id (as string or UUID)
+            member: Agent name
 
         Returns:
             ActorAddress if found, None otherwise
