@@ -35,11 +35,11 @@ counter_addr = orch_proxy.createActor(
 )
 ```
 
-The framework assigns `self.config` **before** calling `init()`, so custom fields are
+The framework assigns `self.config` **before** calling `on_start()`, so custom fields are
 available immediately at initialisation time:
 
 ```python
-def init(self) -> None:
+def on_start(self) -> None:
     self.state = CounterState()
     if self.config.label_prefix:
         self.state.last_operation = f"[{self.config.label_prefix}] Agent ready"
@@ -87,10 +87,10 @@ State lives **inside** the agent and is never shared directly with other agents.
 ### Observer pattern — `state.observer()` and `notify_state_change()`
 
 State changes are invisible to the outside world by default. The observer pattern lets you
-broadcast them. In `init()`, attach the agent itself as an observer of its own state:
+broadcast them. In `on_start()`, attach the agent itself as an observer of its own state:
 
 ```python
-def init(self) -> None:
+def on_start(self) -> None:
     self.state = CounterState()
     self.state.observer(self)   # subscribe to state change events
 ```
@@ -199,7 +199,7 @@ The agent is configured with `CounterConfig(max_increment=5, label_prefix="DEMO"
   trail — the same `CounterAgent` class could be deployed with different prefixes for different
   environments
 
-`self.config` is read in `init()` to set the initial `last_operation`, and again in every
+`self.config` is read in `on_start()` to set the initial `last_operation`, and again in every
 message handler. This shows that **configuration is a first-class, uniform source of behaviour**
 across the agent's entire lifecycle.
 
@@ -241,7 +241,7 @@ Notice:
 
 - `amount=10` increments are clamped to `effective=5` by `max_increment=5`
 - Every history label carries the `[DEMO]` prefix from `label_prefix`
-- The reset reason also appears in history with the prefix — `self.config` is accessible in all handlers, not only `init()`
+- The reset reason also appears in history with the prefix — `self.config` is accessible in all handlers, not only `on_start()`
 
 ---
 

@@ -82,9 +82,21 @@ class AgentCard(SerializableBaseModel):
 
         Returns:
             Agent class as a type object (converts from string if needed)
+
+        Raises:
+            ValueError: If agent_class is empty or not a fully qualified
+                dotted path (e.g. ``"mypackage.agents.ResearchAgent"``).
+            ImportError: If the module cannot be imported.
+            AttributeError: If the class is not found in the module.
         """
         if isinstance(self.agent_class, type):
             return self.agent_class
+
+        if not self.agent_class or "." not in self.agent_class:
+            raise ValueError(
+                f"agent_class must be a fully qualified dotted path "
+                f"(e.g. 'mypackage.agents.MyAgent'), got: {self.agent_class!r}"
+            )
 
         components = self.agent_class.split(".")
         module_path = ".".join(components[:-1])

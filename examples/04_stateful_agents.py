@@ -8,7 +8,7 @@ to pass typed, injectable parameters that drive agent behaviour:
 
 - Custom config type (CounterConfig) extending BaseConfig with domain fields
 - Custom state type (CounterState) with multiple fields
-- State initialization driven by self.config inside init()
+- State initialization driven by self.config inside on_start()
 - Explicit state mutation with notification, clamped via self.config
 - Orchestrator tracking of all state changes
 - Querying final state via Orchestrator.get_states()
@@ -37,7 +37,7 @@ from akgentic.core.messages import Message
 # CounterConfig adds two fields that drive the agent's behaviour:
 # - max_increment: clamps how much a single IncrementMessage can add
 # - label_prefix:  tags every history entry for easy identification
-# Both fields are available as self.config.* inside init() and all handlers.
+# Both fields are available as self.config.* inside on_start() and all handlers.
 
 
 class CounterConfig(BaseConfig):
@@ -126,16 +126,16 @@ class CounterAgent(Akgent[CounterConfig, CounterState]):
     - Message handlers that modify state using self.config
     """
 
-    def init(self) -> None:
+    def on_start(self) -> None:
         """Initialize agent with counter state and attach observer.
 
-        Called after __init__ completes. Sets up the agent's state and
+        Called by pykka after __init__ completes. Sets up the agent's state and
         attaches this agent as an observer to receive state change notifications.
-        self.config is guaranteed to be set by the framework before init() is called.
+        self.config is guaranteed to be set by the framework before on_start() is called.
         """
         self.state = CounterState()
         # Read self.config to set an initial operation label — self.config is
-        # guaranteed to be set by the framework before init() is called.
+        # guaranteed to be set by the framework before on_start() is called.
         if self.config.label_prefix:
             self.state.last_operation = f"[{self.config.label_prefix}] Agent ready"
         else:

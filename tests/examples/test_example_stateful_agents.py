@@ -3,7 +3,7 @@
 Verifies the example demonstrates state management and typed configuration patterns:
 - CounterConfig extending BaseConfig with max_increment and label_prefix (Story 5.8)
 - Custom state types (CounterState) with observer pattern
-- State initialization driven by self.config inside init()
+- State initialization driven by self.config inside on_start()
 - Explicit state mutation with notification (clamped via self.config.max_increment)
 - History labels prefixed via self.config.label_prefix
 - Orchestrator tracking of state changes
@@ -101,10 +101,10 @@ class TestCounterAgentTypedWithCounterConfig:
 
 
 class TestInitReadsConfig:
-    """Tests that init() reads self.config (AC 3)."""
+    """Tests that on_start() reads self.config (AC 3)."""
 
     def test_init_sets_last_operation_with_prefix(self) -> None:
-        """init() sets last_operation using label_prefix when non-empty (AC 3)."""
+        """on_start() sets last_operation using label_prefix when non-empty (AC 3)."""
         module = _load_module()
         system = ActorSystem()
         try:
@@ -131,7 +131,7 @@ class TestInitReadsConfig:
             system.shutdown(timeout=5)
 
     def test_init_sets_last_operation_without_prefix(self) -> None:
-        """init() sets last_operation without brackets when label_prefix is empty (AC 3)."""
+        """on_start() sets last_operation without brackets when label_prefix is empty (AC 3)."""
         module = _load_module()
         system = ActorSystem()
         try:
@@ -154,8 +154,8 @@ class TestInitReadsConfig:
         finally:
             system.shutdown(timeout=5)
 
-    def test_observer_still_attached_after_init(self) -> None:
-        """Observer is still attached after init() reads config (AC 3)."""
+    def test_observer_still_attached_after_on_start(self) -> None:
+        """Observer is still attached after on_start() reads config (AC 3)."""
         module = _load_module()
         system = ActorSystem()
         try:
@@ -371,7 +371,7 @@ class TestCounterAgentStateInitialization:
     """Tests for CounterAgent state initialization."""
 
     def test_counter_agent_initializes_state(self) -> None:
-        """CounterAgent.init() initializes state."""
+        """CounterAgent.on_start() initializes state."""
         module = _load_module()
         system = ActorSystem()
         try:

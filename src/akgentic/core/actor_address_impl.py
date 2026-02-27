@@ -260,7 +260,7 @@ class ActorAddressProxy(ActorAddress):
         return uuid.UUID(squad_id_str) if squad_id_str else None
 
     def send(self, recipient: ActorAddress, message: Any) -> None:
-        """Cannot send from a proxy address.
+        """Send a message via Pykka proxy.
 
         Args:
             recipient: Not used.
@@ -274,7 +274,7 @@ class ActorAddressProxy(ActorAddress):
         )
 
     def stop(self) -> None:
-        """Cannot stop a proxy address."""
+        """Stop the underlying actor."""
         raise RuntimeError(f"Cannot stop mock actor address {self.name} - actor not alive")
 
     def is_alive(self) -> bool:

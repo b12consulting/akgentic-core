@@ -409,7 +409,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         """Get a team member by name.
 
         Args:
-            member: Agent name
+            name: Agent name
 
         Returns:
             ActorAddress if found, None otherwise

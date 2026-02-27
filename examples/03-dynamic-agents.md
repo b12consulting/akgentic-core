@@ -48,16 +48,16 @@ The child reports back to the manager via `sender` — no need to reference `sel
 
 ---
 
-### `init()` hook
+### `on_start()` hook
 
-Agents have an `init()` method that is called once after the agent is fully constructed. Use it
-to initialize instance variables (instead of overriding `__init__`, which can interfere with the
-framework's setup):
+Agents have an `on_start()` method (from pykka) that is called once after the agent is fully
+constructed. Use it to initialize instance variables (instead of overriding `__init__`, which
+can interfere with the framework's setup):
 
 ```python
 class ManagerAgent(Akgent[BaseConfig, BaseState]):
 
-    def init(self) -> None:
+    def on_start(self) -> None:
         self.results: list[str] = []
         self.completed_tasks: int = 0
         self.expected_tasks: int = 0

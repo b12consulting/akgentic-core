@@ -261,10 +261,10 @@ class TestTimerConcurrentTaskTracking:
 
 
 class TestOrchestratorTimerInitialization:
-    """Tests for timer initialization in Orchestrator.init()."""
+    """Tests for timer initialization in Orchestrator.on_start()."""
 
     def test_orchestrator_creates_timer_on_init(self) -> None:
-        """Orchestrator creates a Timer instance during init()."""
+        """Orchestrator creates a Timer instance during on_start()."""
         config = BaseConfig(name="test-orchestrator", role="Orchestrator")
         orch_ref = Orchestrator.start(config=config)
         orch = orch_ref.proxy()
@@ -275,7 +275,7 @@ class TestOrchestratorTimerInitialization:
         orch_ref.stop()
 
     def test_orchestrator_timer_starts_immediately(self) -> None:
-        """Orchestrator timer is active immediately after init."""
+        """Orchestrator timer is active immediately after on_start."""
         config = BaseConfig(name="test-orchestrator", role="Orchestrator")
         orch_ref = Orchestrator.start(config=config)
         orch = orch_ref.proxy()

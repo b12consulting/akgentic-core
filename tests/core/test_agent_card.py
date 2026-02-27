@@ -2,6 +2,8 @@
 
 import time
 
+import pytest
+
 from akgentic.core import (
     ActorSystem,
     AgentCard,
@@ -157,6 +159,74 @@ class TestAgentCard:
         assert config1.name == "modified1"
         assert config2.name == "modified2"
         assert card.get_config_copy().name == "original"  # Original unchanged
+
+
+class TestGetAgentClass:
+    """Tests for AgentCard.get_agent_class()."""
+
+    def test_returns_type_when_agent_class_is_type(self):
+        """get_agent_class() returns the class directly when already a type."""
+        card = AgentCard(
+            role="TestAgent",
+            description="Test",
+            skills=["testing"],
+            agent_class=Akgent,
+        )
+        assert card.get_agent_class() is Akgent
+
+    def test_resolves_fully_qualified_string(self):
+        """get_agent_class() resolves a dotted string to the actual class."""
+        card = AgentCard(
+            role="TestAgent",
+            description="Test",
+            skills=["testing"],
+            agent_class="akgentic.core.Akgent",
+        )
+        assert card.get_agent_class() is Akgent
+
+    def test_raises_value_error_for_empty_string(self):
+        """get_agent_class() raises ValueError for empty agent_class string."""
+        card = AgentCard(
+            role="TestAgent",
+            description="Test",
+            skills=["testing"],
+            agent_class="",
+        )
+        with pytest.raises(ValueError, match="fully qualified dotted path"):
+            card.get_agent_class()
+
+    def test_raises_value_error_for_unqualified_name(self):
+        """get_agent_class() raises ValueError for a bare class name with no dots."""
+        card = AgentCard(
+            role="TestAgent",
+            description="Test",
+            skills=["testing"],
+            agent_class="MyAgent",
+        )
+        with pytest.raises(ValueError, match="fully qualified dotted path"):
+            card.get_agent_class()
+
+    def test_raises_import_error_for_missing_module(self):
+        """get_agent_class() raises ImportError when the module doesn't exist."""
+        card = AgentCard(
+            role="TestAgent",
+            description="Test",
+            skills=["testing"],
+            agent_class="nonexistent.module.SomeAgent",
+        )
+        with pytest.raises(ModuleNotFoundError):
+            card.get_agent_class()
+
+    def test_raises_attribute_error_for_missing_class(self):
+        """get_agent_class() raises AttributeError when the class isn't in the module."""
+        card = AgentCard(
+            role="TestAgent",
+            description="Test",
+            skills=["testing"],
+            agent_class="akgentic.core.NonExistentClass",
+        )
+        with pytest.raises(AttributeError):
+            card.get_agent_class()
 
 
 class TestOrchestratorCatalog:
@@ -337,9 +407,7 @@ class TestOrchestratorCatalog:
 class SimpleAgent(Akgent):
     """Simple test agent for discovery tests."""
 
-    def init(self):
-        """Initialize the agent."""
-        super().init()
+    pass
 
 
 class TestAgentDiscovery:

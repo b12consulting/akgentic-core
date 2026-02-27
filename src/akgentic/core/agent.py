@@ -252,8 +252,10 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
     def on_start(self) -> None:
         """Custom initialization hook, to be overridden by subclasses.
 
-        Called after __init__ completes. Use for agent-specific setup
-        that requires the actor system to be fully initialized.
+        Called by pykka in the actor's own thread once the actor is
+        started.  Use for agent-specific setup that requires the actor
+        system to be fully initialized (e.g. spawning children,
+        subscribing to state changes).
         """
         pass
 
@@ -313,9 +315,10 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             parent=self.myAddress,
             orchestrator=self._orchestrator,
         )
-        self._children.append(ActorAddressImpl(actor))
+        actor_address = ActorAddressImpl(actor)
+        self._children.append(actor_address)
 
-        return ActorAddressImpl(actor)
+        return actor_address
 
     ##
     ## Message routing
