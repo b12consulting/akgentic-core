@@ -248,9 +248,8 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
                 parent=self._parent,
             )
         )
-        self.init()
 
-    def init(self) -> None:
+    def on_start(self) -> None:
         """Custom initialization hook, to be overridden by subclasses.
 
         Called after __init__ completes. Use for agent-specific setup
@@ -266,6 +265,15 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             ActorAddress wrapping this agent's pykka actor reference.
         """
         return ActorAddressImpl(self.actor_ref)
+
+    @property
+    def orchestrator(self) -> ActorAddress | None:
+        """Get the orchestrator address.
+
+        Returns:
+            ActorAddress of the orchestrator if available, None otherwise.
+        """
+        return self._orchestrator
 
     def createActor(  # noqa: N802
         self,
