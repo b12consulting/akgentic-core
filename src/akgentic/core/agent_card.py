@@ -77,6 +77,22 @@ class AgentCard(SerializableBaseModel):
 
         return BaseConfig(**self.config)
 
+    def get_agent_class(self) -> type:
+        """Get the agent class as a type object.
+
+        Returns:
+            Agent class as a type object (converts from string if needed)
+        """
+        if isinstance(self.agent_class, type):
+            return self.agent_class
+
+        components = self.agent_class.split(".")
+        module_path = ".".join(components[:-1])
+        class_name = components[-1]
+
+        module = __import__(module_path, fromlist=[class_name])
+        return getattr(module, class_name)
+
     def has_skill(self, skill: str) -> bool:
         """Check if this profile has a specific skill.
 

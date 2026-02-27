@@ -111,6 +111,15 @@ class ActorAddress(ABC):
         ...
 
     @abstractmethod
+    def stop(self) -> None:
+        """Stop the actor associated with this address.
+
+        Raises:
+            RuntimeError: If this address cannot be stopped (e.g., proxy address).
+        """
+        ...
+
+    @abstractmethod
     def is_alive(self) -> bool:
         """Check if this actor is still running.
 
