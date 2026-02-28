@@ -391,8 +391,8 @@ class TestOrchestratorTimerMessageHandlers:
         dummy_ref.stop()
         orch_ref.stop()
 
-    def test_error_message_decrements_task_count_and_restarts_timer(self) -> None:
-        """receiveMsg_ErrorMessage calls timer.task_completed() → timer restarts."""
+    def test_error_message_does_not_affect_task_count(self) -> None:
+        """receiveMsg_ErrorMessage does NOT modify timer task_count (timer relies only on received/processed)."""
         config = BaseConfig(name="test-orchestrator", role="Orchestrator")
         orch_ref = Orchestrator.start(config=config)
         orch = orch_ref.proxy()
@@ -413,8 +413,8 @@ class TestOrchestratorTimerMessageHandlers:
         msg = self._make_error_message()
         orch.receiveMsg_ErrorMessage(msg, sender_addr).get()
 
-        assert timer.task_count == 0
-        assert timer._timer is not None
+        # Error messages should NOT decrement task_count
+        assert timer.task_count == 1
 
         dummy_ref.stop()
         orch_ref.stop()

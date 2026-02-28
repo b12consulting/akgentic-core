@@ -39,6 +39,13 @@ if TYPE_CHECKING:
     from akgentic.core.actor_address_impl import ActorAddressProxy, ActorAddressStopped
     from akgentic.core.orchestrator import Orchestrator
 
+
+class WarningError(Exception):
+    """Custom exception type for non-critical warnings that should not trigger error telemetry."""
+
+    pass
+
+
 # Type variables for generic Agent configuration and state
 ConfigType = TypeVar("ConfigType", bound=BaseConfig)
 StateType = TypeVar("StateType", bound="BaseState")
@@ -378,9 +385,17 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         """
         try:
             return super()._handle_receive(message)
+
         except Exception as e:
             logger.exception(f"[{self.config.name}] ERROR processing message: {e}")
-            self._current_message = None
+
+            if isinstance(message, Message):
+                self._current_message = None
+                self._notify_orchestrator(ProcessedMessage(message_id=message.id))
+
+            if isinstance(e, WarningError):
+                return
+
             self._notify_orchestrator(
                 ErrorMessage(
                     exception_type=type(e).__name__,

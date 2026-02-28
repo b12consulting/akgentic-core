@@ -343,7 +343,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         # Skip orchestrator's own telemetry to avoid recursion
         if sender == self.myAddress:
             return
-        self._timer.task_completed()
         self.messages.append(message)
         self._notify_subscribers("on_message", message)
 
