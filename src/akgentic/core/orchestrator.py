@@ -334,7 +334,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self._notify_subscribers("on_message", message)
 
     def receiveMsg_ErrorMessage(self, message: ErrorMessage, sender: ActorAddress) -> None:
-        """Handle error events (treat as task completion for timer purposes).
+        """Handle error events.
 
         Args:
             message: ErrorMessage containing error details
