@@ -52,7 +52,7 @@ class AgentCard(SerializableBaseModel):
     description: str
     skills: list[str]
     agent_class: str | type
-    config: BaseConfig | dict[str, Any] = {}
+    config: BaseConfig
     routes_to: list[str] = []
     metadata: dict[str, Any] = {}
 

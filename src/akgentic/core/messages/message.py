@@ -48,6 +48,7 @@ class Message(SerializableBaseModel):
     team_id: uuid.UUID | None = Field(default=None)
     timestamp: datetime | None = Field(default_factory=date_time_factory)
     sender: ActorAddress | None = Field(default=None)
+    recipient: ActorAddress | None = Field(default=None)
     display_type: Literal["human", "ai", "other"] = Field(default="other")
 
     @model_serializer

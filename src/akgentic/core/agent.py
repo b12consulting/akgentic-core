@@ -246,8 +246,10 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         self.config.name = self.config.name or str(self._actor_ref)
         self.config.role = self.config.role or self._actor_ref._actor.__class__.__name__
 
-        ## llm context
-        self.llm_context: list[Any] = []
+        if self._orchestrator is not None:
+            from akgentic.core.orchestrator import Orchestrator
+
+            self.orchestrator_proxy_ask = self.proxy_ask(self._orchestrator, Orchestrator)
 
         self._notify_orchestrator(
             StartMessage(
@@ -283,6 +285,18 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             ActorAddress of the orchestrator if available, None otherwise.
         """
         return self._orchestrator
+
+    def get_mailbox(self) -> list[Message]:
+        """Get list of pending messages in this agent's mailbox.
+
+        Returns:
+            List of Message objects currently in the mailbox queue.
+        """
+        return [
+            envelope.message
+            for envelope in list(self._actor_ref.actor_inbox.queue)  # type: ignore
+            if isinstance(envelope.message, Message)
+        ]
 
     def createActor(  # noqa: N802
         self,
@@ -618,6 +632,44 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         return cast(AkgentType, proxy_instance)
 
     ##
+    ## Agent team management
+    ##
+    def get_team(self) -> list[ActorAddress]:
+        """Get the list of all team members from orchestrator.
+
+        Queries orchestrator for current team roster and updates local cache
+        with any new members. Each member is cached by both name and string
+        representation of address.
+
+        Returns:
+            list[ActorAddress]: List of ActorAddress objects for all team members.
+
+        raise:
+            WarningError if orchestrator is not available.
+        """
+        if not self._orchestrator:
+            raise WarningError("No orchestrator available to get team information.")
+
+        return self.orchestrator_proxy_ask.get_team()
+
+    def get_team_member(self, name: str) -> ActorAddress | None:
+        """Get team member address by name.
+
+        Args:
+            name: Name of the team member (e.g., '@Developer123').
+
+        Returns:
+            ActorAddress | None: ActorAddress if found, None otherwise.
+
+        raise:
+            WarningError if orchestrator is not available.
+        """
+        if not self._orchestrator:
+            raise WarningError("No orchestrator available to get team information.")
+
+        return self.orchestrator_proxy_ask.get_team_member(name)
+
+    ##
     ## Agent profile catalog discovery
     ##
     def discover_catalog(self) -> list[AgentCard]:
@@ -629,10 +681,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         if not self._orchestrator:
             return []
 
-        from akgentic.core.orchestrator import Orchestrator
-
-        orch_proxy = self.proxy_ask(self._orchestrator, Orchestrator)
-        return orch_proxy.get_agent_catalog()
+        return self.orchestrator_proxy_ask.get_agent_catalog()
 
     def get_agent_card(self, role: str) -> AgentCard | None:
         """Look up a specific agent profile by role.
@@ -646,10 +695,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         if not self._orchestrator:
             return None
 
-        from akgentic.core.orchestrator import Orchestrator
-
-        orch_proxy = self.proxy_ask(self._orchestrator, Orchestrator)
-        return orch_proxy.get_agent_profile(role)
+        return self.orchestrator_proxy_ask.get_agent_profile(role)
 
     def find_agents_with_skill(self, skill: str) -> list[AgentCard]:
         """Find agent profiles that have a specific skill.
@@ -663,10 +709,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         if not self._orchestrator:
             return []
 
-        from akgentic.core.orchestrator import Orchestrator
-
-        orch_proxy = self.proxy_ask(self._orchestrator, Orchestrator)
-        return orch_proxy.get_profiles_by_skill(skill)
+        return self.orchestrator_proxy_ask.get_profiles_by_skill(skill)
 
     def get_available_roles(self) -> list[str]:
         """Get list of all available roles in the team catalog.
@@ -677,7 +720,4 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         if not self._orchestrator:
             return []
 
-        from akgentic.core.orchestrator import Orchestrator
-
-        orch_proxy = self.proxy_ask(self._orchestrator, Orchestrator)
-        return orch_proxy.get_available_roles()
+        return self.orchestrator_proxy_ask.get_available_roles()
