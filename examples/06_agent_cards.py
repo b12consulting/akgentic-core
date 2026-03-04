@@ -28,27 +28,24 @@ from akgentic.core import (
 class ResearchAgent(Akgent):
     """Agent that performs research tasks."""
 
-    def init(self):
+    def on_start(self):
         """Initialize the research agent."""
-        super().init()
         print(f"[{self.config.name}] Research agent initialized")
 
 
 class WriterAgent(Akgent):
     """Agent that writes content."""
 
-    def init(self):
+    def on_start(self):
         """Initialize the writer agent."""
-        super().init()
         print(f"[{self.config.name}] Writer agent initialized")
 
 
 class CoordinatorAgent(Akgent):
     """Agent that discovers and coordinates other agents."""
 
-    def init(self):
+    def on_start(self):
         """Initialize the coordinator agent."""
-        super().init()
         print(f"[{self.config.name}] Coordinator initialized")
 
     def discover_team_capabilities(self) -> None:

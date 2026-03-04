@@ -119,10 +119,10 @@ class ManagerAgent(Akgent[BaseConfig, BaseState]):
     - Parent-child hierarchy management
     """
 
-    def init(self) -> None:
+    def on_start(self) -> None:
         """Initialize agent with empty results tracking.
 
-        Called after __init__ completes. Use for agent-specific setup.
+        Called by pykka after __init__ completes. Use for agent-specific setup.
         """
         self.results: list[str] = []
         self.completed_tasks: int = 0

@@ -197,14 +197,14 @@ class TestAgentInitialization:
             ref.stop()
 
     def test_init_hook_called(self, agent_setup):
-        """Agent init() hook is called during initialization."""
+        """Agent on_start() hook is called during initialization."""
 
         class InitTestAgent(Akgent[BaseConfig, BaseState]):
             def __init__(self, **kwargs):
                 self.init_called = False
                 super().__init__(**kwargs)
 
-            def init(self):
+            def on_start(self):
                 self.init_called = True
 
         agent_id, config, team_id = agent_setup
@@ -500,7 +500,7 @@ class TestProxyWrapper:
             wrapper = ProxyWrapper(address, ask_mode=False)
 
             # Call method - should return None immediately
-            result = wrapper.init()
+            result = wrapper.on_start()
             assert result is None
         finally:
             ref.stop()

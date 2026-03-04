@@ -72,26 +72,26 @@ on the previous.
 
 Find the example where a specific concept first appears:
 
-| Concept                                          | First seen in                                   |
-| ------------------------------------------------ | ----------------------------------------------- |
-| `Message`                                        | [01 — Hello World](01-hello-world.md)           |
-| `Akgent[Config, State]`                          | [01 — Hello World](01-hello-world.md)           |
-| `ActorSystem`                                    | [01 — Hello World](01-hello-world.md)           |
-| `receiveMsg_<Type>` dispatch                     | [01 — Hello World](01-hello-world.md)           |
-| `self.send()`                                    | [01 — Hello World](01-hello-world.md)           |
-| `actor_system.tell()`                            | [01 — Hello World](01-hello-world.md)           |
-| `ActorAddress`                                   | [01 — Hello World](01-hello-world.md)           |
-| Bidirectional messaging (reply via `sender`)     | [02 — Request-Response](02-request-response.md) |
-| `proxy_tell()` / `proxy_ask()`                   | [02 — Request-Response](02-request-response.md) |
-| `tell` vs `ask` (fire-and-forget vs blocking)    | [02 — Request-Response](02-request-response.md) |
-| `self.createActor()` (spawn child from agent)    | [03 — Dynamic Agents](03-dynamic-agents.md)     |
-| `self._parent`                                   | [03 — Dynamic Agents](03-dynamic-agents.md)     |
-| `init()` hook                                    | [03 — Dynamic Agents](03-dynamic-agents.md)     |
-| `BaseConfig` subclass (custom typed config)      | [04 — Stateful Agents](04-stateful-agents.md)   |
-| `self.config` in `init()` and message handlers   | [04 — Stateful Agents](04-stateful-agents.md)   |
-| `BaseState` subclass                             | [04 — Stateful Agents](04-stateful-agents.md)   |
-| `state.observer()` / `notify_state_change()`     | [04 — Stateful Agents](04-stateful-agents.md)   |
-| `Orchestrator`                                   | [04 — Stateful Agents](04-stateful-agents.md)   |
-| `UserProxy` (human-in-the-loop)                  | [05 — Multi-Agent](05-multi-agent.md)           |
-| `EventSubscriber`                                | [05 — Multi-Agent](05-multi-agent.md)           |
-| `get_team()` / `get_messages()` / `get_states()` | [05 — Multi-Agent](05-multi-agent.md)           |
+| Concept                                            | First seen in                                   |
+| -------------------------------------------------- | ----------------------------------------------- |
+| `Message`                                          | [01 — Hello World](01-hello-world.md)           |
+| `Akgent[Config, State]`                            | [01 — Hello World](01-hello-world.md)           |
+| `ActorSystem`                                      | [01 — Hello World](01-hello-world.md)           |
+| `receiveMsg_<Type>` dispatch                       | [01 — Hello World](01-hello-world.md)           |
+| `self.send()`                                      | [01 — Hello World](01-hello-world.md)           |
+| `actor_system.tell()`                              | [01 — Hello World](01-hello-world.md)           |
+| `ActorAddress`                                     | [01 — Hello World](01-hello-world.md)           |
+| Bidirectional messaging (reply via `sender`)       | [02 — Request-Response](02-request-response.md) |
+| `proxy_tell()` / `proxy_ask()`                     | [02 — Request-Response](02-request-response.md) |
+| `tell` vs `ask` (fire-and-forget vs blocking)      | [02 — Request-Response](02-request-response.md) |
+| `self.createActor()` (spawn child from agent)      | [03 — Dynamic Agents](03-dynamic-agents.md)     |
+| `self._parent`                                     | [03 — Dynamic Agents](03-dynamic-agents.md)     |
+| `on_start()` hook                                  | [03 — Dynamic Agents](03-dynamic-agents.md)     |
+| `BaseConfig` subclass (custom typed config)        | [04 — Stateful Agents](04-stateful-agents.md)   |
+| `self.config` in `on_start()` and message handlers | [04 — Stateful Agents](04-stateful-agents.md)   |
+| `BaseState` subclass                               | [04 — Stateful Agents](04-stateful-agents.md)   |
+| `state.observer()` / `notify_state_change()`       | [04 — Stateful Agents](04-stateful-agents.md)   |
+| `Orchestrator`                                     | [04 — Stateful Agents](04-stateful-agents.md)   |
+| `UserProxy` (human-in-the-loop)                    | [05 — Multi-Agent](05-multi-agent.md)           |
+| `EventSubscriber`                                  | [05 — Multi-Agent](05-multi-agent.md)           |
+| `get_team()` / `get_messages()` / `get_states()`   | [05 — Multi-Agent](05-multi-agent.md)           |

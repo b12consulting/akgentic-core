@@ -159,7 +159,7 @@ class ResearchAgent(Akgent[BaseConfig, SpecialistState]):
     - State tracking of processed items
     """
 
-    def init(self) -> None:
+    def on_start(self) -> None:
         """Initialize research agent state."""
         self.state = SpecialistState()
         self.state.observer(self)
@@ -215,7 +215,7 @@ class WriterAgent(Akgent[BaseConfig, SpecialistState]):
     - State tracking of drafting work
     """
 
-    def init(self) -> None:
+    def on_start(self) -> None:
         """Initialize writer agent state."""
         self.state = SpecialistState()
         self.state.observer(self)
@@ -275,7 +275,7 @@ class CoordinatorAgent(Akgent[BaseConfig, CoordinatorState]):
     - State tracking of workflow progression
     """
 
-    def init(self) -> None:
+    def on_start(self) -> None:
         """Initialize coordinator state."""
         self.state = CoordinatorState()
         self.state.observer(self)

@@ -334,7 +334,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self._notify_subscribers("on_message", message)
 
     def receiveMsg_ErrorMessage(self, message: ErrorMessage, sender: ActorAddress) -> None:
-        """Handle error events (treat as task completion for timer purposes).
+        """Handle error events.
 
         Args:
             message: ErrorMessage containing error details
@@ -343,7 +343,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         # Skip orchestrator's own telemetry to avoid recursion
         if sender == self.myAddress:
             return
-        self._timer.task_completed()
         self.messages.append(message)
         self._notify_subscribers("on_message", message)
 
@@ -409,7 +408,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         """Get a team member by name.
 
         Args:
-            member: Agent name
+            name: Agent name
 
         Returns:
             ActorAddress if found, None otherwise
