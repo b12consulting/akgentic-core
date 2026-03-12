@@ -40,7 +40,7 @@ class DerivedSampleMessage(SampleMessage):
 class SampleAgent(Akgent[BaseConfig, BaseState]):
     """Test agent with message handler."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         self.received_messages: list = []
         super().__init__(**kwargs)
 
@@ -53,7 +53,7 @@ class SampleAgent(Akgent[BaseConfig, BaseState]):
 class SuperSampleAgent(Akgent[BaseConfig, BaseState]):
     """Test agent that uses SUPER sentinel."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs) -> None:
         self.handled_at_base = False
         super().__init__(**kwargs)
 
@@ -61,7 +61,7 @@ class SuperSampleAgent(Akgent[BaseConfig, BaseState]):
         """Decline to handle - return SUPER."""
         return self.SUPER
 
-    def receiveMsg_Message(self, msg: Message, sender: Any):
+    def receiveMsg_Message(self, msg: Message, sender: Any) -> str:
         """Base Message handler - catches fallthrough."""
         self.handled_at_base = True
         return "base_handler"
@@ -89,7 +89,7 @@ def cleanup_actors():
 class TestAgentInitialization:
     """Tests for agent lifecycle."""
 
-    def test_agent_starts_and_stops(self, agent_setup):
+    def test_agent_starts_and_stops(self, agent_setup) -> None:
         """Agent can be started and stopped cleanly."""
         agent_id, config, team_id = agent_setup
         ref = SampleAgent.start(
@@ -104,7 +104,7 @@ class TestAgentInitialization:
         finally:
             ref.stop()
 
-    def test_agent_keyword_arg_initialization(self):
+    def test_agent_keyword_arg_initialization(self) -> None:
         """Agent can be initialized with explicit keyword arguments."""
         agent_id = uuid.uuid4()
         team_id = uuid.uuid4()
@@ -137,7 +137,7 @@ class TestAgentInitialization:
         finally:
             ref.stop()
 
-    def test_agent_keyword_args_with_defaults(self):
+    def test_agent_keyword_args_with_defaults(self) -> None:
         """Agent keyword args use defaults when not specified."""
         config = BaseConfig(name="test-agent")
 
@@ -156,7 +156,7 @@ class TestAgentInitialization:
         finally:
             ref.stop()
 
-    def test_agent_receives_uuid_and_config(self, agent_setup):
+    def test_agent_receives_uuid_and_config(self, agent_setup) -> None:
         """Agent initialization extracts args correctly."""
         agent_id, config, team_id = agent_setup
         ref = SampleAgent.start(
@@ -174,7 +174,7 @@ class TestAgentInitialization:
         finally:
             ref.stop()
 
-    def test_agent_defaults_name_and_role(self, agent_setup):
+    def test_agent_defaults_name_and_role(self, agent_setup) -> None:
         """Agent sets default name and role if not provided."""
         agent_id, _, team_id = agent_setup
         config = BaseConfig()  # No name or role
@@ -196,15 +196,15 @@ class TestAgentInitialization:
         finally:
             ref.stop()
 
-    def test_init_hook_called(self, agent_setup):
+    def test_init_hook_called(self, agent_setup) -> None:
         """Agent on_start() hook is called during initialization."""
 
         class InitTestAgent(Akgent[BaseConfig, BaseState]):
-            def __init__(self, **kwargs):
+            def __init__(self, **kwargs) -> None:
                 self.init_called = False
                 super().__init__(**kwargs)
 
-            def on_start(self):
+            def on_start(self) -> None:
                 self.init_called = True
 
         agent_id, config, team_id = agent_setup
@@ -223,7 +223,7 @@ class TestAgentInitialization:
 class TestMessageDispatch:
     """Tests for receiveMsg_<Type> pattern."""
 
-    def test_message_handler_called(self, agent_setup):
+    def test_message_handler_called(self, agent_setup) -> None:
         """Message dispatch invokes correct handler."""
         agent_id, config, team_id = agent_setup
         ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
@@ -239,7 +239,7 @@ class TestMessageDispatch:
         finally:
             ref.stop()
 
-    def test_derived_message_uses_handler(self, agent_setup):
+    def test_derived_message_uses_handler(self, agent_setup) -> None:
         """Derived message types use parent handler via MRO."""
         agent_id, config, team_id = agent_setup
         ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
@@ -255,7 +255,7 @@ class TestMessageDispatch:
         finally:
             ref.stop()
 
-    def test_unhandled_message_logs_warning(self, agent_setup, caplog):
+    def test_unhandled_message_logs_warning(self, agent_setup, caplog) -> None:
         """Unhandled message type logs warning."""
         agent_id, config, team_id = agent_setup
         ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
@@ -276,7 +276,7 @@ class TestMessageDispatch:
 class TestSuperSentinel:
     """Tests for SUPER fallthrough behavior."""
 
-    def test_super_continues_mro_search(self, agent_setup):
+    def test_super_continues_mro_search(self, agent_setup) -> None:
         """Returning SUPER causes dispatcher to continue MRO walk."""
         agent_id, config, team_id = agent_setup
         ref = SuperSampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
@@ -296,7 +296,7 @@ class TestSuperSentinel:
 class TestChildActorCreation:
     """Tests for createActor and context propagation."""
 
-    def test_create_child_actor(self, agent_setup):
+    def test_create_child_actor(self, agent_setup) -> None:
         """Parent can create child actor."""
         agent_id, config, team_id = agent_setup
         config.squad_id = uuid.uuid4()
@@ -314,7 +314,7 @@ class TestChildActorCreation:
         finally:
             ref.stop()
 
-    def test_child_inherits_squad_id(self, agent_setup):
+    def test_child_inherits_squad_id(self, agent_setup) -> None:
         """Child actor inherits parent's squad_id if not specified."""
         agent_id, config, team_id = agent_setup
         parent_squad_id = uuid.uuid4()
@@ -334,7 +334,7 @@ class TestChildActorCreation:
         finally:
             ref.stop()
 
-    def test_child_overrides_squad_id(self, agent_setup):
+    def test_child_overrides_squad_id(self, agent_setup) -> None:
         """Child can override parent's squad_id."""
         agent_id, config, team_id = agent_setup
         parent_squad_id = uuid.uuid4()
@@ -359,7 +359,7 @@ class TestChildActorCreation:
 class TestStateManagement:
     """Tests for state_changed, update_state, init_state."""
 
-    def test_init_state_preserves_observer(self, agent_setup):
+    def test_init_state_preserves_observer(self, agent_setup) -> None:
         """init_state preserves observer reference."""
         agent_id, config, team_id = agent_setup
         ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
@@ -377,7 +377,7 @@ class TestStateManagement:
         finally:
             ref.stop()
 
-    def test_update_state_merges_updates(self, agent_setup):
+    def test_update_state_merges_updates(self, agent_setup) -> None:
         """update_state merges dictionary updates into state."""
         agent_id, config, team_id = agent_setup
         ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
@@ -397,7 +397,7 @@ class TestStateManagement:
 class TestStopBehavior:
     """Tests for stop and recursive cleanup."""
 
-    def test_stop_cleans_up_children(self, agent_setup):
+    def test_stop_cleans_up_children(self, agent_setup) -> None:
         """Stopping parent stops all children recursively."""
         agent_id, config, team_id = agent_setup
         ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
@@ -422,7 +422,7 @@ class TestStopBehavior:
             except Exception:
                 pass
 
-    def test_stop_recursively_message(self, agent_setup):
+    def test_stop_recursively_message(self, agent_setup) -> None:
         """StopRecursively message triggers recursive stop."""
         agent_id, config, team_id = agent_setup
         ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
@@ -442,7 +442,7 @@ class TestStopBehavior:
 class TestProxyHelpers:
     """Tests for proxy_tell and proxy_ask."""
 
-    def test_proxy_tell_fire_and_forget(self, agent_setup):
+    def test_proxy_tell_fire_and_forget(self, agent_setup) -> None:
         """proxy_tell creates fire-and-forget proxy."""
         agent_id, config, team_id = agent_setup
         ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
@@ -457,7 +457,7 @@ class TestProxyHelpers:
         finally:
             ref.stop()
 
-    def test_proxy_ask_blocking(self, agent_setup):
+    def test_proxy_ask_blocking(self, agent_setup) -> None:
         """proxy_ask creates blocking proxy."""
         agent_id, config, team_id = agent_setup
         ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
@@ -477,7 +477,7 @@ class TestProxyHelpers:
 class TestProxyWrapper:
     """Tests for ProxyWrapper functionality."""
 
-    def test_proxy_wrapper_ask_mode_resolves_futures(self, agent_setup):
+    def test_proxy_wrapper_ask_mode_resolves_futures(self, agent_setup) -> None:
         """Ask mode automatically resolves pykka futures."""
         agent_id, config, team_id = agent_setup
         ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
@@ -491,7 +491,7 @@ class TestProxyWrapper:
         finally:
             ref.stop()
 
-    def test_proxy_wrapper_tell_mode_returns_none(self, agent_setup):
+    def test_proxy_wrapper_tell_mode_returns_none(self, agent_setup) -> None:
         """Tell mode returns None without blocking."""
         agent_id, config, team_id = agent_setup
         ref = SampleAgent.start(agent_id=agent_id, config=config, team_id=team_id)
@@ -509,7 +509,7 @@ class TestProxyWrapper:
 class TestOrchestratorIntegration:
     """Tests for orchestrator notification integration."""
 
-    def test_notify_orchestrator_sends_start_message(self, agent_setup):
+    def test_notify_orchestrator_sends_start_message(self, agent_setup) -> None:
         """Agent notifies orchestrator on initialization."""
         agent_id, config, team_id = agent_setup
 
@@ -534,7 +534,7 @@ class TestOrchestratorIntegration:
         finally:
             ref.stop()
 
-    def test_send_notifies_orchestrator(self, agent_setup):
+    def test_send_notifies_orchestrator(self, agent_setup) -> None:
         """send() notifies orchestrator with SentMessage."""
         agent_id, config, team_id = agent_setup
 

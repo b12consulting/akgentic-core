@@ -14,7 +14,7 @@ import sys
 import time
 from pathlib import Path
 
-from akgentic.core import ActorAddress, ActorSystem, Akgent, BaseConfig
+from akgentic.core import ActorSystem, Akgent, BaseConfig
 from akgentic.core.messages import Message
 
 

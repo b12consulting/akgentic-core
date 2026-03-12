@@ -131,7 +131,6 @@ class TestOrchestratorTimerIntegration:
             ProcessedMessage(message_id=uuid.uuid4()), sender_addr
         ).get()
         assert timer.task_count == 0
-        timer_after_cycle1 = timer._timer
 
         # Cycle 2 — new message arrives, timer cancels again
         orch.receiveMsg_ReceivedMessage(ReceivedMessage(message_id=uuid.uuid4()), sender_addr).get()

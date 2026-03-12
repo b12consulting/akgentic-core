@@ -1,6 +1,7 @@
 """Tests for Orchestrator agent."""
 
 from collections.abc import Generator
+from typing import Never
 
 import pykka
 import pytest
@@ -10,7 +11,6 @@ from akgentic.core.agent import Akgent
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.orchestrator import Orchestrator
-from typing import Never
 
 
 @pytest.fixture(autouse=True)
