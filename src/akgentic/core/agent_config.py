@@ -64,8 +64,8 @@ class BaseConfig(SerializableBaseModel):
         {'name': 'worker-1', 'role': 'processor', 'squad_id': None, ...}
     """
 
-    name: str | None = None
-    role: str | None = None
+    name: str = ""
+    role: str = ""
     squad_id: uuid.UUID | None = None
 
 
