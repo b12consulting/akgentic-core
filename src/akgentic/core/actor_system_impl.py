@@ -270,7 +270,7 @@ class ActorSystem(ExecutionContext):
         user_id: str | None = None,
         user_email: str | None = None,
         team_id: uuid.UUID | str | None = None,
-        config: BaseConfig = BaseConfig(),
+        config: BaseConfig | None = None,
     ) -> ActorAddress:
         """Create and start a new actor.
 
@@ -289,12 +289,19 @@ class ActorSystem(ExecutionContext):
         Raises:
             ValueError: If actor_class is not a Type or string.
         """
+        if config is None:
+            config = BaseConfig()
+
         config.squad_id = config.squad_id or uuid.uuid4()
 
-        if isinstance(agent_id, str):
+        if agent_id is None:
+            agent_id = uuid.uuid4()
+        elif isinstance(agent_id, str):
             agent_id = uuid.UUID(agent_id)
 
-        if isinstance(team_id, str):
+        if team_id is None:
+            team_id = uuid.uuid4()
+        elif isinstance(team_id, str):
             team_id = uuid.UUID(team_id)
 
         actor_type: type[Akgent[Any, Any]]

@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pydantic import Field
+
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.utils.serializer import SerializableBaseModel
 
@@ -52,9 +54,9 @@ class AgentCard(SerializableBaseModel):
     description: str
     skills: list[str]
     agent_class: str | type
-    config: BaseConfig = BaseConfig()
-    routes_to: list[str] = []
-    metadata: dict[str, Any] = {}
+    config: BaseConfig = Field(default_factory=BaseConfig)
+    routes_to: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
 
     def get_config_copy(self) -> BaseConfig:
         """Get a deep copy of the config as BaseConfig instance.

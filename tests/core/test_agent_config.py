@@ -21,8 +21,8 @@ class TestBaseConfig:
     def test_default_instantiation(self) -> None:
         """BaseConfig() creates instance with all None defaults."""
         config = BaseConfig()
-        assert config.name is None
-        assert config.role is None
+        assert config.name == ""
+        assert config.role == ""
         assert config.squad_id is None
 
     def test_explicit_values(self) -> None:
@@ -64,7 +64,7 @@ class TestCustomConfig:
         assert config.name == "worker"
         assert config.max_tasks == 5
         assert config.timeout_seconds == 30.0
-        assert config.role is None
+        assert config.role == ""
 
     def test_custom_config_serialization(self) -> None:
         """Custom configs serialize including extended fields."""

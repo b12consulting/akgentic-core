@@ -302,7 +302,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         self,
         actor_class: type[Akgent[Any, Any]],
         agent_id: uuid.UUID | None = None,
-        config: BaseConfig = BaseConfig(),
+        config: BaseConfig | None = None,
     ) -> ActorAddress:
         """Create a child actor with context propagation.
 
@@ -324,6 +324,9 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             ...     config=WorkerConfig(name="worker-1")
             ... )
         """
+        if config is None:
+            config = BaseConfig()
+
         ## Priority on the new configuration for the squad_id over the parent one
         config.squad_id = config.squad_id or self.config.squad_id
 
