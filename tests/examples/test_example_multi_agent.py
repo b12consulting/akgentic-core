@@ -27,7 +27,7 @@ from akgentic.core.messages import Message
 class TestMessageTypesDefinition:
     """Tests for message type definitions."""
 
-    def test_task_request_message_definition(self):
+    def test_task_request_message_definition(self) -> None:
         """TaskRequest message has topic and requester_id fields."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -43,7 +43,7 @@ class TestMessageTypesDefinition:
         assert msg.topic == "test topic"
         assert msg.requester_id == "test-requester"
 
-    def test_research_result_message_definition(self):
+    def test_research_result_message_definition(self) -> None:
         """ResearchResult message has topic, key_points, and summary fields."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -64,7 +64,7 @@ class TestMessageTypesDefinition:
         assert msg.key_points == ["point1", "point2"]
         assert msg.summary == "test summary"
 
-    def test_draft_content_message_definition(self):
+    def test_draft_content_message_definition(self) -> None:
         """DraftContent message has topic, content, and word_count fields."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -81,7 +81,7 @@ class TestMessageTypesDefinition:
         assert msg.content == "test content"
         assert msg.word_count == 2
 
-    def test_review_request_message_definition(self):
+    def test_review_request_message_definition(self) -> None:
         """ReviewRequest message has draft and reviewer_notes fields."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -98,7 +98,7 @@ class TestMessageTypesDefinition:
         assert msg.draft.topic == "test"
         assert msg.reviewer_notes == "Please review"
 
-    def test_approval_response_message_definition(self):
+    def test_approval_response_message_definition(self) -> None:
         """ApprovalResponse message has approved, feedback, and draft_id fields."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -123,7 +123,7 @@ class TestMessageTypesDefinition:
 class TestStateTypesDefinition:
     """Tests for state type definitions."""
 
-    def test_coordinator_state_definition(self):
+    def test_coordinator_state_definition(self) -> None:
         """CoordinatorState extends BaseState with required fields."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -142,7 +142,7 @@ class TestStateTypesDefinition:
         assert hasattr(state, "task_status"), "Missing task_status field"
         assert hasattr(state, "workflow_stage"), "Missing workflow_stage field"
 
-    def test_specialist_state_definition(self):
+    def test_specialist_state_definition(self) -> None:
         """SpecialistState extends BaseState with required fields."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -165,7 +165,7 @@ class TestStateTypesDefinition:
 class TestAgentDefinitions:
     """Tests for agent class definitions."""
 
-    def test_research_agent_definition(self):
+    def test_research_agent_definition(self) -> None:
         """ResearchAgent is properly defined agent."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -177,7 +177,7 @@ class TestAgentDefinitions:
         assert hasattr(module, "ResearchAgent"), "ResearchAgent not defined"
         assert issubclass(module.ResearchAgent, Akgent), "ResearchAgent must extend Akgent"
 
-    def test_writer_agent_definition(self):
+    def test_writer_agent_definition(self) -> None:
         """WriterAgent is properly defined agent."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -189,7 +189,7 @@ class TestAgentDefinitions:
         assert hasattr(module, "WriterAgent"), "WriterAgent not defined"
         assert issubclass(module.WriterAgent, Akgent), "WriterAgent must extend Akgent"
 
-    def test_coordinator_agent_definition(self):
+    def test_coordinator_agent_definition(self) -> None:
         """CoordinatorAgent is properly defined agent."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -205,7 +205,7 @@ class TestAgentDefinitions:
 class TestUserProxyIntegration:
     """Tests for UserProxy human-in-the-loop integration."""
 
-    def test_simulated_user_proxy_definition(self):
+    def test_simulated_user_proxy_definition(self) -> None:
         """SimulatedUserProxy is defined and extends UserProxy."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -221,7 +221,7 @@ class TestUserProxyIntegration:
             "SimulatedUserProxy must extend UserProxy"
         )
 
-    def test_user_proxy_handles_review_request(self):
+    def test_user_proxy_handles_review_request(self) -> None:
         """SimulatedUserProxy handles ReviewRequest messages."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -238,7 +238,7 @@ class TestUserProxyIntegration:
 class TestSimpleLoggerSubscriber:
     """Tests for SimpleLogger implementing EventSubscriber."""
 
-    def test_simple_logger_definition(self):
+    def test_simple_logger_definition(self) -> None:
         """SimpleLogger is defined and implements EventSubscriber."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -247,7 +247,6 @@ class TestSimpleLoggerSubscriber:
         assert spec.loader is not None, "No loader for example module"
         spec.loader.exec_module(module)
 
-        from akgentic.core import EventSubscriber
 
         assert hasattr(module, "SimpleLogger"), "SimpleLogger not defined"
         # Check that it has required methods
@@ -259,7 +258,7 @@ class TestSimpleLoggerSubscriber:
 class TestMessageRoutingChain:
     """Tests for complete message routing through workflow."""
 
-    def test_task_request_routes_to_research_agent(self, capsys):
+    def test_task_request_routes_to_research_agent(self, capsys) -> None:
         """TaskRequest is routed from CoordinatorAgent to ResearchAgent."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -313,7 +312,7 @@ class TestMessageRoutingChain:
         finally:
             system.shutdown(timeout=5)
 
-    def test_research_result_routes_to_writer_agent(self, capsys):
+    def test_research_result_routes_to_writer_agent(self, capsys) -> None:
         """ResearchResult from ResearchAgent is routed to WriterAgent."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -364,7 +363,7 @@ class TestMessageRoutingChain:
         finally:
             system.shutdown(timeout=5)
 
-    def test_draft_content_routes_to_user_proxy(self, capsys):
+    def test_draft_content_routes_to_user_proxy(self, capsys) -> None:
         """DraftContent from WriterAgent is routed to UserProxy for review."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -420,7 +419,7 @@ class TestMessageRoutingChain:
 class TestOrchestratorTracking:
     """Tests for Orchestrator telemetry tracking."""
 
-    def test_orchestrator_tracks_multiple_messages(self):
+    def test_orchestrator_tracks_multiple_messages(self) -> None:
         """Orchestrator tracks 12+ messages in multi-agent workflow."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -473,7 +472,7 @@ class TestOrchestratorTracking:
         finally:
             system.shutdown(timeout=5)
 
-    def test_orchestrator_tracks_team_composition(self):
+    def test_orchestrator_tracks_team_composition(self) -> None:
         """Orchestrator.get_team() returns all 4 agents."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -517,7 +516,7 @@ class TestOrchestratorTracking:
         finally:
             system.shutdown(timeout=5)
 
-    def test_orchestrator_tracks_agent_states(self):
+    def test_orchestrator_tracks_agent_states(self) -> None:
         """Orchestrator.get_states() tracks agent state snapshots."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
         spec = importlib.util.spec_from_file_location("multi_agent", example_path)
@@ -574,7 +573,7 @@ class TestOrchestratorTracking:
 class TestEndToEndExecution:
     """Tests for complete example execution."""
 
-    def test_example_runs_without_exceptions(self):
+    def test_example_runs_without_exceptions(self) -> None:
         """Example runs end-to-end without errors."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
 
@@ -588,7 +587,7 @@ class TestEndToEndExecution:
 
         assert result.returncode == 0, f"Example failed with stderr: {result.stderr}"
 
-    def test_example_demonstrates_complete_workflow(self):
+    def test_example_demonstrates_complete_workflow(self) -> None:
         """Example output shows complete workflow progression."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
 
@@ -613,7 +612,7 @@ class TestEndToEndExecution:
         assert "[UserProxy] Human approved" in output, "Should show human approval"
         assert "[CoordinatorAgent] Task complete" in output, "Should show task completion"
 
-    def test_example_shows_orchestrator_summary(self):
+    def test_example_shows_orchestrator_summary(self) -> None:
         """Example output shows Orchestrator telemetry summary."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
 
@@ -635,7 +634,7 @@ class TestEndToEndExecution:
         assert "State snapshots:" in output, "Should show state snapshot count"
         assert "===========================" in output, "Should show summary footer"
 
-    def test_example_shows_team_assembly(self):
+    def test_example_shows_team_assembly(self) -> None:
         """Example output shows team assembly message."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "05_multi_agent.py"
 
@@ -657,7 +656,7 @@ class TestEndToEndExecution:
         assert "WriterAgent" in output, "Should mention WriterAgent"
         assert "UserProxy" in output, "Should mention UserProxy"
 
-    def test_example_completes_within_timeout(self):
+    def test_example_completes_within_timeout(self) -> None:
         """Example completes execution within 15 seconds."""
         import time
 

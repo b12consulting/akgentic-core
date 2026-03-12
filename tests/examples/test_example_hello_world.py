@@ -18,7 +18,7 @@ from akgentic.core.messages import Message
 class TestHelloMessageDefinition:
     """Tests for HelloMessage class definition."""
 
-    def test_hello_message_can_be_imported(self):
+    def test_hello_message_can_be_imported(self) -> None:
         """HelloMessage class can be imported from example."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "01_hello_world.py"
         spec = importlib.util.spec_from_file_location("hello_world", example_path)
@@ -30,7 +30,7 @@ class TestHelloMessageDefinition:
         assert hasattr(module, "HelloMessage"), "HelloMessage not defined in example"
         assert issubclass(module.HelloMessage, Message), "HelloMessage must extend Message"
 
-    def test_hello_message_has_greeting_field(self):
+    def test_hello_message_has_greeting_field(self) -> None:
         """HelloMessage has greeting string field."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "01_hello_world.py"
         spec = importlib.util.spec_from_file_location("hello_world", example_path)
@@ -46,7 +46,7 @@ class TestHelloMessageDefinition:
 class TestReceiverAgentHandler:
     """Tests for ReceiverAgent message handling."""
 
-    def test_receiver_agent_handles_hello_message(self, capsys):
+    def test_receiver_agent_handles_hello_message(self, capsys) -> None:
         """ReceiverAgent.receiveMsg_HelloMessage prints greeting."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "01_hello_world.py"
         spec = importlib.util.spec_from_file_location("hello_world", example_path)
@@ -82,7 +82,7 @@ class TestReceiverAgentHandler:
 class TestGreeterAgentSender:
     """Tests for GreeterAgent message sending."""
 
-    def test_greeter_agent_can_be_created(self):
+    def test_greeter_agent_can_be_created(self) -> None:
         """GreeterAgent can be instantiated."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "01_hello_world.py"
         spec = importlib.util.spec_from_file_location("hello_world", example_path)
@@ -98,7 +98,7 @@ class TestGreeterAgentSender:
 class TestEndToEndExecution:
     """Tests for complete example execution."""
 
-    def test_example_runs_without_exceptions(self, capsys):
+    def test_example_runs_without_exceptions(self, capsys) -> None:
         """Example runs end-to-end without errors."""
         example_path = Path(__file__).parent.parent.parent / "examples" / "01_hello_world.py"
 
@@ -120,7 +120,7 @@ class TestEndToEndExecution:
         assert "[Hello World]" in result.stdout or "[ReceiverAgent]" in result.stdout
         assert "Hello" in result.stdout or "greeting" in result.stdout.lower()
 
-    def test_example_completes_within_timeout(self):
+    def test_example_completes_within_timeout(self) -> None:
         """Example completes execution within 5 seconds."""
         import subprocess
         import time

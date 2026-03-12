@@ -122,7 +122,7 @@ class TestCalculatorAgentHandler:
             )
 
             # Create a dummy client to receive responses
-            client_addr = system.createActor(
+            system.createActor(
                 module.ClientAgent,
                 config=BaseConfig(name="test-client", role="Client"),
             )
@@ -158,7 +158,7 @@ class TestCalculatorAgentHandler:
             )
 
             # Create a dummy client to receive responses
-            client_addr = system.createActor(
+            system.createActor(
                 module.ClientAgent,
                 config=BaseConfig(name="test-client", role="Client"),
             )

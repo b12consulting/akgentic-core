@@ -28,7 +28,7 @@ from akgentic.core import (
 class ResearchAgent(Akgent):
     """Agent that performs research tasks."""
 
-    def on_start(self):
+    def on_start(self) -> None:
         """Initialize the research agent."""
         print(f"[{self.config.name}] Research agent initialized")
 
@@ -36,7 +36,7 @@ class ResearchAgent(Akgent):
 class WriterAgent(Akgent):
     """Agent that writes content."""
 
-    def on_start(self):
+    def on_start(self) -> None:
         """Initialize the writer agent."""
         print(f"[{self.config.name}] Writer agent initialized")
 
@@ -44,7 +44,7 @@ class WriterAgent(Akgent):
 class CoordinatorAgent(Akgent):
     """Agent that discovers and coordinates other agents."""
 
-    def on_start(self):
+    def on_start(self) -> None:
         """Initialize the coordinator agent."""
         print(f"[{self.config.name}] Coordinator initialized")
 
@@ -61,7 +61,7 @@ class CoordinatorAgent(Akgent):
             if card.routes_to:
                 print(f"    Routes to: {', '.join(card.routes_to)}")
             else:
-                print(f"    Routes to: (any role)")
+                print("    Routes to: (any role)")
 
         # Find specific profile
         print(f"\n[{self.config.name}] Looking for ResearchAgent profile...")
