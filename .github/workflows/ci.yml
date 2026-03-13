@@ -9,25 +9,37 @@ on:
 jobs:
   quality:
     runs-on: ubuntu-latest
+
+    env:
+      MIX_ENV: test
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v4
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
         with:
-          version: "latest"
+          elixir-version: "1.17"
+          otp-version: "27"
 
-      - name: Set up Python 3.12
-        run: uv python install 3.12
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('mix.exs') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
 
       - name: Install dependencies
-        run: uv sync --dev
+        run: mix deps.get
 
-      - name: Type checking
-        run: uv run mypy src/
+      - name: Compile
+        run: mix compile --warnings-as-errors
 
-      - name: Linting
-        run: uv run ruff check src/
+      - name: Check formatting
+        run: mix format --check-formatted
 
       - name: Run tests
-        run: uv run pytest --cov=src/akgentic --cov-report=term-missing --cov-fail-under=80
+        run: mix test

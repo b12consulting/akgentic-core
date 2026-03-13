@@ -1,157 +1,164 @@
-# Akgentic Core: An Actor Based Agent Framework
+# Akgentic Core: An Agent Framework powered by Jido
 
 **Status:** Alpha - Phase 1 (Core Library)
 
 ## What is Akgentic Core?
 
-Akgentic Core is a Python 3.12+ actor framework for building agent-based systems with **zero infrastructure dependencies** (no dependency to database, event broker, ...).
+Akgentic Core is an Elixir agent framework for building agent-based systems, powered by [Jido](https://jido.run/) and OTP. It provides zero-infrastructure-dependency agent primitives with comprehensive testability.
 
-Akgentic Core runs entirely in-memory with comprehensive testability.
+Agents are immutable data structures with pure functional state transformations, backed by OTP's battle-tested supervision and process model for production deployment.
 
 ## Quick Start
 
-```python
-from akgentic.core import ActorAddress, ActorSystem, Akgent
-from akgentic.core.messages import Message
+```elixir
+# Define an action
+defmodule MyApp.Actions.Echo do
+  use Jido.Action,
+    name: "echo",
+    description: "Echoes a message",
+    schema: [
+      content: [type: :string, required: true]
+    ]
 
+  def run(params, _context) do
+    IO.puts("Echo: #{params.content}")
+    {:ok, %{last_echo: params.content}}
+  end
+end
 
-# Define a simple message class
-class EchoMessage(Message):
-    content: str
+# Define an agent
+defmodule MyApp.EchoAgent do
+  use Akgentic.Agent,
+    name: "echo_agent",
+    description: "An agent that echoes messages",
+    schema: [
+      last_echo: [type: :string, default: ""]
+    ],
+    actions: [MyApp.Actions.Echo],
+    signal_routes: [
+      {"echo", MyApp.Actions.Echo}
+    ]
+end
 
+# Create and use the agent (pure data, no process needed)
+agent = MyApp.EchoAgent.new()
+{agent, _directives} = MyApp.EchoAgent.cmd(agent, {MyApp.Actions.Echo, %{content: "Hello!"}})
+agent.state.last_echo
+# => "Hello!"
 
-# Define a simple agent that echoes messages
-class EchoAgent(Akgent):
-    def receiveMsg_EchoMessage(self, message: EchoMessage, sender: ActorAddress) -> None:
-        print(f"EchoAgent received: {message.content}")
-
-
-# Create local actor system
-system = ActorSystem()
-
-# Create an agent instance
-agent = system.createActor(EchoAgent)
-
-# Send a message to the agent
-system.tell(agent, EchoMessage(content="Hello, Akgentic!"))
-
-system.shutdown()
+# Or run with a process (production use)
+{:ok, pid} = Akgentic.start_agent(MyApp.EchoAgent, id: "echo-1")
+{:ok, agent} = Akgentic.signal(pid, "echo", %{content: "Hello, Akgentic!"})
 ```
 
 ## Design Principles
 
+- **Pure functional agents** — Immutable state, deterministic logic, easy testing
+- **Directive-based effects** — Side effects are described, not executed inline
 - **Zero infrastructure dependencies** in core library
-- **80% minimum test coverage** (enforced)
-- **Comprehensive type hints** (mypy strict mode)
-- **10-minute time-to-first-agent** target
+- **OTP supervision** — Fault-tolerant, self-healing agent processes
+- **Comprehensive type specs** (Dialyzer compatible)
 
 ## Installation
 
-### Standalone Package
+Add `akgentic` to your dependencies in `mix.exs`:
 
-```bash
-# Clone and enter package directory
-cd packages/akgentic-core
-
-# Create virtual environment
-uv venv
-
-# Activate it
-source .venv/bin/activate
-
-uv pip install -e .
+```elixir
+def deps do
+  [
+    {:akgentic, "~> 1.0.0-alpha.1"}
+  ]
+end
 ```
 
-### Within Monorepo Workspace
+## Python → Elixir Migration Guide
 
-If you're developing in the Akgentic Platform v2 monorepo:
+This project was migrated from a Python actor framework (using Pykka) to Elixir using [Jido](https://jido.run/). Here's the concept mapping:
 
-```bash
-# From workspace root
-source .venv/bin/activate
+| Python (akgentic)       | Elixir (Akgentic + Jido)              |
+|-------------------------|---------------------------------------|
+| `Akgent`                | `Akgentic.Agent` (uses `Jido.Agent`)  |
+| `Message`               | `Jido.Signal`                         |
+| `receiveMsg_<Type>`     | `signal_routes` + `Jido.Action`       |
+| `ActorSystem`           | OTP Supervisor + `Jido.AgentServer`   |
+| `BaseConfig`            | Agent schema (NimbleOptions)          |
+| `BaseState`             | Agent state                           |
+| `Orchestrator`          | `Akgentic.Orchestrator`               |
+| `UserProxy`             | `Akgentic.UserProxy`                  |
+| `ActorAddress`          | PID / Registry lookup                 |
+| `AgentCard`             | `Akgentic.AgentCard`                  |
+| `EventSubscriber`       | `Akgentic.EventSubscriber` behaviour  |
+| `ExecutionContext`      | Caller process                        |
+| `ProxyWrapper`          | `Jido.AgentServer.call/cast`          |
+| `Timer`                 | `Akgentic.Timer` (GenServer)          |
 
-# Package is already installed in editable mode via workspace
-# No additional installation needed
-```
+### Key Differences
+
+1. **No `receiveMsg_<Type>` pattern** — In Jido, agents define `signal_routes` that map signal types to `Jido.Action` modules. Actions are pure functions that transform state.
+
+2. **Immutable agents** — Python agents were mutable objects. Elixir agents are immutable data structures. State changes produce new agent values.
+
+3. **Directives instead of `self.send()`** — Instead of sending messages directly, actions return directives (Emit, Spawn, Stop, etc.) that the runtime executes.
+
+4. **OTP supervision** — Instead of manual `ActorSystem.shutdown()`, agents are supervised by OTP. Crashed agents restart automatically.
+
+5. **No serialization boilerplate** — Elixir terms are natively serializable. Jido Signals use the CloudEvents spec.
 
 ## Development
 
-### Standalone Package Development
+### Prerequisites
+
+- Elixir 1.17+
+- Erlang/OTP 26+
+
+### Setup
 
 ```bash
-# Clone and enter package directory
-cd packages/akgentic-core
-
-# Create virtual environment
-uv venv
-
-# Activate it
-source .venv/bin/activate
-
-# Install in editable mode with dev dependencies
-uv pip install -e ".[dev]"
+# Install dependencies
+mix deps.get
 
 # Run tests
-pytest
+mix test
 
 # Type checking
-mypy src/
+mix dialyzer
 
 # Linting
-ruff check src/
+mix credo --strict
+
+# All quality checks
+mix quality
 ```
 
-### Monorepo Workspace Development
+## Module Overview
 
-```bash
-# From workspace root
-source .venv/bin/activate
-
-# Run tests
-pytest packages/akgentic-core/tests/
-
-# Type checking
-mypy packages/akgentic-core/src/
-
-# Linting
-ruff check packages/akgentic-core/src/
-```
+| Module                         | Description                                        |
+|--------------------------------|----------------------------------------------------|
+| `Akgentic`                     | Top-level API for starting/signaling agents        |
+| `Akgentic.Agent`               | Base agent macro wrapping `Jido.Agent`             |
+| `Akgentic.Messages`            | Helper functions for creating common signals       |
+| `Akgentic.Messages.Orchestrator` | Orchestrator telemetry signal types               |
+| `Akgentic.Orchestrator`        | Telemetry and coordination GenServer               |
+| `Akgentic.UserProxy`           | Human-in-the-loop agent                            |
+| `Akgentic.AgentCard`           | Agent profile metadata for capability discovery    |
+| `Akgentic.Timer`               | Inactivity timeout management                      |
+| `Akgentic.EventSubscriber`     | Behaviour for subscribing to orchestrator events   |
+| `Akgentic.Application`         | OTP Application with DynamicSupervisor             |
 
 ## Examples
 
-Working examples are in [`examples/`](examples/) — each one is self-contained and runnable.
-
-### How to Run
+Working examples are in [`examples/`](examples/):
 
 ```bash
-# From the akgentic-core directory
-uv run python examples/01_hello_world.py
-uv run python examples/02_request_response.py
-uv run python examples/03_dynamic_agents.py
-uv run python examples/04_stateful_agents.py
-uv run python examples/05_multi_agent.py
+mix run examples/01_hello_world.exs
 ```
-
-### Learning Path
-
-Work through them in order — each builds on the previous and introduces a small set of new concepts.
-
-| #   | Description                                                                             | Guide                                                    |
-| --- | --------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| 01  | Two agents exchange a greeting — introduces `Message`, `Akgent`, and `ActorSystem`      | [01 — Hello World](examples/01-hello-world.md)           |
-| 02  | `proxy_tell` (fire-and-forget) vs `proxy_ask` (blocking) with request-response pairing  | [02 — Request-Response](examples/02-request-response.md) |
-| 03  | A manager spawns worker agents at runtime — parent-child hierarchy and `createActor()`  | [03 — Dynamic Agents](examples/03-dynamic-agents.md)     |
-| 04  | Custom `BaseConfig` subclass, typed state, observer pattern, and Orchestrator telemetry | [04 — Stateful Agents](examples/04-stateful-agents.md)   |
-| 05  | Multi-agent pipeline with human-in-the-loop approval and event subscribers              | [05 — Multi-Agent](examples/05-multi-agent.md)           |
-
-See [`examples/README.md`](examples/README.md) for the full concept index.
 
 ## Architecture
 
-Phase 1 (Current): Core library with zero dependencies
-Phase 2 (Future): LLM, tools, RAG modules
-Phase 3 (Future): Infrastructure plugins (Redis, HTTP, persistence)
+- **Phase 1 (Current):** Core library with zero infrastructure dependencies
+- **Phase 2 (Future):** LLM, tools, RAG modules (via `jido_ai`)
+- **Phase 3 (Future):** Infrastructure plugins (persistence, pub/sub)
 
-## Migration from v1
+## License
 
-See `docs/migration_guide.md` (coming soon)
+See [LICENSE](LICENSE) for details.

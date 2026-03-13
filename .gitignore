@@ -1,27 +1,26 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
+# Elixir/Erlang build artifacts
+/_build/
+/deps/
+/cover/
+*.ez
+*.beam
 
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
-**/settings.local.json
+# Generated files
+/doc/
+erl_crash.dump
+
+# Mix artifacts
+mix.lock
 
 # Testing
 .pytest_cache/
-.coverage
-htmlcov/
-
-# Type checking
-.mypy_cache/
-.dmypy.json
-
-# Virtual environments
-.venv/
-venv/
+/cover/
 
 # IDE
 .vscode/
 .idea/
+.elixir_ls/
+
+# OS
+.DS_Store
+Thumbs.db
