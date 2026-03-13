@@ -28,6 +28,7 @@ defmodule Akgentic.MixProject do
 
   def application do
     [
+      mod: {Akgentic.Application, []},
       extra_applications: [:logger]
     ]
   end
