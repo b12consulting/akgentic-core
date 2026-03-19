@@ -370,14 +370,15 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     def restore_message(self, message: Message) -> None:
         """Replay a single persisted event during team restoration.
 
-        Dispatches the message to all subscribers via ``_notify_subscribers``
-        without going through the normal ``receiveMsg_*`` dispatch. This
-        allows subscribers (e.g. PersistenceSubscriber in restoring mode)
-        and agents reconstructing LLM context to observe the replayed event.
+        Appends the message to ``self.messages`` so that ``get_team()`` and
+        other history-based queries work correctly after restore, then
+        dispatches to all subscribers via ``_notify_subscribers``.
 
         Args:
             message: The persisted message to replay.
         """
+        self.messages.append(message)
+        self._current_team_members = None  # Invalidate cache
         self._notify_subscribers("on_message", message)
 
     def end_restoration(self) -> None:
