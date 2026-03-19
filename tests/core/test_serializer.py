@@ -3,9 +3,12 @@
 Tests serialize functions, SerializableBaseModel, and deserialize_object.
 """
 
+import base64
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
+import pydantic.dataclasses
 import pytest
 from pydantic import BaseModel
 
@@ -24,6 +27,41 @@ from akgentic.core.utils.serializer import (
     serialize_base_model,
     serialize_type,
 )
+
+
+# Module-level test fixtures for pydantic dataclass tests.
+# These must be at module level so serialize_type/import_class can find them.
+@pydantic.dataclasses.dataclass
+class FakeBinaryContent:
+    """Test fixture mimicking pydantic-ai's BinaryContent."""
+
+    data: bytes
+    media_type: str
+
+
+@pydantic.dataclasses.dataclass
+class FakeMultimodalPart:
+    """Pydantic dataclass with nested bytes for realistic round-trip testing."""
+
+    content: bytes
+    mime_type: str
+    label: str
+
+
+@dataclass
+class PlainEvent:
+    """Plain stdlib dataclass for regression testing."""
+
+    name: str
+    count: int
+
+
+@dataclass
+class PlainEventWithBinary:
+    """Plain dataclass containing a pydantic dataclass with bytes (realistic nesting)."""
+
+    event_name: str
+    payload: FakeBinaryContent
 
 
 class TestSerializeType:
@@ -364,3 +402,153 @@ class TestMessageSerialization:
         assert "message_id" in data
         assert data["message_id"] == str(msg_id)
         assert "message" not in data
+
+
+class TestPydanticDataclassSerialization:
+    """Tests for pydantic dataclass serialization/deserialization (AC 1-6)."""
+
+    def test_pydantic_dataclass_serialization_produces_base64(self) -> None:
+        """AC-1: Pydantic dataclass with bytes serializes with __bytes__ tagged dict."""
+        binary_data = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"  # PNG header bytes
+        obj = FakeBinaryContent(data=binary_data, media_type="image/png")
+        result = serialize(obj)
+
+        assert isinstance(result, dict)
+        # Pydantic dataclass should NOT have __model__ tag (AC-1)
+        assert "__model__" not in result
+        # Binary data should be a __bytes__ tagged dict with base64 content
+        assert "data" in result
+        assert isinstance(result["data"], dict)
+        assert "__bytes__" in result["data"]
+        decoded = base64.b64decode(result["data"]["__bytes__"])
+        assert decoded == binary_data
+        assert result["media_type"] == "image/png"
+
+    def test_plain_dataclass_still_produces_model_tag(self) -> None:
+        """AC-2: Plain dataclass serialization still produces __model__ tag (regression guard)."""
+        obj = PlainEvent(name="test", count=42)
+        result = serialize(obj)
+
+        assert isinstance(result, dict)
+        # Plain dataclass MUST have __model__ tag
+        assert "__model__" in result
+        assert "PlainEvent" in result["__model__"]
+        assert result["name"] == "test"
+        assert result["count"] == 42
+
+    def test_pydantic_dataclass_round_trip_preserves_binary(self) -> None:
+        """AC-5: Round-trip serialize then deserialize preserves binary data."""
+        binary_data = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+        original = FakeBinaryContent(data=binary_data, media_type="image/png")
+
+        # Serialize (no __model__ tag, so wrap with __model__ for deserialization)
+        serialized = serialize(original)
+        assert isinstance(serialized, dict)
+
+        # For round-trip, we need to add __model__ tag since pydantic dataclasses
+        # are typically nested inside parent models that carry the tag
+        serialized["__model__"] = serialize_type(original)
+        reconstructed = deserialize_object(serialized)
+
+        assert isinstance(reconstructed, FakeBinaryContent)
+        assert reconstructed.data == binary_data
+        assert reconstructed.media_type == "image/png"
+
+    def test_plain_dataclass_round_trip_still_works(self) -> None:
+        """AC-4: Plain dataclass round-trip still works (regression guard)."""
+        original = PlainEvent(name="hello", count=99)
+        serialized = serialize(original)
+        assert isinstance(serialized, dict)
+        assert "__model__" in serialized
+
+        reconstructed = deserialize_object(serialized)
+        assert isinstance(reconstructed, PlainEvent)
+        assert reconstructed.name == "hello"
+        assert reconstructed.count == 99
+
+    def test_deserialize_pydantic_dataclass_with_bytes_tag(self) -> None:
+        """AC-3: deserialize_object decodes __bytes__ tags and reconstructs pydantic dataclass."""
+        binary_data = b"\xff\xd8\xff\xe0"  # JPEG header
+        b64_data = base64.b64encode(binary_data).decode("ascii")
+
+        serialized = {
+            "__model__": serialize_type(FakeBinaryContent),
+            "data": {"__bytes__": b64_data},
+            "media_type": "image/jpeg",
+        }
+
+        result = deserialize_object(serialized)
+        assert isinstance(result, FakeBinaryContent)
+        assert result.data == binary_data
+        assert result.media_type == "image/jpeg"
+
+    def test_deserialize_basemodel_unchanged(self) -> None:
+        """AC-4: BaseModel deserialization still uses model_class(**data)."""
+        msg = Message()
+        data = msg.model_dump()
+        result = deserialize_object(data)
+        assert isinstance(result, Message)
+        assert result.display_type == msg.display_type
+
+    def test_serialize_raw_bytes_produces_tagged_dict(self) -> None:
+        """Raw bytes values serialize to {"__bytes__": "<base64>"}."""
+        binary_data = b"\x89PNG\r\n"
+        result = serialize(binary_data)
+        assert isinstance(result, dict)
+        assert "__bytes__" in result
+        assert base64.b64decode(result["__bytes__"]) == binary_data
+
+    def test_deserialize_bytes_tag_restores_bytes(self) -> None:
+        """__bytes__ tagged dicts deserialize back to raw bytes."""
+        binary_data = b"\xff\xd8\xff\xe0"
+        tagged = {"__bytes__": base64.b64encode(binary_data).decode("ascii")}
+        result = deserialize_object(tagged)
+        assert isinstance(result, bytes)
+        assert result == binary_data
+
+    def test_bytes_round_trip_in_nested_dict(self) -> None:
+        """Bytes inside a dict survive serialize/deserialize round-trip."""
+        binary_data = b"\x89PNG\r\n\x1a\n"
+        original = {"image": binary_data, "name": "test.png"}
+        serialized = serialize(original)
+        assert serialized["image"]["__bytes__"] is not None  # type: ignore[index]
+        reconstructed = deserialize_object(serialized)
+        assert reconstructed["image"] == binary_data
+        assert reconstructed["name"] == "test.png"
+
+    def test_malformed_bytes_tag_raises(self) -> None:
+        """Malformed base64 in __bytes__ tag should raise binascii.Error."""
+        import binascii
+
+        tagged = {"__bytes__": "not-valid-base64!!!"}
+        with pytest.raises(binascii.Error):
+            deserialize_object(tagged)
+
+    def test_plain_dataclass_containing_pydantic_dataclass_round_trip(self) -> None:
+        """Realistic scenario: plain dataclass with nested pydantic dataclass containing bytes."""
+        binary_data = b"\xff\xd8\xff\xe0\x00\x10JFIF"  # JPEG header
+        original = PlainEventWithBinary(
+            event_name="image_received",
+            payload=FakeBinaryContent(data=binary_data, media_type="image/jpeg"),
+        )
+
+        # Serialize — asdict() flattens everything, but bytes get __bytes__ tags
+        serialized = serialize(original)
+        assert isinstance(serialized, dict)
+        assert "__model__" in serialized
+
+        # Deserialize — plain dataclass reconstructed, but nested pydantic dataclass
+        # becomes a dict (pre-existing limitation of asdict flattening).
+        # The key check: binary data survives as bytes, not base64 string.
+        reconstructed = deserialize_object(serialized)
+        assert isinstance(reconstructed, PlainEventWithBinary)
+        assert reconstructed.event_name == "image_received"
+        # payload is a dict (asdict flattening), but bytes are decoded
+        assert reconstructed.payload["data"] == binary_data  # type: ignore[index]
+        assert reconstructed.payload["media_type"] == "image/jpeg"  # type: ignore[index]
+
+    def test_empty_bytes_round_trip(self) -> None:
+        """Empty bytes should round-trip correctly."""
+        result = serialize(b"")
+        assert result == {"__bytes__": ""}
+        assert deserialize_object(result) == b""

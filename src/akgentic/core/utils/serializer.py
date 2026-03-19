@@ -8,8 +8,9 @@ Source: Preserves v1 serialization behavior from akgentic-framework.
 
 from __future__ import annotations
 
+import base64
 import uuid
-from dataclasses import asdict, is_dataclass
+from dataclasses import asdict, fields, is_dataclass
 from datetime import datetime
 from typing import Any
 
@@ -35,10 +36,13 @@ def serialize_type(value: type[Any] | Any) -> str:
 
 
 def serialize(value: Any) -> dict[str, Any] | list[Any] | str | None | ActorAddressDict:
-    """Recursively serialize values, adding __object__ metadata where needed.
+    """Recursively serialize values, adding tagged-dict metadata where needed.
 
-    Handles UUID, datetime, ActorAddress, types, lists, dicts, BaseModel,
-    and dataclasses with proper serialization.
+    Handles UUID, datetime, ActorAddress, bytes, types, lists, dicts, BaseModel,
+    and dataclasses with proper serialization. Special tagged dicts:
+    - ``__model__``: Pydantic model or plain dataclass class path
+    - ``__type__``: Python type class path
+    - ``__bytes__``: Base64-encoded binary data
 
     Args:
         value: The value to serialize.
@@ -54,6 +58,8 @@ def serialize(value: Any) -> dict[str, Any] | list[Any] | str | None | ActorAddr
         return value.serialize()
     elif isinstance(value, datetime):
         return value.isoformat()
+    elif isinstance(value, bytes):
+        return {"__bytes__": base64.b64encode(value).decode("ascii")}
     elif isinstance(value, type):
         return {"__type__": serialize_type(value)}
     elif isinstance(value, (list, set, tuple)):
@@ -64,6 +70,14 @@ def serialize(value: Any) -> dict[str, Any] | list[Any] | str | None | ActorAddr
         model_dict: dict[str, Any] = value.model_dump()
         return model_dict
     elif is_dataclass(value) and not isinstance(value, type):
+        if hasattr(value, "__pydantic_serializer__"):
+            # Pydantic dataclass: manually serialize with base64 for bytes fields
+            # to avoid UnicodeDecodeError on non-UTF-8 binary data (PNG, JPEG, etc.)
+            result: dict[str, Any] = {}
+            for f in fields(value):
+                result[f.name] = serialize(getattr(value, f.name))
+            return result
+        # Plain dataclass: keep current __model__ tag approach
         data = asdict(value)
         data["__model__"] = serialize_type(value)
         return serialize(data)
