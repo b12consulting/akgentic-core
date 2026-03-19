@@ -8,12 +8,11 @@ Source: Preserves v1 deserialization behavior from akgentic-framework.
 
 from __future__ import annotations
 
+import base64
 import uuid
 from abc import ABC, abstractmethod
 from importlib import import_module
 from typing import Any, TypedDict, cast
-
-from pydantic import BaseModel
 
 
 class ActorAddressDict(TypedDict):
@@ -104,10 +103,11 @@ def deserialize_object(
     context: DeserializeContext | None = None,
     canonical_uuid: bool = False,
 ) -> Any:
-    """Recursively deserialize Pydantic models from dictionaries containing __model__ key.
+    """Recursively deserialize Pydantic models from dictionaries containing tagged-dict markers.
 
     Handles special markers:
     - __actor_address__: Reconstructs ActorAddress via context or proxy
+    - __bytes__: Decodes base64 string back to raw bytes
     - __type__: Imports and returns the type
     - __model__: Reconstructs Pydantic model or dataclass
 
@@ -132,6 +132,9 @@ def deserialize_object(
                 return ActorAddressProxy(address_dict)
             return context.resolve_address(address_dict)
 
+        if "__bytes__" in obj:
+            return base64.b64decode(obj["__bytes__"])
+
         if "__type__" in obj:
             return import_class(obj["__type__"])
 
@@ -143,7 +146,10 @@ def deserialize_object(
                 if key != "__model__"
             }
             try:
-                model: BaseModel = model_class(**deserialized_data)
+                # Works for BaseModel, pydantic dataclasses, and plain dataclasses alike.
+                # For pydantic dataclasses, __bytes__ tags are already decoded to bytes
+                # by the recursive deserialize_object calls above.
+                model: object = model_class(**deserialized_data)
             except Exception as e:
                 raise ValueError(
                     f"Error deserializing model {model_class}: {e}\nData: {deserialized_data}"
