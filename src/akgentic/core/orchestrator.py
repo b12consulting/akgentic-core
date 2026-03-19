@@ -367,6 +367,29 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         """
         self._notify_subscribers("on_message", message)
 
+    def restore_message(self, message: Message) -> None:
+        """Replay a single persisted event during team restoration.
+
+        Appends the message to ``self.messages`` so that ``get_team()`` and
+        other history-based queries work correctly after restore, then
+        dispatches to all subscribers via ``_notify_subscribers``.
+
+        Args:
+            message: The persisted message to replay.
+        """
+        self.messages.append(message)
+        self._current_team_members = None  # Invalidate cache
+        self._notify_subscribers("on_message", message)
+
+    def end_restoration(self) -> None:
+        """Signal that restoration replay is complete.
+
+        Sets ``_restoring`` to ``False`` so the orchestrator resumes normal
+        operation (e.g. recording telemetry, processing live messages).
+        """
+        self._restoring = False
+        logger.info("Orchestrator restoration complete, resuming normal operation")
+
     def get_team(self) -> list[ActorAddress]:
         """Get list of active agents (excludes Orchestrator role).
 
