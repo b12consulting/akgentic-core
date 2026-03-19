@@ -245,6 +245,17 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         """
         self.subscribers.append(subscriber)
 
+    def unsubscribe(self, subscriber: EventSubscriber) -> None:
+        """Remove an event subscriber. No-op if not registered (idempotent).
+
+        Args:
+            subscriber: Subscriber to remove from notification list
+        """
+        try:
+            self.subscribers.remove(subscriber)
+        except ValueError:
+            pass
+
     def _notify_subscribers(self, event_method: str, message: Message | None = None) -> None:
         """Unified subscriber notification with fault tolerance.
 

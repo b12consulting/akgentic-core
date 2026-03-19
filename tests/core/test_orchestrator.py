@@ -267,6 +267,53 @@ class RecordingSubscriber:
         self.stopped = True
 
 
+class TestUnsubscribe:
+    """Tests for Orchestrator.unsubscribe."""
+
+    def test_unsubscribe_removes_subscriber(self) -> None:
+        """unsubscribe removes a subscriber from notification list."""
+        system = ActorSystem()
+        orch = system.createActor(Orchestrator, restoring=True)
+        proxy = system.proxy_ask(orch, Orchestrator)
+
+        sub = RecordingSubscriber()
+        proxy.subscribe(sub)
+        assert sub in proxy.subscribers
+
+        proxy.unsubscribe(sub)
+        assert sub not in proxy.subscribers
+
+        system.shutdown()
+
+    def test_unsubscribe_unknown_is_noop(self) -> None:
+        """unsubscribe on unknown subscriber is idempotent."""
+        system = ActorSystem()
+        orch = system.createActor(Orchestrator, restoring=True)
+        proxy = system.proxy_ask(orch, Orchestrator)
+
+        sub = RecordingSubscriber()
+        proxy.unsubscribe(sub)  # should not raise
+
+        system.shutdown()
+
+    def test_unsubscribed_subscriber_stops_receiving_events(self) -> None:
+        """After unsubscribe, events are no longer dispatched to the subscriber."""
+        system = ActorSystem()
+        orch = system.createActor(Orchestrator, restoring=True)
+        proxy = system.proxy_ask(orch, Orchestrator)
+
+        sub = RecordingSubscriber()
+        proxy.subscribe(sub)
+        proxy.restore_message(UserMessage(content="before"))
+        assert len(sub.messages) == 1
+
+        proxy.unsubscribe(sub)
+        proxy.restore_message(UserMessage(content="after"))
+        assert len(sub.messages) == 1  # no new message
+
+        system.shutdown()
+
+
 class TestRestoreMessage:
     """Tests for Orchestrator.restore_message and end_restoration."""
 
