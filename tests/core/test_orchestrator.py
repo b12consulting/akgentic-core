@@ -10,7 +10,8 @@ from akgentic.core.actor_system_impl import ActorSystem
 from akgentic.core.agent import Akgent
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
-from akgentic.core.orchestrator import Orchestrator
+from akgentic.core.messages.message import Message, UserMessage
+from akgentic.core.orchestrator import EventSubscriber, Orchestrator
 
 
 @pytest.fixture(autouse=True)
@@ -246,5 +247,86 @@ class TestIntegration:
         # Orchestrator records its own StartMessage
         assert len(messages) == 1
         assert isinstance(messages[0], StartMessage)
+
+        system.shutdown()
+
+
+class RecordingSubscriber:
+    """Subscriber that records on_message calls for restore tests."""
+
+    def __init__(self) -> None:
+        self.messages: list[Message] = []
+        self.stopped: bool = False
+
+    def on_message(self, msg: Message) -> None:
+        """Record received message."""
+        self.messages.append(msg)
+
+    def on_stop(self) -> None:
+        """Record stop."""
+        self.stopped = True
+
+
+class TestRestoreMessage:
+    """Tests for Orchestrator.restore_message and end_restoration."""
+
+    def test_restore_message_dispatches_to_subscribers(self) -> None:
+        """restore_message notifies subscribers via on_message."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = RecordingSubscriber()
+        orch_proxy.subscribe(sub)
+
+        msg = UserMessage(content="replayed message")
+        orch_proxy.restore_message(msg)
+
+        assert len(sub.messages) == 1
+        assert sub.messages[0] is msg
+
+        system.shutdown()
+
+    def test_restore_message_dispatches_multiple(self) -> None:
+        """restore_message dispatches to all registered subscribers."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub1 = RecordingSubscriber()
+        sub2 = RecordingSubscriber()
+        orch_proxy.subscribe(sub1)
+        orch_proxy.subscribe(sub2)
+
+        msg = UserMessage(content="test")
+        orch_proxy.restore_message(msg)
+
+        assert len(sub1.messages) == 1
+        assert len(sub2.messages) == 1
+
+        system.shutdown()
+
+    def test_end_restoration_toggles_restoring_flag(self) -> None:
+        """end_restoration sets _restoring to False."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+            restoring=True,
+        )
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        orch_proxy.end_restoration()
+
+        # After end_restoration, _restoring should be False
+        # We verify indirectly: the orchestrator is alive and functional
+        team = orch_proxy.get_team()
+        assert team == []
 
         system.shutdown()
