@@ -1,5 +1,8 @@
 # Akgentic Core: An Actor Based Agent Framework
 
+[![CI](https://github.com/b12consulting/akgentic-core/actions/workflows/ci.yml/badge.svg)](https://github.com/b12consulting/akgentic-core/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/gpiroux/5fae2fa4f4f3cd3fc5cc08f5d2a7da44/raw/coverage.json)](https://github.com/b12consulting/akgentic-core/actions/workflows/ci.yml)
+
 **Status:** Alpha - Phase 1 (Core Library)
 
 ## What is Akgentic Core?
