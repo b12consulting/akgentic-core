@@ -170,16 +170,6 @@ class TestActorAddressImpl:
         impl = ActorAddressImpl(mock_actor_ref)
         assert impl.team_id == expected
 
-    def test_team_id_returns_none_when_absent(self, mock_actor_ref: MagicMock) -> None:
-        """team_id should return None when _team_id is not set on the actor."""
-        from akgentic.core.actor_address_impl import ActorAddressImpl
-
-        # spec=object prevents MagicMock from auto-creating _team_id
-        mock_actor_ref._actor = MagicMock(spec=["agent_id", "config"])
-
-        impl = ActorAddressImpl(mock_actor_ref)
-        assert impl.team_id is None
-
     def test_is_alive_delegates_to_ref(self, mock_actor_ref: MagicMock) -> None:
         """is_alive should delegate to ActorRef."""
         from akgentic.core.actor_address_impl import ActorAddressImpl

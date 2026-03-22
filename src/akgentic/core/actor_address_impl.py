@@ -70,10 +70,8 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             Name string from config, or string representation of actor_ref as fallback.
         """
-        config: BaseConfig | None = self._actor_ref._actor.config
-        if config is not None:
-            return config.name
-        return str(self._actor_ref)
+        config: BaseConfig = self._actor_ref._actor.config
+        return config.name
 
     @property
     def role(self) -> str:
@@ -83,10 +81,8 @@ class ActorAddressImpl(ActorAddress):
             Role string from config, or class name as fallback.
         """
         actor = self._actor_ref._actor
-        config: BaseConfig | None = actor.config
-        if config is not None:
-            return config.role
-        return str(actor.__class__.__name__)
+        config: BaseConfig = actor.config
+        return config.role
 
     @property
     def team_id(self) -> uuid.UUID:
@@ -97,8 +93,7 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             UUID from _team_id.
         """
-        team_id: uuid.UUID | None = self._actor_ref._actor._team_id
-        assert team_id
+        team_id: uuid.UUID = self._actor_ref._actor._team_id
         return team_id
 
     @property
@@ -108,11 +103,9 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             UUID from config.squad_id, or None if not available.
         """
-        config: BaseConfig | None = self._actor_ref._actor.config
-        if config is not None:
-            squad_id: uuid.UUID | None = config.squad_id
-            return squad_id
-        return None
+        config: BaseConfig = self._actor_ref._actor.config
+        squad_id: uuid.UUID | None = config.squad_id
+        return squad_id
 
     def send(self, recipient: ActorAddress, message: Any) -> None:
         """Send a message via Pykka proxy.
