@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from pykka import ActorRef
 
 
+
 class ActorAddressImpl(ActorAddress):
     """ActorAddress wrapping a live Pykka ActorRef.
 
