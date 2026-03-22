@@ -137,7 +137,7 @@ class TestActorAddressImpl:
         # Add receiveMsg_UserMessage method for handle_user_message check
         actor.receiveMsg_UserMessage = MagicMock()
         # Set __class__ for serialize test
-        actor.__class__ = type(  # type: ignore
+        actor.__class__ = type(
             "MockAgent", (), {"__module__": "test.agents", "__name__": "MockAgent"}
         )
 
