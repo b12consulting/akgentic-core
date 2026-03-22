@@ -17,6 +17,7 @@ import uuid
 from typing import TYPE_CHECKING, Any
 
 from akgentic.core.actor_address import ActorAddress
+from akgentic.core.agent_config import BaseConfig
 from akgentic.core.utils.deserializer import ActorAddressDict
 
 if TYPE_CHECKING:
@@ -59,7 +60,8 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             UUID from the actor's agent_id attribute.
         """
-        return self._actor_ref._actor.agent_id  # type: ignore[no-any-return]
+        agent_id: uuid.UUID = self._actor_ref._actor.agent_id
+        return agent_id
 
     @property
     def name(self) -> str:
@@ -68,10 +70,9 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             Name string from config, or string representation of actor_ref as fallback.
         """
-        actor = self._actor_ref._actor
-        config = getattr(actor, "config", None)
+        config: BaseConfig | None = self._actor_ref._actor.config
         if config is not None:
-            return config.name  # type: ignore[no-any-return]
+            return config.name
         return str(self._actor_ref)
 
     @property
@@ -82,21 +83,23 @@ class ActorAddressImpl(ActorAddress):
             Role string from config, or class name as fallback.
         """
         actor = self._actor_ref._actor
-        config = getattr(actor, "config", None)
+        config: BaseConfig | None = actor.config
         if config is not None:
-            return config.role  # type: ignore[no-any-return]
+            return config.role
         return str(actor.__class__.__name__)
 
     @property
     def team_id(self) -> uuid.UUID:
         """Team identifier from the underlying actor's private config.
-        The team_id is set by the actor system when the actor is created, 
+        The team_id is set by the actor system when the actor is created,
         and inherited by all children agents.
 
         Returns:
             UUID from _team_id.
         """
-        return self._actor_ref._actor._team_id # type: ignore[no-any-return]
+        team_id: uuid.UUID | None = self._actor_ref._actor._team_id
+        assert team_id
+        return team_id
 
     @property
     def squad_id(self) -> uuid.UUID | None:
@@ -105,10 +108,10 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             UUID from config.squad_id, or None if not available.
         """
-        actor = self._actor_ref._actor
-        config = getattr(actor, "config", None)
+        config: BaseConfig | None = self._actor_ref._actor.config
         if config is not None:
-            return config.squad_id  # type: ignore[no-any-return]
+            squad_id: uuid.UUID | None = config.squad_id
+            return squad_id
         return None
 
     def send(self, recipient: ActorAddress, message: Any) -> None:
@@ -139,8 +142,7 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             True if the actor has a receiveMsg_UserMessage method.
         """
-        actor = self._actor_ref._actor
-        accept_method = getattr(actor, "receiveMsg_UserMessage", None)
+        accept_method = getattr(self._actor_ref._actor, "receiveMsg_UserMessage", None)
         return callable(accept_method)
 
     def serialize(self) -> ActorAddressDict:
@@ -152,7 +154,7 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             ActorAddressDict with all actor metadata.
         """
-        agent_type = self._actor_ref._actor.__class__
+        agent_type: type = self._actor_ref._actor.__class__
         return {
             "__actor_address__": True,
             "__actor_type__": f"{agent_type.__module__}.{agent_type.__name__}",
