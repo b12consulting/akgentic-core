@@ -88,14 +88,15 @@ class ActorAddressImpl(ActorAddress):
         return str(actor.__class__.__name__)
 
     @property
-    def team_id(self) -> uuid.UUID | None:
+    def team_id(self) -> uuid.UUID:
         """Team identifier from the underlying actor's private config.
+        The team_id is set by the actor system when the actor is created, 
+        and inherited by all children agents.
 
         Returns:
-            UUID from _team_id, or None if not available.
+            UUID from _team_id.
         """
-        actor = self._actor_ref._actor
-        return getattr(actor, "_team_id", None)
+        return self._actor_ref._actor._team_id # type: ignore[no-any-return]
 
     @property
     def squad_id(self) -> uuid.UUID | None:
