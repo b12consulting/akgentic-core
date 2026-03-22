@@ -95,7 +95,7 @@ class ActorAddressImpl(ActorAddress):
             UUID from _team_id, or None if not available.
         """
         actor = self._actor_ref._actor
-        return getattr(actor, "_team_id", None)  # type: ignore[no-any-return]
+        return getattr(actor, "_team_id", None)
 
     @property
     def squad_id(self) -> uuid.UUID | None:

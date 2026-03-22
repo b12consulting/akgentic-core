@@ -79,11 +79,11 @@ class ActorAddress(ABC):
 
     @property
     @abstractmethod
-    def team_id(self) -> uuid.UUID:
+    def team_id(self) -> uuid.UUID | None:
         """Team identifier from configuration.
 
         Returns:
-            UUID of the team this agent belongs to.
+            UUID of the team this agent belongs to, or None if not set.
         """
         ...
 
