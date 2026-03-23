@@ -490,7 +490,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
                 if isinstance(answer, SentMessage)
                 and answer.message.__class__.__name__ == "HelpAnswerMessage"
                 and hasattr(answer.message, "request_id")
-                and answer.message.request_id in request_ids  # type: ignore
+                and answer.message.request_id in request_ids
             ]
             return requests, answers
 

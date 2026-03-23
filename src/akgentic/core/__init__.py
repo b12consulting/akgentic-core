@@ -7,7 +7,7 @@ Phase 1 provides core actor primitives with minimal dependencies (pydantic for s
 # (e.g. akgentic-llm's akgentic.llm) to be discovered as part of this namespace.
 from pkgutil import extend_path
 
-__path__ = extend_path(__path__, __name__)  # type: ignore[assignment]
+__path__ = extend_path(__path__, __name__)
 
 from akgentic.core.actor_address import ActorAddress
 from akgentic.core.actor_address_impl import (
