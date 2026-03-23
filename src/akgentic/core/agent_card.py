@@ -8,7 +8,7 @@ This ensures each agent gets an independent copy, preventing shared mutable stat
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from pydantic import Field
 
@@ -105,7 +105,7 @@ class AgentCard(SerializableBaseModel):
         class_name = components[-1]
 
         module = __import__(module_path, fromlist=[class_name])
-        return getattr(module, class_name)
+        return cast(type, getattr(module, class_name))
 
     def has_skill(self, skill: str) -> bool:
         """Check if this profile has a specific skill.

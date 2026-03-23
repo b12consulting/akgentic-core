@@ -6,7 +6,7 @@ internal state with automatic change notification to the orchestrator.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Protocol, Self
 
 from pydantic import PrivateAttr
 
@@ -63,7 +63,7 @@ class BaseState(SerializableBaseModel):
 
     _observer: AkgentStateObserver | None = PrivateAttr(default=None)
 
-    def observer(self, observer: AkgentStateObserver | None):  # noqa: ANN201
+    def observer(self, observer: AkgentStateObserver | None) -> Self:
         """Attach an observer and trigger initial notification.
 
         This method is typically called during agent initialization
