@@ -119,7 +119,7 @@ class TestActorAddressImpl:
         - agent_id: _actor_weakref().agent_id
         - name: _actor_weakref().config.name (with fallback)
         - role: _actor_weakref().config.role (with fallback)
-        - team_id: _actor_weakref()._team_id (flat attribute, not via _config)
+        - team_id: _actor_weakref().team_id (public flat attribute, not via _config)
         - squad_id: _actor_weakref().config.squad_id (from user config)
         - handle_user_message: checks for receiveMsg_UserMessage method
         """
@@ -129,11 +129,11 @@ class TestActorAddressImpl:
         config.role = "assistant"
         config.squad_id = uuid.UUID("11111111-2222-3333-4444-555555555555")
 
-        # Create actor with flat private attributes (post-1-8b refactor)
+        # Create actor with flat public attributes (post-7-1 rename)
         actor = MagicMock()
         actor.agent_id = uuid.UUID("12345678-1234-5678-1234-567812345678")
         actor.config = config
-        actor._team_id = uuid.UUID("87654321-4321-8765-4321-876543218765")
+        actor.team_id = uuid.UUID("87654321-4321-8765-4321-876543218765")
         # Add receiveMsg_UserMessage method for handle_user_message check
         actor.receiveMsg_UserMessage = MagicMock()
         # Set __class__ for serialize test
@@ -157,18 +157,18 @@ class TestActorAddressImpl:
         assert impl.agent_id == actor.agent_id
         assert impl.name == actor.config.name
         assert impl.role == actor.config.role
-        assert impl.team_id == actor._team_id
+        assert impl.team_id == actor.team_id
         assert impl.squad_id == actor.config.squad_id
         # pykka 4.4.2+: checks for receiveMsg_UserMessage method existence
         assert impl.handle_user_message() is True
 
     def test_team_id_reads_flat_attribute(self, mock_actor_ref: MagicMock) -> None:
-        """team_id should read _team_id directly from actor, not via _config."""
+        """team_id should read team_id directly from actor, not via config."""
         from akgentic.core.actor_address_impl import ActorAddressImpl
 
         expected = uuid.UUID("87654321-4321-8765-4321-876543218765")
         actor = mock_actor_ref._actor_weakref()
-        actor._team_id = expected
+        actor.team_id = expected
 
         impl = ActorAddressImpl(mock_actor_ref)
         assert impl.team_id == expected
@@ -209,7 +209,7 @@ class TestActorAddressImpl:
         assert serialized["agent_id"] == str(actor.agent_id)
         assert serialized["name"] == actor.config.name
         assert serialized["role"] == actor.config.role
-        assert serialized["team_id"] == str(actor._team_id)
+        assert serialized["team_id"] == str(actor.team_id)
         assert serialized["squad_id"] == str(actor.config.squad_id)
         assert serialized["user_message"] is True
 

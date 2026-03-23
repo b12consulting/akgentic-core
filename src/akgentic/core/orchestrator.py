@@ -203,7 +203,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
         # Notify orchestrator of its own startup
         start_message = StartMessage(config=self.config)
-        start_message.init(self.myAddress, self._team_id)
+        start_message.init(self.myAddress, self.team_id)
         self.receiveMsg_StartMessage(start_message, self.myAddress)
 
     @override

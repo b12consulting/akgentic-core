@@ -233,7 +233,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
 
         ## Initialize from explicit parameters
         self.agent_id: uuid.UUID = agent_id or uuid.uuid4()
-        self._team_id: uuid.UUID = team_id or uuid.uuid4()
+        self.team_id: uuid.UUID = team_id if team_id is not None else uuid.uuid4()
         self.config: ConfigType = config or BaseConfig()  # type: ignore
         self._user_id = user_id
         self._user_email = user_email
@@ -338,7 +338,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             config=config,
             user_id=self._user_id,
             user_email=self._user_email,
-            team_id=self._team_id,
+            team_id=self.team_id,
             parent=self.myAddress,
             orchestrator=self._orchestrator,
         )
@@ -360,7 +360,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         if orchestrator is not None and orchestrator.is_alive():
             message.init(
                 self.myAddress,
-                self._team_id,
+                self.team_id,
                 self._current_message,
             )
             cast(ActorAddressImpl, orchestrator)._actor_ref.tell(message)
@@ -382,7 +382,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         if isinstance(message, Message):
             message.init(
                 self.myAddress,
-                self._team_id,
+                self.team_id,
                 self._current_message,
             )
             self._notify_orchestrator(SentMessage(message=message, recipient=recipient))
