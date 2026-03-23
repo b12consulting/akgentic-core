@@ -137,7 +137,7 @@ class TestActorAddressImpl:
         # Add receiveMsg_UserMessage method for handle_user_message check
         actor.receiveMsg_UserMessage = MagicMock()
         # Set __class__ for serialize test
-        actor.__class__ = type(  # type: ignore
+        actor.__class__ = type(
             "MockAgent", (), {"__module__": "test.agents", "__name__": "MockAgent"}
         )
 
@@ -193,6 +193,19 @@ class TestActorAddressImpl:
         mock_actor_ref.is_alive.return_value = False
         assert impl.is_alive() is False
 
+    def test_handle_user_message_returns_false_when_no_receive_method(
+        self, mock_actor_ref: MagicMock
+    ) -> None:
+        """handle_user_message should return False when receiveMsg_UserMessage is absent."""
+        from akgentic.core.actor_address_impl import ActorAddressImpl
+
+        # Use spec to prevent MagicMock from auto-creating receiveMsg_UserMessage
+        limited_actor = MagicMock(spec=["agent_id", "config"])
+        mock_actor_ref._actor_weakref = lambda: limited_actor
+
+        impl = ActorAddressImpl(mock_actor_ref)
+        assert impl.handle_user_message() is False
+
     def test_serialize_produces_correct_dict(self, mock_actor_ref: MagicMock) -> None:
         """serialize should produce correct ActorAddressDict with actual agent class."""
         from akgentic.core.actor_address_impl import ActorAddressImpl
@@ -206,9 +219,13 @@ class TestActorAddressImpl:
         assert serialized["__actor_type__"] == "test.agents.MockAgent"
         assert serialized["agent_id"] == str(actor.agent_id)
         assert serialized["name"] == actor.config.name
+        assert serialized["role"] == actor.config.role
+        assert serialized["team_id"] == str(actor._team_id)
+        assert serialized["squad_id"] == str(actor.config.squad_id)
+        assert serialized["user_message"] is True
 
     def test_resolve_actor_raises_on_gc(self, mock_actor_ref: MagicMock) -> None:
-        """_resolve_actor should raise RuntimeError when weakref returns None (actor GC'd)."""
+        """_resolve_actor raises RuntimeError containing the actor URN when weakref returns None."""
         from akgentic.core.actor_address_impl import ActorAddressImpl
 
         # Simulate GC'd actor: weakref returns None
@@ -216,7 +233,7 @@ class TestActorAddressImpl:
         mock_actor_ref.actor_urn = "urn:mock:gc-actor"
 
         impl = ActorAddressImpl(mock_actor_ref)
-        with pytest.raises(RuntimeError, match="has been garbage collected"):
+        with pytest.raises(RuntimeError, match="urn:mock:gc-actor"):
             _ = impl.agent_id
 
     def test_equality_and_hashing(self, mock_actor_ref: MagicMock) -> None:
