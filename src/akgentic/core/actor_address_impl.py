@@ -30,9 +30,9 @@ class ActorAddressImpl(ActorAddress):
     instance. Used for local in-memory actor communication.
 
     Note:
-        This implementation accesses Pykka internal attributes (_actor_ref._actor)
-        which is an implementation detail. This is acceptable per v1 patterns
-        but should be noted as potentially fragile across Pykka versions.
+        This implementation accesses the Pykka 4.4.2+ weakref API
+        (_actor_ref._actor_weakref) to dereference the underlying actor.
+        Direct property access on a GC'd actor raises RuntimeError.
 
     Args:
         actor_ref: The Pykka ActorRef to wrap.
@@ -52,6 +52,20 @@ class ActorAddressImpl(ActorAddress):
         """
         self._actor_ref = actor_ref
 
+    def _resolve_actor(self) -> Any:
+        """Dereference the weak reference to the underlying actor.
+
+        Returns:
+            The live actor instance.
+
+        Raises:
+            RuntimeError: If the actor has been garbage collected.
+        """
+        actor = self._actor_ref._actor_weakref()
+        if actor is None:
+            raise RuntimeError(f"Actor {self._actor_ref.actor_urn} has been garbage collected")
+        return actor
+
     @property
     def agent_id(self) -> uuid.UUID:
         """Unique identifier from the underlying actor.
@@ -59,7 +73,7 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             UUID from the actor's agent_id attribute.
         """
-        return self._actor_ref._actor.agent_id  # type: ignore[no-any-return]
+        return self._resolve_actor().agent_id  # type: ignore[no-any-return]
 
     @property
     def name(self) -> str:
@@ -68,7 +82,7 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             Name string from config, or string representation of actor_ref as fallback.
         """
-        actor = self._actor_ref._actor
+        actor = self._resolve_actor()
         config = getattr(actor, "config", None)
         if config is not None:
             return config.name  # type: ignore[no-any-return]
@@ -81,7 +95,7 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             Role string from config, or class name as fallback.
         """
-        actor = self._actor_ref._actor
+        actor = self._resolve_actor()
         config = getattr(actor, "config", None)
         if config is not None:
             return config.role  # type: ignore[no-any-return]
@@ -94,8 +108,8 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             UUID from _team_id, or None if not available.
         """
-        actor = self._actor_ref._actor
-        return getattr(actor, "_team_id", None)  # type: ignore[no-any-return]
+        actor = self._resolve_actor()
+        return getattr(actor, "_team_id", None)
 
     @property
     def squad_id(self) -> uuid.UUID | None:
@@ -104,7 +118,7 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             UUID from config.squad_id, or None if not available.
         """
-        actor = self._actor_ref._actor
+        actor = self._resolve_actor()
         config = getattr(actor, "config", None)
         if config is not None:
             return config.squad_id  # type: ignore[no-any-return]
@@ -138,7 +152,7 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             True if the actor has a receiveMsg_UserMessage method.
         """
-        actor = self._actor_ref._actor
+        actor = self._resolve_actor()
         accept_method = getattr(actor, "receiveMsg_UserMessage", None)
         return callable(accept_method)
 
@@ -151,7 +165,7 @@ class ActorAddressImpl(ActorAddress):
         Returns:
             ActorAddressDict with all actor metadata.
         """
-        agent_type = self._actor_ref._actor.__class__
+        agent_type = self._resolve_actor().__class__
         return {
             "__actor_address__": True,
             "__actor_type__": f"{agent_type.__module__}.{agent_type.__name__}",

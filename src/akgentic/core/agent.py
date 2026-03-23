@@ -244,7 +244,10 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
 
         ## set default name and role if not provided
         self.config.name = self.config.name or str(self._actor_ref)
-        self.config.role = self.config.role or self._actor_ref._actor.__class__.__name__
+        _underlying = self._actor_ref._actor_weakref()
+        self.config.role = self.config.role or (
+            _underlying.__class__.__name__ if _underlying is not None else ""
+        )
 
         if self._orchestrator is not None:
             from akgentic.core.orchestrator import Orchestrator

@@ -126,7 +126,7 @@ class ExecutionContext:
         recipient = cast(ActorAddressImpl, actor)
         if isinstance(message, Message):
             message.sender = ActorAddressImpl(self.listener_ref)
-            message.team_id = getattr(recipient._actor_ref._actor, "_team_id", None)
+            message.team_id = recipient.team_id
 
         recipient._actor_ref.tell(message)
 
@@ -144,7 +144,7 @@ class ExecutionContext:
         recipient = cast(ActorAddressImpl, actor)
         if isinstance(message, Message):
             message.sender = ActorAddressImpl(self.listener_ref)
-            message.team_id = getattr(recipient._actor_ref._actor, "_team_id", None)
+            message.team_id = recipient.team_id
 
         return recipient._actor_ref.ask(message, timeout=timeout)
 
@@ -207,14 +207,14 @@ class ActorSystem(ExecutionContext):
         Returns:
             The actor address if found, None otherwise.
         """
-        return next(
-            (
-                ActorAddressImpl(actor)
-                for actor in self.ActorRegistry.get_all()
-                if str(actor._actor.agent_id) == str(agent.agent_id)
-            ),
-            None,
-        )
+        for actor in self.ActorRegistry.get_all():
+            underlying = actor._actor_weakref()
+            if underlying is None:
+                # Actor has been garbage collected — skip silently
+                continue
+            if str(underlying.agent_id) == str(agent.agent_id):
+                return ActorAddressImpl(actor)
+        return None
 
     def stat(self) -> list[Statistics]:
         """Get system statistics including actor counts.

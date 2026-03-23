@@ -113,14 +113,14 @@ class TestActorAddressImpl:
 
     @pytest.fixture
     def mock_actor_ref(self) -> MagicMock:
-        """Create mock Pykka ActorRef with actor matching v1 structure.
+        """Create mock Pykka ActorRef with actor matching pykka 4.4.2 weakref API.
 
         Accesses properties via:
-        - agent_id: _actor.agent_id
-        - name: _actor.config.name (with fallback)
-        - role: _actor.config.role (with fallback)
-        - team_id: _actor._team_id (flat attribute, not via _config)
-        - squad_id: _actor.config.squad_id (from user config)
+        - agent_id: _actor_weakref().agent_id
+        - name: _actor_weakref().config.name (with fallback)
+        - role: _actor_weakref().config.role (with fallback)
+        - team_id: _actor_weakref()._team_id (flat attribute, not via _config)
+        - squad_id: _actor_weakref().config.squad_id (from user config)
         - handle_user_message: checks for receiveMsg_UserMessage method
         """
         # Create config object (user config)
@@ -142,7 +142,8 @@ class TestActorAddressImpl:
         )
 
         actor_ref = MagicMock()
-        actor_ref._actor = actor
+        # pykka 4.4.2+: _actor_weakref() returns the actor (callable, not attribute)
+        actor_ref._actor_weakref = lambda: actor
         actor_ref.is_alive.return_value = True
         actor_ref.proxy.return_value = MagicMock()
         return actor_ref
@@ -151,13 +152,14 @@ class TestActorAddressImpl:
         """All properties should come from the underlying actor via config objects."""
         from akgentic.core.actor_address_impl import ActorAddressImpl
 
+        actor = mock_actor_ref._actor_weakref()
         impl = ActorAddressImpl(mock_actor_ref)
-        assert impl.agent_id == mock_actor_ref._actor.agent_id
-        assert impl.name == mock_actor_ref._actor.config.name
-        assert impl.role == mock_actor_ref._actor.config.role
-        assert impl.team_id == mock_actor_ref._actor._team_id
-        assert impl.squad_id == mock_actor_ref._actor.config.squad_id
-        # V1 checks for receiveMsg_UserMessage method existence
+        assert impl.agent_id == actor.agent_id
+        assert impl.name == actor.config.name
+        assert impl.role == actor.config.role
+        assert impl.team_id == actor._team_id
+        assert impl.squad_id == actor.config.squad_id
+        # pykka 4.4.2+: checks for receiveMsg_UserMessage method existence
         assert impl.handle_user_message() is True
 
     def test_team_id_reads_flat_attribute(self, mock_actor_ref: MagicMock) -> None:
@@ -165,7 +167,8 @@ class TestActorAddressImpl:
         from akgentic.core.actor_address_impl import ActorAddressImpl
 
         expected = uuid.UUID("87654321-4321-8765-4321-876543218765")
-        mock_actor_ref._actor._team_id = expected
+        actor = mock_actor_ref._actor_weakref()
+        actor._team_id = expected
 
         impl = ActorAddressImpl(mock_actor_ref)
         assert impl.team_id == expected
@@ -175,7 +178,8 @@ class TestActorAddressImpl:
         from akgentic.core.actor_address_impl import ActorAddressImpl
 
         # spec=object prevents MagicMock from auto-creating _team_id
-        mock_actor_ref._actor = MagicMock(spec=["agent_id", "config"])
+        limited_actor = MagicMock(spec=["agent_id", "config"])
+        mock_actor_ref._actor_weakref = lambda: limited_actor
 
         impl = ActorAddressImpl(mock_actor_ref)
         assert impl.team_id is None
@@ -193,14 +197,27 @@ class TestActorAddressImpl:
         """serialize should produce correct ActorAddressDict with actual agent class."""
         from akgentic.core.actor_address_impl import ActorAddressImpl
 
+        actor = mock_actor_ref._actor_weakref()
         impl = ActorAddressImpl(mock_actor_ref)
         serialized = impl.serialize()
 
         assert serialized["__actor_address__"] is True
-        # V1 serializes the actual agent class, not ActorAddressImpl
+        # pykka 4.4.2+: serializes the actual agent class, not ActorAddressImpl
         assert serialized["__actor_type__"] == "test.agents.MockAgent"
-        assert serialized["agent_id"] == str(mock_actor_ref._actor.agent_id)
-        assert serialized["name"] == mock_actor_ref._actor.config.name
+        assert serialized["agent_id"] == str(actor.agent_id)
+        assert serialized["name"] == actor.config.name
+
+    def test_resolve_actor_raises_on_gc(self, mock_actor_ref: MagicMock) -> None:
+        """_resolve_actor should raise RuntimeError when weakref returns None (actor GC'd)."""
+        from akgentic.core.actor_address_impl import ActorAddressImpl
+
+        # Simulate GC'd actor: weakref returns None
+        mock_actor_ref._actor_weakref = lambda: None
+        mock_actor_ref.actor_urn = "urn:mock:gc-actor"
+
+        impl = ActorAddressImpl(mock_actor_ref)
+        with pytest.raises(RuntimeError, match="has been garbage collected"):
+            _ = impl.agent_id
 
     def test_equality_and_hashing(self, mock_actor_ref: MagicMock) -> None:
         """Equality and hash should be based on agent_id."""
