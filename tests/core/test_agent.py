@@ -196,6 +196,28 @@ class TestAgentInitialization:
         finally:
             ref.stop()
 
+    def test_team_id_auto_generated_when_not_provided(self) -> None:
+        """Actor started without team_id gets a valid uuid.UUID auto-generated."""
+        config = BaseConfig(name="no-team-agent")
+        ref = SampleAgent.start(config=config)
+        try:
+            address = ActorAddressImpl(ref)
+            team_id = address.team_id
+            assert isinstance(team_id, uuid.UUID)
+        finally:
+            ref.stop()
+
+    def test_team_id_explicit_value_preserved(self) -> None:
+        """Actor started with an explicit team_id stores that exact value."""
+        expected_team_id = uuid.uuid4()
+        config = BaseConfig(name="explicit-team-agent")
+        ref = SampleAgent.start(config=config, team_id=expected_team_id)
+        try:
+            address = ActorAddressImpl(ref)
+            assert address.team_id == expected_team_id
+        finally:
+            ref.stop()
+
     def test_init_hook_called(self, agent_setup) -> None:
         """Agent on_start() hook is called during initialization."""
 

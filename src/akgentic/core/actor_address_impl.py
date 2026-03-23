@@ -83,10 +83,7 @@ class ActorAddressImpl(ActorAddress):
             Name string from config, or string representation of actor_ref as fallback.
         """
         actor = self._resolve_actor()
-        config = getattr(actor, "config", None)
-        if config is not None:
-            return config.name  # type: ignore[no-any-return]
-        return str(self._actor_ref)
+        return actor.config.name  # type: ignore[no-any-return]
 
     @property
     def role(self) -> str:
@@ -96,20 +93,17 @@ class ActorAddressImpl(ActorAddress):
             Role string from config, or class name as fallback.
         """
         actor = self._resolve_actor()
-        config = getattr(actor, "config", None)
-        if config is not None:
-            return config.role  # type: ignore[no-any-return]
-        return str(actor.__class__.__name__)
+        return actor.config.role  # type: ignore[no-any-return]
 
     @property
-    def team_id(self) -> uuid.UUID | None:
-        """Team identifier from the underlying actor's private config.
+    def team_id(self) -> uuid.UUID:
+        """Team identifier from the underlying actor.
 
         Returns:
-            UUID from _team_id, or None if not available.
+            UUID from team_id.
         """
         actor = self._resolve_actor()
-        return getattr(actor, "_team_id", None)
+        return actor.team_id  # type: ignore[no-any-return]
 
     @property
     def squad_id(self) -> uuid.UUID | None:
@@ -119,10 +113,7 @@ class ActorAddressImpl(ActorAddress):
             UUID from config.squad_id, or None if not available.
         """
         actor = self._resolve_actor()
-        config = getattr(actor, "config", None)
-        if config is not None:
-            return config.squad_id  # type: ignore[no-any-return]
-        return None
+        return actor.config.squad_id  # type: ignore[no-any-return]
 
     def send(self, recipient: ActorAddress, message: Any) -> None:
         """Send a message via Pykka proxy.
@@ -173,7 +164,7 @@ class ActorAddressImpl(ActorAddress):
             "name": self.name,
             "role": self.role,
             "team_id": str(self.team_id),
-            "squad_id": str(self.squad_id),
+            "squad_id": str(self.squad_id) if self.squad_id is not None else "",
             "user_message": self.handle_user_message(),
         }
 

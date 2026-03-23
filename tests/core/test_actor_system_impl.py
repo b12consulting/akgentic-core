@@ -28,7 +28,7 @@ class SimpleAgent(Akgent[BaseConfig, BaseState]):
         return {
             "user_id": self._user_id,
             "user_email": self._user_email,
-            "team_id": self._team_id,
+            "team_id": self.team_id,
         }
 
 
