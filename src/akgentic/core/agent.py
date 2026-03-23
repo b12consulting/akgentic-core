@@ -196,10 +196,10 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
     def __init__(
         self,
         agent_id: uuid.UUID | None = None,
+        team_id: uuid.UUID | None = None,
         config: ConfigType | None = None,
         user_id: uuid.UUID | None = None,
         user_email: str | None = None,
-        team_id: uuid.UUID | None = None,
         parent: ActorAddress | None = None,
         orchestrator: ActorAddress | None = None,
         restoring: bool = False,
@@ -209,10 +209,10 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
 
         Args:
             agent_id: Unique identifier for this agent (defaults to uuid4()).
+            team_id: Optional team UUID. Auto-generated if not provided.
             config: Public agent configuration.
             user_id: User identifier for context propagation.
             user_email: User email for context propagation.
-            team_id: Team identifier for context propagation.
             parent: Parent agent address for hierarchy tracking.
             orchestrator: Orchestrator address for telemetry.
             restoring: Whether restoring from snapshot (default: False).
@@ -233,10 +233,10 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
 
         ## Initialize from explicit parameters
         self.agent_id: uuid.UUID = agent_id or uuid.uuid4()
+        self._team_id: uuid.UUID = team_id or uuid.uuid4()
         self.config: ConfigType = config or BaseConfig()  # type: ignore
         self._user_id = user_id
         self._user_email = user_email
-        self._team_id = team_id
         self._parent = parent
         self._orchestrator = orchestrator
         self._restoring = restoring

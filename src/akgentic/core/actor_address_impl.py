@@ -94,7 +94,7 @@ class ActorAddressImpl(ActorAddress):
         """
         actor = self._resolve_actor()
         return actor.config.role  # type: ignore[no-any-return]
-        
+
     @property
     def team_id(self) -> uuid.UUID:
         """Team identifier from the underlying actor's private config.
@@ -103,7 +103,7 @@ class ActorAddressImpl(ActorAddress):
             UUID from _team_id.
         """
         actor = self._resolve_actor()
-        return actor._team_id
+        return actor._team_id  # type: ignore[no-any-return]
 
     @property
     def squad_id(self) -> uuid.UUID | None:

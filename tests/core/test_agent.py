@@ -196,6 +196,17 @@ class TestAgentInitialization:
         finally:
             ref.stop()
 
+    def test_team_id_auto_generated_when_not_provided(self) -> None:
+        """Actor started without team_id gets a valid uuid.UUID auto-generated."""
+        config = BaseConfig(name="no-team-agent")
+        ref = SampleAgent.start(config=config)
+        try:
+            address = ActorAddressImpl(ref)
+            team_id = address.team_id
+            assert isinstance(team_id, uuid.UUID)
+        finally:
+            ref.stop()
+
     def test_init_hook_called(self, agent_setup) -> None:
         """Agent on_start() hook is called during initialization."""
 
