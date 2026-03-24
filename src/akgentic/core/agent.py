@@ -590,6 +590,16 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         self.state = state
         self.notify_state_change(self.state)
 
+    def init_llm_context(self, context: list[Any]) -> None:
+        """Restore LLM conversation context after team resume.
+
+        No-op in the base class. Overridden by LLM-capable agents
+        (e.g., BaseAgent in akgentic-agent) to restore ReactAgent context.
+
+        Args:
+            context: List of LLM message objects to restore.
+        """
+
     ##
     ## Proxy helpers
     ##
