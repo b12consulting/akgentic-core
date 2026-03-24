@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import base64
 import uuid
-from dataclasses import asdict, fields, is_dataclass
+from dataclasses import fields, is_dataclass
 from datetime import datetime
 from typing import Any
 
@@ -70,17 +70,11 @@ def serialize(value: Any) -> dict[str, Any] | list[Any] | str | None | ActorAddr
         model_dict: dict[str, Any] = value.model_dump()
         return model_dict
     elif is_dataclass(value) and not isinstance(value, type):
-        if hasattr(value, "__pydantic_serializer__"):
-            # Pydantic dataclass: manually serialize with base64 for bytes fields
-            # to avoid UnicodeDecodeError on non-UTF-8 binary data (PNG, JPEG, etc.)
-            result: dict[str, Any] = {}
-            for f in fields(value):
-                result[f.name] = serialize(getattr(value, f.name))
-            return result
-        # Plain dataclass: keep current __model__ tag approach
-        data = asdict(value)
-        data["__model__"] = serialize_type(value)
-        return serialize(data)
+        result: dict[str, Any] = {}
+        for f in fields(value):
+            result[f.name] = serialize(getattr(value, f.name))
+        result["__model__"] = serialize_type(value)
+        return result
     else:
         return to_jsonable_python(value)  # type: ignore[no-any-return]
 
