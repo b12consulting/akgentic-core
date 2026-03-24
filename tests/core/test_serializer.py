@@ -414,8 +414,8 @@ class TestPydanticDataclassSerialization:
         result = serialize(obj)
 
         assert isinstance(result, dict)
-        # Pydantic dataclass should NOT have __model__ tag (AC-1)
-        assert "__model__" not in result
+        # Dataclass gets a __model__ tag for deserialization
+        assert "__model__" in result
         # Binary data should be a __bytes__ tagged dict with base64 content
         assert "data" in result
         assert isinstance(result["data"], dict)
@@ -532,20 +532,17 @@ class TestPydanticDataclassSerialization:
             payload=FakeBinaryContent(data=binary_data, media_type="image/jpeg"),
         )
 
-        # Serialize — asdict() flattens everything, but bytes get __bytes__ tags
         serialized = serialize(original)
         assert isinstance(serialized, dict)
         assert "__model__" in serialized
 
-        # Deserialize — plain dataclass reconstructed, but nested pydantic dataclass
-        # becomes a dict (pre-existing limitation of asdict flattening).
-        # The key check: binary data survives as bytes, not base64 string.
+        # Nested pydantic dataclass is properly reconstructed (not flattened to dict)
         reconstructed = deserialize_object(serialized)
         assert isinstance(reconstructed, PlainEventWithBinary)
         assert reconstructed.event_name == "image_received"
-        # payload is a dict (asdict flattening), but bytes are decoded
-        assert reconstructed.payload["data"] == binary_data  # type: ignore[index]
-        assert reconstructed.payload["media_type"] == "image/jpeg"  # type: ignore[index]
+        assert isinstance(reconstructed.payload, FakeBinaryContent)
+        assert reconstructed.payload.data == binary_data
+        assert reconstructed.payload.media_type == "image/jpeg"
 
     def test_empty_bytes_round_trip(self) -> None:
         """Empty bytes should round-trip correctly."""

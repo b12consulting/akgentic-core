@@ -11,8 +11,11 @@ from __future__ import annotations
 import base64
 import uuid
 from abc import ABC, abstractmethod
+from dataclasses import is_dataclass
 from importlib import import_module
 from typing import Any, TypedDict, cast
+
+from pydantic import PydanticUserError, TypeAdapter
 
 
 class ActorAddressDict(TypedDict):
@@ -81,6 +84,23 @@ def import_class(class_path: str) -> type[Any]:
     return getattr(module, class_name)  # type: ignore[no-any-return]
 
 
+_type_adapter_cache: dict[type[Any], TypeAdapter[Any] | None] = {}
+
+def _get_type_adapter(cls: type[Any]) -> TypeAdapter[Any] | None:
+    """Return a cached TypeAdapter for *cls*, or None if the type is not fully defined."""
+    try:
+        return _type_adapter_cache[cls]
+    except KeyError:
+        try:
+            ta: TypeAdapter[Any] | None = TypeAdapter(cls)
+        except Exception:
+            # TypeAdapter fails when annotations are unresolved
+            # (e.g. TYPE_CHECKING imports with `from __future__ import annotations`).
+            ta = None
+        _type_adapter_cache[cls] = ta
+        return ta
+
+
 def is_uuid_canonical(val: Any) -> bool:
     """Check if string is valid UUID in canonical format.
 
@@ -146,10 +166,18 @@ def deserialize_object(
                 if key != "__model__"
             }
             try:
-                # Works for BaseModel, pydantic dataclasses, and plain dataclasses alike.
-                # For pydantic dataclasses, __bytes__ tags are already decoded to bytes
-                # by the recursive deserialize_object calls above.
-                model: object = model_class(**deserialized_data)
+                if is_dataclass(model_class) and (adapter := _get_type_adapter(model_class)):
+                    # Dataclasses: use TypeAdapter for proper type coercion
+                    # (datetime from ISO strings, nested unions, etc.).
+                    # Falls back to direct construction when annotations are
+                    # unresolvable (e.g. TYPE_CHECKING-guarded imports).
+                    try:
+                        model: object = adapter.validate_python(deserialized_data)
+                    except PydanticUserError:
+                        model = model_class(**deserialized_data)
+                else:
+                    # BaseModel: coercion handled by Pydantic validators.
+                    model = model_class(**deserialized_data)
             except Exception as e:
                 raise ValueError(
                     f"Error deserializing model {model_class}: {e}\nData: {deserialized_data}"
