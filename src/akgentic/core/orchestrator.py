@@ -376,6 +376,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             message: EventMessage containing the event type and payload
             sender: ActorAddress of sending agent
         """
+        self.messages.append(message)
         self._notify_subscribers("on_message", message)
 
     def restore_message(self, message: Message) -> None:
@@ -495,6 +496,31 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             return requests, answers
 
         return self.messages
+
+    def get_events(
+        self,
+        agent_id: str | None = None,
+        event_class: type | None = None,
+    ) -> list[EventMessage]:
+        """Query stored EventMessages with optional filters.
+
+        Args:
+            agent_id: Filter by sender agent_id (optional).
+            event_class: Filter by event payload class via isinstance (optional).
+
+        Returns:
+            List of matching EventMessage instances.
+        """
+        return [
+            msg
+            for msg in self.messages
+            if isinstance(msg, EventMessage)
+            and (
+                agent_id is None
+                or (msg.sender is not None and str(msg.sender.agent_id) == agent_id)
+            )
+            and (event_class is None or isinstance(msg.event, event_class))
+        ]
 
     def get_states(self) -> dict[str, BaseState]:
         """Get all agent states tracked by orchestrator.
