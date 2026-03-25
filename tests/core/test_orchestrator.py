@@ -400,21 +400,6 @@ class UsageEvent:
     tokens: int
 
 
-def _make_event_message(
-    event: object,
-    agent_name: str,
-    agent_role: str,
-    orchestrator_addr: object,
-) -> EventMessage:
-    """Create an EventMessage and initialise its sender field.
-
-    Uses ``restore_message`` on the orchestrator proxy so the message
-    gets a proper sender derived from a real actor address.  To keep
-    tests simple we use a lightweight helper actor for sender addresses.
-    """
-    msg = EventMessage(event=event)
-    return msg
-
 
 class TestEventMessagePersistence:
     """Tests for EventMessage persistence (AC #1, #2) — Task 3."""
