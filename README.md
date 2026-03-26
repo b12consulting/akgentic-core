@@ -475,7 +475,7 @@ class WorkerAgent(Akgent[WorkerConfig, WorkerState]):
 The `Orchestrator` is always the **root actor** of a team. It serves as the
 central coordinator for:
 
-- **Telemetry** — records every lifecycle event and message exchange
+- **Telemetry** — records every lifecycle event and message exchange (including `EventMessage`)
 - **Team roster** — tracks which agents are alive via `StartMessage`/`StopMessage`
 - **State snapshots** — stores the latest `BaseState` for each agent
 - **Pub/sub** — distributes events to `EventSubscriber` implementations
@@ -502,6 +502,7 @@ orch.get_team()                    # Active agent addresses (excludes Orchestrat
 orch.get_team_member("@Writer")    # Find by name
 orch.get_messages()                # Full telemetry log
 orch.get_states()                  # Latest state per agent
+orch.get_events()                  # All EventMessages (optional agent_id/event_class filters)
 ```
 
 ### `team_id` Inheritance
