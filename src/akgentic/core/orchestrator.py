@@ -111,6 +111,18 @@ class EventSubscriber(Protocol):
         - PostgresEventSubscriber: Persists events to PostgreSQL
     """
 
+    def set_restoring(self, restoring: bool) -> None:  # noqa: FBT001
+        """Toggle restore-replay guard.
+
+        Called by ``TeamManager.resume_team()`` before and after replaying
+        persisted events. Each subscriber decides independently whether to
+        skip processing during restore. Default implementation is a no-op.
+
+        Args:
+            restoring: ``True`` when replay starts, ``False`` when it ends.
+        """
+        ...
+
     def on_stop(self) -> None:
         """Called when an orchestrator stops."""
         ...
