@@ -512,7 +512,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             child: Child actor address to stop.
         """
         if child.is_alive():
-            self.proxy_ask(child).stop()
+            self.proxy_ask(child, Akgent).stop()
 
         try:
             self._children.remove(child)
