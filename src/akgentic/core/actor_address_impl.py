@@ -168,10 +168,6 @@ class ActorAddressImpl(ActorAddress):
             "user_message": self.handle_user_message(),
         }
 
-    def stop(self) -> None:
-        """Stop the underlying actor."""
-        self._actor_ref.stop()
-
     def __repr__(self) -> str:
         """String representation for debugging."""
         return f"<ActorAddress {self.role} {self.name} ({self.agent_id})>"
@@ -277,10 +273,6 @@ class ActorAddressProxy(ActorAddress):
         raise RuntimeError(
             f"Cannot send message from mock actor address {self.name} - actor not alive"
         )
-
-    def stop(self) -> None:
-        """Stop the underlying actor."""
-        raise RuntimeError(f"Cannot stop mock actor address {self.name} - actor not alive")
 
     def is_alive(self) -> bool:
         """Assume the remote/proxied actor is alive.
