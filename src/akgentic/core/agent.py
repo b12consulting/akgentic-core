@@ -434,7 +434,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             Result from message handler.
         """
         logger.info(
-            f"[{self.config.name}-{self.myAddress}] receiveMessage: {message.__class__.__name__}"
+            f"[{self.config.name}-{self.team_id}] receiveMessage: {message.__class__.__name__}"
         )
         if isinstance(message, Message):
             self._current_message = message
