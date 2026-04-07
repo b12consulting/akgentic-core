@@ -12,6 +12,7 @@ import uuid
 from collections import deque
 from collections.abc import Generator
 from contextlib import contextmanager
+from time import sleep
 from typing import Any, TypeVar, cast
 
 import pykka
@@ -253,7 +254,15 @@ class ActorSystem(ExecutionContext):
             except Exception as e:
                 logger.error(f"Error: Failed to stop actor: {e}")
 
-        # Final cleanup: stop any remaining actors
+        # Pykka's proxy().stop() future resolves when the stop() method returns,
+        # NOT when the actor is fully deregistered. Internally, stop() sends 
+        # (fire-and-forget) a _ActorStop() messages to the actor's own mailbox.
+        # The actor thread must still process that message, run on_stop(), and 
+        # deregister from ActorRegistry. Without this pause, get_all() below may see
+        # actors that have accepted the stop request but haven't finished processing it yet.
+        sleep(0.2)
+
+        # Final cleanup: force-stop any actors still in the registry
         remaining_actors = pykka.ActorRegistry.get_all()
         remaining_actors_classes = [actor.actor_class.__name__ for actor in remaining_actors]
         if remaining_actors:
