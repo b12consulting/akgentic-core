@@ -278,11 +278,13 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         ``sender``/``recipient`` fields **and** subclass-specific address
         fields such as ``StartMessage.parent`` or ``SentMessage.recipient``.
         """
-        updates: dict[str, ActorAddressProxy] = {}
+        updates: dict[str, ActorAddressProxy | Message] = {}
         for name in type(message).model_fields:
             value = getattr(message, name)
             if isinstance(value, ActorAddressImpl):
                 updates[name] = ActorAddressProxy(value.serialize())
+            elif isinstance(value, Message):
+                updates[name] = self._snapshot_for_subscribers(value)
         if updates:
             return message.model_copy(update=updates)
         return message
