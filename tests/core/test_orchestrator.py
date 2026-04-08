@@ -13,7 +13,7 @@ from akgentic.core.agent import Akgent
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message, UserMessage
-from akgentic.core.messages.orchestrator import EventMessage, StartMessage
+from akgentic.core.messages.orchestrator import EventMessage, SentMessage, StartMessage
 from akgentic.core.orchestrator import EventSubscriber, Orchestrator
 
 
@@ -724,15 +724,15 @@ class TestSnapshotForSubscribers:
 
         system.shutdown()
 
-    def test_snapshot_replaces_recipient_too(self) -> None:
-        """Snapshot replaces ActorAddressImpl on recipient as well (AC: 1)."""
+    def test_snapshot_replaces_recipient_and_nested_message(self) -> None:
+        """Snapshot serializes SentMessage.recipient and recurses into .message."""
         system = ActorSystem()
         orch_addr = system.createActor(
             Orchestrator,
             config=BaseConfig(name="orchestrator", role="Orchestrator"),
         )
 
-        child_addr = system.createActor(
+        sender_addr = system.createActor(
             SimpleAgent,
             config=BaseConfig(name="sender-agent", role="Sender"),
         )
@@ -746,25 +746,33 @@ class TestSnapshotForSubscribers:
         sub = RecordingSubscriber()
         orch_proxy.subscribe(sub)
 
-        assert isinstance(child_addr, ActorAddressImpl)
+        assert isinstance(sender_addr, ActorAddressImpl)
         assert isinstance(recipient_addr, ActorAddressImpl)
 
-        # Create a message with both sender and recipient as ActorAddressImpl
-        msg = EventMessage(event=CostEvent(amount=1.0))
-        msg.init(child_addr, child_addr.team_id)
-        msg.recipient = recipient_addr
+        # Build an inner message with ActorAddressImpl sender
+        inner = UserMessage(content="hello")
+        inner.init(sender_addr, sender_addr.team_id)
 
-        orch_proxy.receiveMsg_EventMessage(msg, child_addr)
+        # SentMessage has a top-level `recipient` and a nested `message`
+        msg = SentMessage(recipient=recipient_addr, message=inner)
+        msg.init(sender_addr, sender_addr.team_id)
 
-        # Find the dispatched EventMessage
-        event_msgs = [m for m in sub.messages if isinstance(m, EventMessage)]
-        assert len(event_msgs) == 1
+        orch_proxy.receiveMsg_SentMessage(msg, sender_addr)
 
-        dispatched = event_msgs[0]
+        # Find the dispatched SentMessage
+        sent_msgs = [m for m in sub.messages if isinstance(m, SentMessage)]
+        assert len(sent_msgs) == 1
+
+        dispatched = sent_msgs[0]
+        # Top-level addresses serialized
         assert isinstance(dispatched.sender, ActorAddressProxy)
         assert isinstance(dispatched.recipient, ActorAddressProxy)
         assert dispatched.sender.name == "sender-agent"
         assert dispatched.recipient.name == "recipient-agent"
+
+        # Nested message addresses also serialized (recursive)
+        assert isinstance(dispatched.message.sender, ActorAddressProxy)
+        assert dispatched.message.sender.name == "sender-agent"
 
         system.shutdown()
 
