@@ -124,6 +124,58 @@ def serialize_base_model(cls: BaseModel) -> dict[str, Any]:
     return data
 
 
+def _snapshot_value(value: Any) -> Any:  # noqa: ANN401
+    """Recursively snapshot a single value, replacing live actor addresses.
+
+    Handles ``ActorAddressImpl``, ``BaseModel``, ``list``, ``tuple``,
+    ``set``, and ``dict`` values.  Returns the original object unchanged
+    when no replacements are needed.
+    """
+    from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
+
+    if isinstance(value, ActorAddressImpl):
+        return ActorAddressProxy(value.serialize())
+    if isinstance(value, BaseModel):
+        return snapshot_addresses(value)
+    if isinstance(value, (list, tuple, set)):
+        items = [_snapshot_value(item) for item in value]
+        if all(new is orig for new, orig in zip(items, value)):
+            return value
+        return type(value)(items)
+    if isinstance(value, dict):
+        new_dict = {k: _snapshot_value(v) for k, v in value.items()}
+        if all(new_dict[k] is v for k, v in value.items()):
+            return value
+        return new_dict
+    return value
+
+
+def snapshot_addresses(model: BaseModel) -> BaseModel:
+    """Replace live ``ActorAddressImpl`` references with ``ActorAddressProxy`` snapshots.
+
+    Walks every Pydantic field on the concrete model class and recursively
+    processes values — including nested ``BaseModel`` instances, ``list``,
+    ``dict``, ``tuple``, and ``set`` containers.  Returns the original
+    instance unchanged when no replacements are needed.
+
+    Args:
+        model: A Pydantic ``BaseModel`` instance (typically a ``Message``).
+
+    Returns:
+        The original model if no live addresses were found, or a shallow
+        ``model_copy`` with all ``ActorAddressImpl`` values replaced.
+    """
+    updates: dict[str, Any] = {}
+    for name in type(model).model_fields:
+        value = getattr(model, name)
+        snapshotted = _snapshot_value(value)
+        if snapshotted is not value:
+            updates[name] = snapshotted
+    if updates:
+        return model.model_copy(update=updates)
+    return model
+
+
 class SerializableBaseModel(BaseModel):
     """Base class for models that need proper serialization of UUID, ActorAddress, etc.
 
