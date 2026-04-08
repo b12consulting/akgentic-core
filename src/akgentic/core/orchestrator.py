@@ -272,16 +272,17 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     def _snapshot_for_subscribers(self, message: Message) -> Message:
         """Create a subscriber-safe copy with serialized actor addresses.
 
-        Replaces live ActorAddressImpl references (which require weakref
-        resolution) with ActorAddressProxy snapshots (plain data).
-        This prevents subscribers from accidentally resolving live actor
-        references on the orchestrator thread during shutdown.
+        Introspects all Pydantic fields on the concrete message subclass and
+        replaces every live ``ActorAddressImpl`` value with an
+        ``ActorAddressProxy`` snapshot (plain data).  This covers the base
+        ``sender``/``recipient`` fields **and** subclass-specific address
+        fields such as ``StartMessage.parent`` or ``SentMessage.recipient``.
         """
         updates: dict[str, ActorAddressProxy] = {}
-        if isinstance(message.sender, ActorAddressImpl):
-            updates["sender"] = ActorAddressProxy(message.sender.serialize())
-        if isinstance(message.recipient, ActorAddressImpl):
-            updates["recipient"] = ActorAddressProxy(message.recipient.serialize())
+        for name in type(message).model_fields:
+            value = getattr(message, name)
+            if isinstance(value, ActorAddressImpl):
+                updates[name] = ActorAddressProxy(value.serialize())
         if updates:
             return message.model_copy(update=updates)
         return message

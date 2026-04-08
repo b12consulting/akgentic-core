@@ -767,3 +767,64 @@ class TestSnapshotForSubscribers:
         assert dispatched.recipient.name == "recipient-agent"
 
         system.shutdown()
+
+    def test_snapshot_replaces_subclass_address_fields(self) -> None:
+        """Snapshot replaces ActorAddressImpl on subclass-specific fields like parent."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+
+        child_addr = system.createActor(
+            SimpleAgent,
+            config=BaseConfig(name="child-agent", role="Child"),
+        )
+        parent_addr = system.createActor(
+            SimpleAgent,
+            config=BaseConfig(name="parent-agent", role="Parent"),
+        )
+
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = RecordingSubscriber()
+        orch_proxy.subscribe(sub)
+
+        assert isinstance(child_addr, ActorAddressImpl)
+        assert isinstance(parent_addr, ActorAddressImpl)
+
+        # StartMessage has a `parent` field typed as ActorAddress | None
+        msg = StartMessage(
+            config=BaseConfig(name="child-agent", role="Child"),
+            parent=parent_addr,
+        )
+        msg.init(child_addr, child_addr.team_id)
+
+        orch_proxy.receiveMsg_StartMessage(msg, child_addr)
+
+        # Find the dispatched StartMessage for child-agent
+        start_msgs = [
+            m
+            for m in sub.messages
+            if isinstance(m, StartMessage) and m.config.name == "child-agent"
+        ]
+        assert len(start_msgs) == 1
+
+        dispatched = start_msgs[0]
+        # sender and parent should both be serialized
+        assert isinstance(dispatched.sender, ActorAddressProxy)
+        assert isinstance(dispatched.parent, ActorAddressProxy)
+        assert dispatched.parent.name == "parent-agent"
+        assert dispatched.parent.role == "Parent"
+
+        # Orchestrator's internal copy retains live references
+        internal_msgs = orch_proxy.get_messages()
+        internal_starts = [
+            m
+            for m in internal_msgs
+            if isinstance(m, StartMessage) and m.config.name == "child-agent"
+        ]
+        assert len(internal_starts) == 1
+        assert isinstance(internal_starts[0].parent, ActorAddressImpl)
+
+        system.shutdown()
