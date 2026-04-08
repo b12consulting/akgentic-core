@@ -255,11 +255,20 @@ class TestIntegration:
 
 
 class RecordingSubscriber:
-    """Subscriber that records on_message calls for restore tests."""
+    """Subscriber that records on_message calls for restore tests.
+
+    Implements the full EventSubscriber protocol: on_message, on_stop,
+    set_restoring.
+    """
 
     def __init__(self) -> None:
         self.messages: list[Message] = []
         self.stopped: bool = False
+        self.restoring: bool = False
+
+    def set_restoring(self, restoring: bool) -> None:  # noqa: FBT001
+        """Track restore-replay guard state."""
+        self.restoring = restoring
 
     def on_message(self, msg: Message) -> None:
         """Record received message."""
