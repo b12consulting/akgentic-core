@@ -14,6 +14,7 @@ from typing import Protocol, overload, override
 from pydantic import Field
 
 from akgentic.core.actor_address import ActorAddress
+from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
 from akgentic.core.agent import Akgent
 from akgentic.core.agent_card import AgentCard
 from akgentic.core.agent_config import BaseConfig
@@ -268,6 +269,26 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         except ValueError:
             pass
 
+    def _snapshot_for_subscribers(self, message: Message) -> Message:
+        """Create a subscriber-safe copy with serialized actor addresses.
+
+        Introspects all Pydantic fields on the concrete message subclass and
+        replaces every live ``ActorAddressImpl`` value with an
+        ``ActorAddressProxy`` snapshot (plain data).  This covers the base
+        ``sender``/``recipient`` fields **and** subclass-specific address
+        fields such as ``StartMessage.parent`` or ``SentMessage.recipient``.
+        """
+        updates: dict[str, ActorAddressProxy | Message] = {}
+        for name in type(message).model_fields:
+            value = getattr(message, name)
+            if isinstance(value, ActorAddressImpl):
+                updates[name] = ActorAddressProxy(value.serialize())
+            elif isinstance(value, Message):
+                updates[name] = self._snapshot_for_subscribers(value)
+        if updates:
+            return message.model_copy(update=updates)
+        return message
+
     def _notify_subscribers(self, event_method: str, message: Message | None = None) -> None:
         """Unified subscriber notification with fault tolerance.
 
@@ -275,6 +296,8 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             event_method: Name of the subscriber method to call
             message: Message to pass to subscriber
         """
+        if message is not None:
+            message = self._snapshot_for_subscribers(message)
         for subscriber in self.subscribers:
             try:
                 method = getattr(subscriber, event_method)

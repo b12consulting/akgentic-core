@@ -7,12 +7,13 @@ from typing import Never
 import pykka
 import pytest
 
+from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
 from akgentic.core.actor_system_impl import ActorSystem
 from akgentic.core.agent import Akgent
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message, UserMessage
-from akgentic.core.messages.orchestrator import EventMessage
+from akgentic.core.messages.orchestrator import EventMessage, SentMessage, StartMessage
 from akgentic.core.orchestrator import EventSubscriber, Orchestrator
 
 
@@ -254,11 +255,20 @@ class TestIntegration:
 
 
 class RecordingSubscriber:
-    """Subscriber that records on_message calls for restore tests."""
+    """Subscriber that records on_message calls for restore tests.
+
+    Implements the full EventSubscriber protocol: on_message, on_stop,
+    set_restoring.
+    """
 
     def __init__(self) -> None:
         self.messages: list[Message] = []
         self.stopped: bool = False
+        self.restoring: bool = False
+
+    def set_restoring(self, restoring: bool) -> None:  # noqa: FBT001
+        """Track restore-replay guard state."""
+        self.restoring = restoring
 
     def on_message(self, msg: Message) -> None:
         """Record received message."""
@@ -453,7 +463,9 @@ class TestEventMessagePersistence:
 
         # Subscriber was notified
         assert len(sub.messages) == 1
-        assert sub.messages[0] is msg
+        # After _snapshot_for_subscribers, the subscriber may receive a copy
+        # (with ActorAddressProxy sender) so we compare by message id, not identity
+        assert sub.messages[0].id == msg.id
 
         # AND message was persisted
         assert msg in proxy.messages
@@ -599,5 +611,228 @@ class TestGetEvents:
 
         filtered = proxy.get_events()
         assert filtered == []
+
+        system.shutdown()
+
+
+class TestSnapshotForSubscribers:
+    """Tests for _snapshot_for_subscribers address serialization (AC: 1-4)."""
+
+    def test_subscriber_receives_actor_address_proxy_not_impl(self) -> None:
+        """Subscriber's captured message has sender as ActorAddressProxy (AC: 3, 4)."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+
+        # Create a child agent so we get an ActorAddressImpl sender
+        child_addr = system.createActor(
+            SimpleAgent,
+            config=BaseConfig(name="test-agent", role="TestAgent"),
+        )
+
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = RecordingSubscriber()
+        orch_proxy.subscribe(sub)
+
+        # The child_addr is an ActorAddressImpl (live Pykka actor)
+        assert isinstance(child_addr, ActorAddressImpl)
+
+        # Create a StartMessage with ActorAddressImpl sender
+        msg = StartMessage(config=BaseConfig(name="test-agent", role="TestAgent"))
+        msg.init(child_addr, child_addr.team_id)
+
+        # Dispatch through receiveMsg_StartMessage
+        orch_proxy.receiveMsg_StartMessage(msg, child_addr)
+
+        # Subscriber should have received one message (excluding orchestrator's own)
+        # Find the message dispatched for our test agent
+        sub_msgs = [
+            m
+            for m in sub.messages
+            if isinstance(m, StartMessage) and m.config.name == "test-agent"
+        ]
+        assert len(sub_msgs) == 1
+
+        dispatched = sub_msgs[0]
+        # AC 4: sender is ActorAddressProxy, not ActorAddressImpl
+        assert isinstance(dispatched.sender, ActorAddressProxy)
+        assert not isinstance(dispatched.sender, ActorAddressImpl)
+
+        # AC 4: sender attributes match original values
+        assert dispatched.sender.name == "test-agent"
+        assert dispatched.sender.role == "TestAgent"
+        assert dispatched.sender.team_id == child_addr.team_id
+
+        system.shutdown()
+
+    def test_orchestrator_messages_retain_actor_address_impl(self) -> None:
+        """Orchestrator's internal self.messages retains ActorAddressImpl (AC: 2, 4)."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+
+        child_addr = system.createActor(
+            SimpleAgent,
+            config=BaseConfig(name="test-agent", role="TestAgent"),
+        )
+
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = RecordingSubscriber()
+        orch_proxy.subscribe(sub)
+
+        assert isinstance(child_addr, ActorAddressImpl)
+
+        msg = StartMessage(config=BaseConfig(name="test-agent", role="TestAgent"))
+        msg.init(child_addr, child_addr.team_id)
+
+        orch_proxy.receiveMsg_StartMessage(msg, child_addr)
+
+        # AC 4: Orchestrator's internal messages list has ActorAddressImpl
+        internal_msgs = orch_proxy.get_messages()
+        agent_starts = [
+            m
+            for m in internal_msgs
+            if isinstance(m, StartMessage) and m.config.name == "test-agent"
+        ]
+        assert len(agent_starts) == 1
+        assert isinstance(agent_starts[0].sender, ActorAddressImpl)
+
+        system.shutdown()
+
+    def test_snapshot_no_copy_when_no_impl(self) -> None:
+        """No copy when message has no ActorAddressImpl fields (AC: 1)."""
+        system = ActorSystem()
+        orch_addr = system.createActor(Orchestrator, restoring=True)
+        proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = RecordingSubscriber()
+        proxy.subscribe(sub)
+
+        # UserMessage has no sender/recipient set (both None)
+        msg = UserMessage(content="plain message")
+        proxy.restore_message(msg)
+
+        assert len(sub.messages) == 1
+        # The original message is returned unchanged (no copy)
+        assert sub.messages[0] is msg
+
+        system.shutdown()
+
+    def test_snapshot_replaces_recipient_and_nested_message(self) -> None:
+        """Snapshot serializes SentMessage.recipient and recurses into .message."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+
+        sender_addr = system.createActor(
+            SimpleAgent,
+            config=BaseConfig(name="sender-agent", role="Sender"),
+        )
+        recipient_addr = system.createActor(
+            SimpleAgent,
+            config=BaseConfig(name="recipient-agent", role="Recipient"),
+        )
+
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = RecordingSubscriber()
+        orch_proxy.subscribe(sub)
+
+        assert isinstance(sender_addr, ActorAddressImpl)
+        assert isinstance(recipient_addr, ActorAddressImpl)
+
+        # Build an inner message with ActorAddressImpl sender
+        inner = UserMessage(content="hello")
+        inner.init(sender_addr, sender_addr.team_id)
+
+        # SentMessage has a top-level `recipient` and a nested `message`
+        msg = SentMessage(recipient=recipient_addr, message=inner)
+        msg.init(sender_addr, sender_addr.team_id)
+
+        orch_proxy.receiveMsg_SentMessage(msg, sender_addr)
+
+        # Find the dispatched SentMessage
+        sent_msgs = [m for m in sub.messages if isinstance(m, SentMessage)]
+        assert len(sent_msgs) == 1
+
+        dispatched = sent_msgs[0]
+        # Top-level addresses serialized
+        assert isinstance(dispatched.sender, ActorAddressProxy)
+        assert isinstance(dispatched.recipient, ActorAddressProxy)
+        assert dispatched.sender.name == "sender-agent"
+        assert dispatched.recipient.name == "recipient-agent"
+
+        # Nested message addresses also serialized (recursive)
+        assert isinstance(dispatched.message.sender, ActorAddressProxy)
+        assert dispatched.message.sender.name == "sender-agent"
+
+        system.shutdown()
+
+    def test_snapshot_replaces_subclass_address_fields(self) -> None:
+        """Snapshot replaces ActorAddressImpl on subclass-specific fields like parent."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+
+        child_addr = system.createActor(
+            SimpleAgent,
+            config=BaseConfig(name="child-agent", role="Child"),
+        )
+        parent_addr = system.createActor(
+            SimpleAgent,
+            config=BaseConfig(name="parent-agent", role="Parent"),
+        )
+
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = RecordingSubscriber()
+        orch_proxy.subscribe(sub)
+
+        assert isinstance(child_addr, ActorAddressImpl)
+        assert isinstance(parent_addr, ActorAddressImpl)
+
+        # StartMessage has a `parent` field typed as ActorAddress | None
+        msg = StartMessage(
+            config=BaseConfig(name="child-agent", role="Child"),
+            parent=parent_addr,
+        )
+        msg.init(child_addr, child_addr.team_id)
+
+        orch_proxy.receiveMsg_StartMessage(msg, child_addr)
+
+        # Find the dispatched StartMessage for child-agent
+        start_msgs = [
+            m
+            for m in sub.messages
+            if isinstance(m, StartMessage) and m.config.name == "child-agent"
+        ]
+        assert len(start_msgs) == 1
+
+        dispatched = start_msgs[0]
+        # sender and parent should both be serialized
+        assert isinstance(dispatched.sender, ActorAddressProxy)
+        assert isinstance(dispatched.parent, ActorAddressProxy)
+        assert dispatched.parent.name == "parent-agent"
+        assert dispatched.parent.role == "Parent"
+
+        # Orchestrator's internal copy retains live references
+        internal_msgs = orch_proxy.get_messages()
+        internal_starts = [
+            m
+            for m in internal_msgs
+            if isinstance(m, StartMessage) and m.config.name == "child-agent"
+        ]
+        assert len(internal_starts) == 1
+        assert isinstance(internal_starts[0].parent, ActorAddressImpl)
 
         system.shutdown()
