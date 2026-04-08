@@ -7,12 +7,13 @@ from typing import Never
 import pykka
 import pytest
 
+from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
 from akgentic.core.actor_system_impl import ActorSystem
 from akgentic.core.agent import Akgent
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message, UserMessage
-from akgentic.core.messages.orchestrator import EventMessage
+from akgentic.core.messages.orchestrator import EventMessage, StartMessage
 from akgentic.core.orchestrator import EventSubscriber, Orchestrator
 
 
@@ -453,7 +454,9 @@ class TestEventMessagePersistence:
 
         # Subscriber was notified
         assert len(sub.messages) == 1
-        assert sub.messages[0] is msg
+        # After _snapshot_for_subscribers, the subscriber may receive a copy
+        # (with ActorAddressProxy sender) so we compare by message id, not identity
+        assert sub.messages[0].id == msg.id
 
         # AND message was persisted
         assert msg in proxy.messages
@@ -599,5 +602,159 @@ class TestGetEvents:
 
         filtered = proxy.get_events()
         assert filtered == []
+
+        system.shutdown()
+
+
+class TestSnapshotForSubscribers:
+    """Tests for _snapshot_for_subscribers address serialization (AC: 1-4)."""
+
+    def test_subscriber_receives_actor_address_proxy_not_impl(self) -> None:
+        """Subscriber's captured message has sender as ActorAddressProxy (AC: 3, 4)."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+
+        # Create a child agent so we get an ActorAddressImpl sender
+        child_addr = system.createActor(
+            SimpleAgent,
+            config=BaseConfig(name="test-agent", role="TestAgent"),
+        )
+
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = RecordingSubscriber()
+        orch_proxy.subscribe(sub)
+
+        # The child_addr is an ActorAddressImpl (live Pykka actor)
+        assert isinstance(child_addr, ActorAddressImpl)
+
+        # Create a StartMessage with ActorAddressImpl sender
+        msg = StartMessage(config=BaseConfig(name="test-agent", role="TestAgent"))
+        msg.init(child_addr, child_addr.team_id)
+
+        # Dispatch through receiveMsg_StartMessage
+        orch_proxy.receiveMsg_StartMessage(msg, child_addr)
+
+        # Subscriber should have received one message (excluding orchestrator's own)
+        # Find the message dispatched for our test agent
+        sub_msgs = [
+            m
+            for m in sub.messages
+            if isinstance(m, StartMessage) and m.config.name == "test-agent"
+        ]
+        assert len(sub_msgs) == 1
+
+        dispatched = sub_msgs[0]
+        # AC 4: sender is ActorAddressProxy, not ActorAddressImpl
+        assert isinstance(dispatched.sender, ActorAddressProxy)
+        assert not isinstance(dispatched.sender, ActorAddressImpl)
+
+        # AC 4: sender attributes match original values
+        assert dispatched.sender.name == "test-agent"
+        assert dispatched.sender.role == "TestAgent"
+        assert dispatched.sender.team_id == child_addr.team_id
+
+        system.shutdown()
+
+    def test_orchestrator_messages_retain_actor_address_impl(self) -> None:
+        """Orchestrator's internal self.messages retains ActorAddressImpl (AC: 2, 4)."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+
+        child_addr = system.createActor(
+            SimpleAgent,
+            config=BaseConfig(name="test-agent", role="TestAgent"),
+        )
+
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = RecordingSubscriber()
+        orch_proxy.subscribe(sub)
+
+        assert isinstance(child_addr, ActorAddressImpl)
+
+        msg = StartMessage(config=BaseConfig(name="test-agent", role="TestAgent"))
+        msg.init(child_addr, child_addr.team_id)
+
+        orch_proxy.receiveMsg_StartMessage(msg, child_addr)
+
+        # AC 4: Orchestrator's internal messages list has ActorAddressImpl
+        internal_msgs = orch_proxy.get_messages()
+        agent_starts = [
+            m
+            for m in internal_msgs
+            if isinstance(m, StartMessage) and m.config.name == "test-agent"
+        ]
+        assert len(agent_starts) == 1
+        assert isinstance(agent_starts[0].sender, ActorAddressImpl)
+
+        system.shutdown()
+
+    def test_snapshot_no_copy_when_no_impl(self) -> None:
+        """No copy when message has no ActorAddressImpl fields (AC: 1)."""
+        system = ActorSystem()
+        orch_addr = system.createActor(Orchestrator, restoring=True)
+        proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = RecordingSubscriber()
+        proxy.subscribe(sub)
+
+        # UserMessage has no sender/recipient set (both None)
+        msg = UserMessage(content="plain message")
+        proxy.restore_message(msg)
+
+        assert len(sub.messages) == 1
+        # The original message is returned unchanged (no copy)
+        assert sub.messages[0] is msg
+
+        system.shutdown()
+
+    def test_snapshot_replaces_recipient_too(self) -> None:
+        """Snapshot replaces ActorAddressImpl on recipient as well (AC: 1)."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+
+        child_addr = system.createActor(
+            SimpleAgent,
+            config=BaseConfig(name="sender-agent", role="Sender"),
+        )
+        recipient_addr = system.createActor(
+            SimpleAgent,
+            config=BaseConfig(name="recipient-agent", role="Recipient"),
+        )
+
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = RecordingSubscriber()
+        orch_proxy.subscribe(sub)
+
+        assert isinstance(child_addr, ActorAddressImpl)
+        assert isinstance(recipient_addr, ActorAddressImpl)
+
+        # Create a message with both sender and recipient as ActorAddressImpl
+        msg = EventMessage(event=CostEvent(amount=1.0))
+        msg.init(child_addr, child_addr.team_id)
+        msg.recipient = recipient_addr
+
+        orch_proxy.receiveMsg_EventMessage(msg, child_addr)
+
+        # Find the dispatched EventMessage
+        event_msgs = [m for m in sub.messages if isinstance(m, EventMessage)]
+        assert len(event_msgs) == 1
+
+        dispatched = event_msgs[0]
+        assert isinstance(dispatched.sender, ActorAddressProxy)
+        assert isinstance(dispatched.recipient, ActorAddressProxy)
+        assert dispatched.sender.name == "sender-agent"
+        assert dispatched.recipient.name == "recipient-agent"
 
         system.shutdown()

@@ -14,6 +14,7 @@ from typing import Protocol, overload, override
 from pydantic import Field
 
 from akgentic.core.actor_address import ActorAddress
+from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
 from akgentic.core.agent import Akgent
 from akgentic.core.agent_card import AgentCard
 from akgentic.core.agent_config import BaseConfig
@@ -268,6 +269,23 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         except ValueError:
             pass
 
+    def _snapshot_for_subscribers(self, message: Message) -> Message:
+        """Create a subscriber-safe copy with serialized actor addresses.
+
+        Replaces live ActorAddressImpl references (which require weakref
+        resolution) with ActorAddressProxy snapshots (plain data).
+        This prevents subscribers from accidentally resolving live actor
+        references on the orchestrator thread during shutdown.
+        """
+        updates: dict[str, ActorAddressProxy] = {}
+        if isinstance(message.sender, ActorAddressImpl):
+            updates["sender"] = ActorAddressProxy(message.sender.serialize())
+        if isinstance(message.recipient, ActorAddressImpl):
+            updates["recipient"] = ActorAddressProxy(message.recipient.serialize())
+        if updates:
+            return message.model_copy(update=updates)
+        return message
+
     def _notify_subscribers(self, event_method: str, message: Message | None = None) -> None:
         """Unified subscriber notification with fault tolerance.
 
@@ -275,6 +293,8 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             event_method: Name of the subscriber method to call
             message: Message to pass to subscriber
         """
+        if message is not None:
+            message = self._snapshot_for_subscribers(message)
         for subscriber in self.subscribers:
             try:
                 method = getattr(subscriber, event_method)
