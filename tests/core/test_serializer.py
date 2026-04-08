@@ -8,10 +8,12 @@ import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+import pydantic
 import pydantic.dataclasses
 import pytest
 from pydantic import BaseModel
 
+from akgentic.core.actor_address import ActorAddress
 from akgentic.core.messages.message import Message, UserMessage
 from akgentic.core.utils.deserializer import (
     ActorAddressDict,
@@ -26,6 +28,7 @@ from akgentic.core.utils.serializer import (
     serialize,
     serialize_base_model,
     serialize_type,
+    snapshot_addresses,
 )
 
 
@@ -549,3 +552,135 @@ class TestPydanticDataclassSerialization:
         result = serialize(b"")
         assert result == {"__bytes__": ""}
         assert deserialize_object(result) == b""
+
+
+# ---------------------------------------------------------------------------
+# snapshot_addresses tests
+# ---------------------------------------------------------------------------
+
+
+def _make_mock_impl(
+    name: str = "agent", role: str = "Agent",
+) -> ActorAddress:
+    """Create a mock ActorAddressImpl without a real actor system."""
+    from unittest.mock import MagicMock
+
+    from akgentic.core.actor_address_impl import ActorAddressImpl
+
+    config = MagicMock()
+    config.name = name
+    config.role = role
+    config.squad_id = None
+
+    actor = MagicMock()
+    actor.agent_id = uuid.uuid4()
+    actor.config = config
+    actor.team_id = uuid.uuid4()
+    actor.receiveMsg_UserMessage = MagicMock()
+    actor.__class__ = type(
+        "MockAgent", (), {"__module__": "test.agents", "__name__": "MockAgent"},
+    )
+
+    actor_ref = MagicMock()
+    actor_ref._actor_weakref = lambda: actor
+    actor_ref.is_alive.return_value = True
+    actor_ref.actor_urn = f"urn:mock:{name}"
+
+    return ActorAddressImpl(actor_ref)
+
+
+class _ListModel(BaseModel):
+    """Test model with a list of ActorAddress."""
+
+    model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
+    addresses: list[ActorAddress]
+
+
+class _DictModel(BaseModel):
+    """Test model with a dict containing ActorAddress values."""
+
+    model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
+    mapping: dict[str, ActorAddress]
+
+
+class _NestedListModel(BaseModel):
+    """Test model with a list of Messages."""
+
+    model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
+    messages: list[Message]
+
+
+class TestSnapshotAddresses:
+    """Tests for snapshot_addresses utility."""
+
+    def test_list_of_addresses(self) -> None:
+        """ActorAddressImpl inside a list field are replaced."""
+        from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
+
+        addr1 = _make_mock_impl("a1", "Role1")
+        addr2 = _make_mock_impl("a2", "Role2")
+        model = _ListModel(addresses=[addr1, addr2])
+
+        result = snapshot_addresses(model)
+
+        assert result is not model
+        assert len(result.addresses) == 2
+        for addr in result.addresses:
+            assert isinstance(addr, ActorAddressProxy)
+            assert not isinstance(addr, ActorAddressImpl)
+        assert result.addresses[0].name == "a1"
+        assert result.addresses[1].name == "a2"
+
+    def test_dict_of_addresses(self) -> None:
+        """ActorAddressImpl inside a dict field are replaced."""
+        from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
+
+        addr = _make_mock_impl("mapped", "Mapper")
+        model = _DictModel(mapping={"key": addr})
+
+        result = snapshot_addresses(model)
+
+        assert result is not model
+        assert isinstance(result.mapping["key"], ActorAddressProxy)
+        assert not isinstance(result.mapping["key"], ActorAddressImpl)
+        assert result.mapping["key"].name == "mapped"
+
+    def test_list_of_messages(self) -> None:
+        """Messages nested inside a list have their addresses replaced."""
+        from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
+
+        addr = _make_mock_impl("inner", "Inner")
+        inner_msg = UserMessage(content="hello")
+        inner_msg.sender = addr
+
+        model = _NestedListModel(messages=[inner_msg])
+
+        result = snapshot_addresses(model)
+
+        assert result is not model
+        assert isinstance(result.messages[0].sender, ActorAddressProxy)
+        assert not isinstance(result.messages[0].sender, ActorAddressImpl)
+        assert result.messages[0].sender.name == "inner"
+
+    def test_no_copy_when_no_impl(self) -> None:
+        """Original model returned unchanged when no ActorAddressImpl present."""
+        model = _ListModel(addresses=[])
+        result = snapshot_addresses(model)
+        assert result is model
+
+    def test_mixed_list_only_impl_replaced(self) -> None:
+        """In a mixed list, only ActorAddressImpl are replaced; Proxy kept as-is."""
+        from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
+
+        impl = _make_mock_impl("live", "Live")
+        proxy = ActorAddressProxy(impl.serialize())
+
+        model = _ListModel(addresses=[impl, proxy])
+
+        result = snapshot_addresses(model)
+
+        assert result is not model
+        assert isinstance(result.addresses[0], ActorAddressProxy)
+        assert not isinstance(result.addresses[0], ActorAddressImpl)
+        # The pre-existing proxy should be kept unchanged
+        assert result.addresses[1] is proxy

@@ -17,6 +17,7 @@ from akgentic.core.utils.serializer import (
     serialize,
     serialize_base_model,
     serialize_type,
+    snapshot_addresses,
 )
 
 __all__ = [
@@ -30,4 +31,5 @@ __all__ = [
     "serialize",
     "serialize_base_model",
     "serialize_type",
+    "snapshot_addresses",
 ]
