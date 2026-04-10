@@ -25,6 +25,7 @@ from akgentic.core.utils.deserializer import (
 from akgentic.core.utils.serializer import (
     SerializableBaseModel,
     get_field_serializers_map,
+    hydrate_addresses,
     serialize,
     serialize_base_model,
     serialize_type,
@@ -684,3 +685,289 @@ class TestSnapshotAddresses:
         assert not isinstance(result.addresses[0], ActorAddressImpl)
         # The pre-existing proxy should be kept unchanged
         assert result.addresses[1] is proxy
+
+
+# ---------------------------------------------------------------------------
+# hydrate_addresses tests
+# ---------------------------------------------------------------------------
+
+
+class _TupleModel(BaseModel):
+    """Test model with a tuple of ActorAddress (hydrate_addresses coverage)."""
+
+    model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
+    addresses: tuple[ActorAddress, ...]
+
+
+class _SetModel(BaseModel):
+    """Test model with a set of ActorAddress (hydrate_addresses coverage)."""
+
+    model_config = pydantic.ConfigDict(arbitrary_types_allowed=True)
+    addresses: set[ActorAddress]
+
+
+def _make_proxy(name: str, role: str = "Role") -> "ActorAddress":
+    """Create an ActorAddressProxy from a raw ActorAddressDict literal.
+
+    Uses fresh UUIDs so each proxy is distinct by agent_id (required for set
+    membership and identity assertions).
+    """
+    from akgentic.core.actor_address_impl import ActorAddressProxy
+
+    return ActorAddressProxy(
+        {
+            "__actor_address__": True,
+            "__actor_type__": "test.agents.MockAgent",
+            "agent_id": str(uuid.uuid4()),
+            "name": name,
+            "role": role,
+            "team_id": str(uuid.uuid4()),
+            "squad_id": "",
+            "user_message": False,
+        }
+    )
+
+
+def _resolver(proxy: "ActorAddress") -> "ActorAddress":
+    """Stub resolver returning a mock ActorAddressImpl distinguishable from the proxy."""
+    return _make_mock_impl(proxy.name, proxy.role)
+
+
+def _raising_resolver(proxy: "ActorAddress") -> "ActorAddress":
+    """Stub resolver that always raises — used for exception-propagation tests."""
+    raise ValueError("unknown proxy")
+
+
+class TestHydrateAddresses:
+    """Tests for hydrate_addresses utility."""
+
+    # --- identity preservation & flat Message hydration ---------------------
+
+    def test_flat_message_hydrated_via_model_copy(self) -> None:
+        """A Message with proxy sender/recipient returns a new model_copy with live addresses."""
+        from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
+
+        sender_proxy = _make_proxy("sender", "Sender")
+        recipient_proxy = _make_proxy("recipient", "Recipient")
+        msg = UserMessage(content="hello")
+        msg.sender = sender_proxy
+        msg.recipient = recipient_proxy
+
+        result = hydrate_addresses(msg, _resolver)
+
+        assert result is not msg
+        assert isinstance(result, UserMessage)
+        assert isinstance(result.sender, ActorAddressImpl)
+        assert not isinstance(result.sender, ActorAddressProxy)
+        assert isinstance(result.recipient, ActorAddressImpl)
+        assert not isinstance(result.recipient, ActorAddressProxy)
+        assert result.sender.name == "sender"
+        assert result.recipient.name == "recipient"
+        # Non-address fields preserved unchanged
+        assert result.id == msg.id
+        assert result.parent_id == msg.parent_id
+        assert result.team_id == msg.team_id
+        assert result.timestamp == msg.timestamp
+        assert result.display_type == msg.display_type
+        assert result.content == msg.content
+
+    def test_identity_preserved_when_no_proxies(self) -> None:
+        """Message with only live impl addresses returns the same instance; resolver untouched."""
+        from unittest.mock import MagicMock
+
+        sender_impl = _make_mock_impl("s", "S")
+        recipient_impl = _make_mock_impl("r", "R")
+        msg = UserMessage(content="hello")
+        msg.sender = sender_impl
+        msg.recipient = recipient_impl
+
+        resolver_mock = MagicMock(side_effect=lambda _p: _make_mock_impl("x", "X"))
+        result = hydrate_addresses(msg, resolver_mock)
+
+        assert result is msg
+        assert resolver_mock.call_count == 0
+
+    def test_identity_preserved_when_model_has_no_address_fields(self) -> None:
+        """Empty model (no proxies anywhere in the walk) is returned as-is."""
+        model = _ListModel(addresses=[])
+        result = hydrate_addresses(model, _resolver)
+        assert result is model
+
+    # --- nested BaseModel recursion -----------------------------------------
+
+    def test_nested_basemodel_walked_recursively(self) -> None:
+        """hydrate_addresses recurses into nested BaseModel fields."""
+        from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
+
+        inner_proxy = _make_proxy("inner", "Inner")
+        inner_msg = UserMessage(content="nested")
+        inner_msg.sender = inner_proxy
+
+        outer = _NestedListModel(messages=[inner_msg])
+
+        result = hydrate_addresses(outer, _resolver)
+
+        assert result is not outer
+        assert result.messages[0] is not outer.messages[0]
+        assert isinstance(result.messages[0].sender, ActorAddressImpl)
+        assert not isinstance(result.messages[0].sender, ActorAddressProxy)
+        assert result.messages[0].sender.name == "inner"
+
+    # --- container types -----------------------------------------------------
+
+    def test_list_of_proxies_replaced(self) -> None:
+        """Proxies inside a list field are replaced, container stays a list."""
+        from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
+
+        proxy_a = _make_proxy("a", "RoleA")
+        proxy_b = _make_proxy("b", "RoleB")
+        model = _ListModel(addresses=[proxy_a, proxy_b])
+
+        result = hydrate_addresses(model, _resolver)
+
+        assert result is not model
+        assert type(result.addresses) is list
+        assert len(result.addresses) == 2
+        for addr in result.addresses:
+            assert isinstance(addr, ActorAddressImpl)
+            assert not isinstance(addr, ActorAddressProxy)
+        assert result.addresses[0].name == "a"
+        assert result.addresses[1].name == "b"
+
+    def test_dict_of_proxies_replaced(self) -> None:
+        """Proxies inside a dict field are replaced, container stays a dict."""
+        from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
+
+        proxy = _make_proxy("mapped", "Mapper")
+        model = _DictModel(mapping={"key": proxy})
+
+        result = hydrate_addresses(model, _resolver)
+
+        assert result is not model
+        assert type(result.mapping) is dict
+        assert isinstance(result.mapping["key"], ActorAddressImpl)
+        assert not isinstance(result.mapping["key"], ActorAddressProxy)
+        assert result.mapping["key"].name == "mapped"
+
+    def test_tuple_of_proxies_replaced(self) -> None:
+        """Proxies inside a tuple field are replaced, container stays a tuple."""
+        from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
+
+        proxy_a = _make_proxy("ta", "RoleA")
+        proxy_b = _make_proxy("tb", "RoleB")
+        model = _TupleModel(addresses=(proxy_a, proxy_b))
+
+        result = hydrate_addresses(model, _resolver)
+
+        assert result is not model
+        assert type(result.addresses) is tuple
+        assert len(result.addresses) == 2
+        for addr in result.addresses:
+            assert isinstance(addr, ActorAddressImpl)
+            assert not isinstance(addr, ActorAddressProxy)
+
+    def test_set_of_proxies_replaced(self) -> None:
+        """Proxies inside a set field are replaced, container stays a set."""
+        from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
+
+        proxy_a = _make_proxy("sa", "RoleA")
+        proxy_b = _make_proxy("sb", "RoleB")
+        model = _SetModel(addresses={proxy_a, proxy_b})
+
+        result = hydrate_addresses(model, _resolver)
+
+        assert result is not model
+        assert type(result.addresses) is set
+        assert len(result.addresses) == 2
+        for addr in result.addresses:
+            assert isinstance(addr, ActorAddressImpl)
+            assert not isinstance(addr, ActorAddressProxy)
+
+    # --- mixed impl+proxy containers ----------------------------------------
+
+    def test_mixed_impl_and_proxy_in_list_only_proxy_replaced(self) -> None:
+        """In a list containing both an impl and a proxy, only the proxy is replaced."""
+        from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
+
+        impl = _make_mock_impl("live", "Live")
+        proxy = _make_proxy("ghost", "Ghost")
+
+        model = _ListModel(addresses=[impl, proxy])
+
+        result = hydrate_addresses(model, _resolver)
+
+        assert result is not model
+        # Live impl passes through unchanged by identity.
+        assert result.addresses[0] is impl
+        # Proxy is replaced with the resolver's return value (a new impl).
+        assert isinstance(result.addresses[1], ActorAddressImpl)
+        assert not isinstance(result.addresses[1], ActorAddressProxy)
+        assert result.addresses[1] is not proxy
+        assert result.addresses[1].name == "ghost"
+
+    def test_pure_impl_list_identity_preserved(self) -> None:
+        """A list containing only live impls is returned unchanged; resolver never called."""
+        from unittest.mock import MagicMock
+
+        impl_a = _make_mock_impl("a", "RoleA")
+        impl_b = _make_mock_impl("b", "RoleB")
+        model = _ListModel(addresses=[impl_a, impl_b])
+
+        resolver_mock = MagicMock(side_effect=lambda _p: _make_mock_impl("x", "X"))
+        result = hydrate_addresses(model, resolver_mock)
+
+        assert result is model
+        assert resolver_mock.call_count == 0
+
+    def test_pure_impl_dict_identity_preserved(self) -> None:
+        """A dict containing only live impls is returned unchanged; resolver never called."""
+        from unittest.mock import MagicMock
+
+        impl = _make_mock_impl("a", "RoleA")
+        model = _DictModel(mapping={"k": impl})
+
+        resolver_mock = MagicMock(side_effect=lambda _p: _make_mock_impl("x", "X"))
+        result = hydrate_addresses(model, resolver_mock)
+
+        assert result is model
+        assert resolver_mock.call_count == 0
+
+    # --- resolver exception propagation -------------------------------------
+
+    def test_resolver_exception_propagates_unchanged(self) -> None:
+        """Resolver exceptions propagate as-is — hydrate_addresses does not wrap."""
+        proxy = _make_proxy("unknown", "Unknown")
+        msg = UserMessage(content="boom")
+        msg.sender = proxy
+
+        with pytest.raises(ValueError, match="unknown proxy"):
+            hydrate_addresses(msg, _raising_resolver)
+
+    def test_original_model_not_mutated_on_resolver_failure(self) -> None:
+        """A failing resolver must leave the original model object untouched."""
+        proxy = _make_proxy("unknown", "Unknown")
+        msg = UserMessage(content="boom")
+        msg.sender = proxy
+        original_sender = msg.sender
+        original_id = msg.id
+
+        with pytest.raises(ValueError, match="unknown proxy"):
+            hydrate_addresses(msg, _raising_resolver)
+
+        assert msg.sender is original_sender
+        assert msg.id == original_id
+
+    # --- public export -------------------------------------------------------
+
+    def test_hydrate_addresses_exported_from_core_utils(self) -> None:
+        """`from akgentic.core.utils import hydrate_addresses` works."""
+        from akgentic.core.utils import hydrate_addresses as exported
+
+        assert callable(exported)
+        assert exported is hydrate_addresses
+
+    def test_hydrate_addresses_in_all_list(self) -> None:
+        """`hydrate_addresses` appears in `akgentic.core.utils.__all__`."""
+        import akgentic.core.utils as utils_module
+
+        assert "hydrate_addresses" in utils_module.__all__
