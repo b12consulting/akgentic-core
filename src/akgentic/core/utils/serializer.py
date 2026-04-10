@@ -12,13 +12,27 @@ import base64
 import uuid
 from dataclasses import fields, is_dataclass
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict, ValidationInfo, model_serializer, model_validator
 from pydantic_core import to_jsonable_python
 
 from akgentic.core.actor_address import ActorAddress
 from akgentic.core.utils.deserializer import ActorAddressDict, deserialize_object
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    # Imported only for type hints; the runtime import happens lazily inside
+    # ``_hydrate_value``/``_snapshot_value`` to avoid circular imports with
+    # ``actor_address_impl``.
+    from akgentic.core.actor_address_impl import ActorAddressProxy
+
+    # Type alias for the address resolver callable passed to
+    # :func:`hydrate_addresses`. Only defined under ``TYPE_CHECKING`` because
+    # ``ActorAddressProxy`` is lazy-imported; all uses below appear in
+    # annotations that are strings under ``from __future__ import annotations``.
+    AddressResolver = Callable[[ActorAddressProxy], ActorAddress]
 
 
 def serialize_type(value: type[Any] | Any) -> str:
@@ -171,6 +185,76 @@ def snapshot_addresses(model: BaseModel) -> BaseModel:
         snapshotted = _snapshot_value(value)
         if snapshotted is not value:
             updates[name] = snapshotted
+    if updates:
+        return model.model_copy(update=updates)
+    return model
+
+
+def _hydrate_value(value: Any, resolver: AddressResolver) -> Any:  # noqa: ANN401
+    """Recursively hydrate a single value, replacing proxy addresses via *resolver*.
+
+    Mirror image of :func:`_snapshot_value`.  Handles ``ActorAddressProxy``,
+    ``BaseModel``, ``list``, ``tuple``, ``set``, and ``dict`` values.  Returns
+    the original object unchanged when no replacements are needed (identity
+    preservation) so that the top-level ``hydrate_addresses`` can skip the
+    ``model_copy`` entirely.
+    """
+    from akgentic.core.actor_address_impl import ActorAddressProxy
+
+    if isinstance(value, ActorAddressProxy):
+        return resolver(value)
+    if isinstance(value, BaseModel):
+        return hydrate_addresses(value, resolver)
+    if isinstance(value, (list, tuple, set)):
+        items = [_hydrate_value(item, resolver) for item in value]
+        if all(new is orig for new, orig in zip(items, value)):
+            return value
+        return type(value)(items)
+    if isinstance(value, dict):
+        new_dict = {k: _hydrate_value(v, resolver) for k, v in value.items()}
+        if all(new_dict[k] is v for k, v in value.items()):
+            return value
+        return new_dict
+    return value
+
+
+def hydrate_addresses(model: BaseModel, resolver: AddressResolver) -> BaseModel:
+    """Replace ``ActorAddressProxy`` references with live addresses via *resolver*.
+
+    Inverse of :func:`snapshot_addresses`.  Walks every Pydantic field on the
+    concrete model class and recursively processes nested values (``BaseModel``,
+    ``list``, ``dict``, ``tuple``, ``set``).  Returns the original instance
+    unchanged — by identity — when no replacements are needed, so callers can
+    use ``result is model`` as a fast-path check.
+
+    Args:
+        model: A Pydantic ``BaseModel`` instance (typically a ``Message``)
+            carrying potentially deserialized proxy addresses.
+        resolver: Callable that maps an ``ActorAddressProxy`` to a live
+            ``ActorAddress``.  Typically closes over an orchestrator proxy or
+            other runtime-layer registry that tracks live actors.
+
+    Returns:
+        The original model if no proxies were found, or a shallow
+        ``model_copy`` with all proxy addresses replaced by the resolver's
+        return values.
+
+    Raises:
+        Exception: Whatever *resolver* raises when it cannot resolve a proxy
+            — the exception propagates unchanged, and the original ``model``
+            argument is left untouched.
+
+    Example:
+        >>> def resolver(proxy: ActorAddressProxy) -> ActorAddress:
+        ...     return orchestrator_registry[proxy.agent_id]
+        >>> live_msg = hydrate_addresses(message, resolver)
+    """
+    updates: dict[str, Any] = {}
+    for name in type(model).model_fields:
+        value = getattr(model, name)
+        hydrated = _hydrate_value(value, resolver)
+        if hydrated is not value:
+            updates[name] = hydrated
     if updates:
         return model.model_copy(update=updates)
     return model

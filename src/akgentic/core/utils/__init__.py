@@ -14,6 +14,7 @@ from akgentic.core.utils.deserializer import (
 from akgentic.core.utils.serializer import (
     SerializableBaseModel,
     get_field_serializers_map,
+    hydrate_addresses,
     serialize,
     serialize_base_model,
     serialize_type,
@@ -26,6 +27,7 @@ __all__ = [
     "SerializableBaseModel",
     "deserialize_object",
     "get_field_serializers_map",
+    "hydrate_addresses",
     "import_class",
     "is_uuid_canonical",
     "serialize",
