@@ -615,6 +615,125 @@ class TestGetEvents:
         system.shutdown()
 
 
+class TestGetChildrenOrCreate:
+    """Tests for Orchestrator.getChildrenOrCreate singleton lookup."""
+
+    def test_creates_child_when_absent(self) -> None:
+        """getChildrenOrCreate creates a new child when none exists with the name."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        child_addr = proxy.getChildrenOrCreate(
+            SimpleAgent, config=BaseConfig(name="#Foo", role="Worker")
+        )
+
+        assert child_addr.is_alive()
+        assert child_addr.name == "#Foo"
+
+        system.shutdown()
+
+    def test_returns_existing_live_child(self) -> None:
+        """getChildrenOrCreate returns existing live child instead of creating a duplicate."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        first = proxy.getChildrenOrCreate(
+            SimpleAgent, config=BaseConfig(name="#Foo", role="Worker")
+        )
+        second = proxy.getChildrenOrCreate(
+            SimpleAgent, config=BaseConfig(name="#Foo", role="Worker")
+        )
+
+        assert first.agent_id == second.agent_id
+        assert first.name == second.name
+
+        system.shutdown()
+
+    def test_dead_child_is_not_returned(self) -> None:
+        """getChildrenOrCreate creates a new actor when the existing child is dead."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        first = proxy.getChildrenOrCreate(
+            SimpleAgent, config=BaseConfig(name="#Foo", role="Worker")
+        )
+        first_id = first.agent_id
+
+        # Stop the child
+        system.proxy_ask(first, Akgent).stop()
+
+        # Now request the same name again
+        second = proxy.getChildrenOrCreate(
+            SimpleAgent, config=BaseConfig(name="#Foo", role="Worker")
+        )
+
+        assert second.is_alive()
+        assert second.agent_id != first_id
+
+        system.shutdown()
+
+    def test_back_to_back_idempotency(self) -> None:
+        """Two sequential calls with same name return same ActorAddress and only one actor."""
+        config = BaseConfig(name="orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config)
+        orch = orch_ref.proxy()
+
+        addr1 = orch.getChildrenOrCreate(
+            SimpleAgent, config=BaseConfig(name="#Bar", role="Worker")
+        ).get()
+        addr2 = orch.getChildrenOrCreate(
+            SimpleAgent, config=BaseConfig(name="#Bar", role="Worker")
+        ).get()
+
+        # Same actor returned
+        assert addr1.agent_id == addr2.agent_id
+
+        # Verify only one child with that name by checking team via messages
+        # (both calls should have resulted in only one StartMessage for #Bar)
+        messages = orch.get_messages().get()
+        bar_starts = [
+            m for m in messages
+            if isinstance(m, StartMessage) and m.config.name == "#Bar"
+        ]
+        assert len(bar_starts) == 1
+
+        orch_ref.stop()
+
+    def test_different_names_create_different_children(self) -> None:
+        """getChildrenOrCreate creates separate children for different names."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        foo = proxy.getChildrenOrCreate(
+            SimpleAgent, config=BaseConfig(name="#Foo", role="Worker")
+        )
+        bar = proxy.getChildrenOrCreate(
+            SimpleAgent, config=BaseConfig(name="#Bar", role="Worker")
+        )
+
+        assert foo.agent_id != bar.agent_id
+        assert foo.name == "#Foo"
+        assert bar.name == "#Bar"
+
+        system.shutdown()
+
+
 class TestSnapshotForSubscribers:
     """Tests for _snapshot_for_subscribers address serialization (AC: 1-4)."""
 
