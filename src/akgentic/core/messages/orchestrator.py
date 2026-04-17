@@ -29,7 +29,7 @@ class SentMessage(Message):
     """
 
     message: Message
-    recipient: ActorAddress  # type: ignore[override]
+    recipient: ActorAddress
 
 
 class ReceivedMessage(Message):
