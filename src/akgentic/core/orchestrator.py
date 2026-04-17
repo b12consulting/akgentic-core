@@ -9,7 +9,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable
-from typing import Protocol, overload, override
+from typing import Any, Protocol, overload, override
 
 from pydantic import Field
 
@@ -429,7 +429,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         logger.info("Orchestrator restoration complete, resuming normal operation")
 
     def getChildrenOrCreate(  # noqa: N802
-        self, actor_class: type[Akgent], config: BaseConfig
+        self, actor_class: type[Akgent[Any, Any]], config: BaseConfig
     ) -> ActorAddress:
         """Return an existing live child by name, or create a new one.
 
