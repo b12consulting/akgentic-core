@@ -12,7 +12,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import traceback as tb_module
 import uuid
+from types import TracebackType
 from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast, override
 
 import pykka
@@ -387,38 +389,50 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         return message
 
     @override
-    def _handle_receive(self, message: Any) -> Any:
-        """Error handling wrapper for message processing.
+    def _handle_failure(
+        self,
+        exception_type: type[BaseException] | None,
+        exception_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Handle actor failure by logging and notifying the orchestrator.
 
-        Catches exceptions during message handling, logs them,
-        notifies orchestrator, and prevents actor crash.
+        Called by Pykka when an exception occurs during message processing
+        and no reply_to is set. Logs the error, marks the current message
+        as processed, and sends an ErrorMessage to the orchestrator.
+        WarningErrors are silently acknowledged without escalation.
 
         Args:
-            message: Incoming message to process.
-
-        Returns:
-            Result from super()._handle_receive() if successful.
+            exception_type: The type of the raised exception (None if unavailable).
+            exception_value: The exception instance (None if unavailable).
+            traceback: The traceback object (None if unavailable).
         """
-        try:
-            return super()._handle_receive(message)
-
-        except Exception as e:
-            logger.exception(f"[{self.config.name}] ERROR processing message: {e}")
-
-            if isinstance(message, Message):
-                self._current_message = None
-                self._notify_orchestrator(ProcessedMessage(message_id=message.id))
-
-            if isinstance(e, WarningError):
-                return
-
-            self._notify_orchestrator(
-                ErrorMessage(
-                    exception_type=type(e).__name__,
-                    exception_value=str(e),
-                    current_message=self._current_message,
-                )
+        if exception_type is not None and exception_value is not None:
+            logger.error(
+                f"[{self.config.name}] ERROR processing message: {exception_value!s}",
+                exc_info=(exception_type, exception_value, traceback),
             )
+        else:
+            logger.error(f"[{self.config.name}] ERROR processing message: {exception_value!s}")
+
+        # Capture current_message before clearing for use in ErrorMessage
+        failed_message = self._current_message
+
+        if self._current_message is not None:
+            self._notify_orchestrator(ProcessedMessage(message_id=self._current_message.id))
+            self._current_message = None
+
+        if isinstance(exception_value, WarningError):
+            return
+
+        self._notify_orchestrator(
+            ErrorMessage(
+                exception_type=exception_type.__name__ if exception_type else "Unknown",
+                exception_value=str(exception_value) if exception_value else "",
+                current_message=failed_message,
+                traceback="".join(tb_module.format_tb(traceback)) if traceback else None,
+            )
+        )
 
     @override
     def on_receive(self, message: Any) -> Any:

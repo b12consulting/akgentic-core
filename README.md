@@ -15,6 +15,7 @@ concurrent workflows — all in-memory with no external services required.
 - [Architecture](#architecture)
 - [Messages](#messages)
 - [Agents — Akgent](#agents--akgent)
+  - [Error Handling](#error-handling)
 - [ActorSystem & ActorAddress](#actorsystem--actoraddress)
 - [Communication Patterns](#communication-patterns)
 - [Agent Lifecycle](#agent-lifecycle)
@@ -213,8 +214,15 @@ from akgentic.core.messages import (
 ```
 
 Telemetry messages (`SentMessage`, `ReceivedMessage`, `ErrorMessage`, etc.)
-flow automatically to the Orchestrator — you rarely need to import them
-directly.
+flow automatically to the Orchestrator. Import them when building
+`EventSubscriber` implementations or handling errors programmatically:
+
+```python
+from akgentic.core.messages.orchestrator import (
+    SentMessage, ReceivedMessage, ProcessedMessage, ErrorMessage,
+    StartMessage, StopMessage, StateChangedMessage, EventMessage,
+)
+```
 
 ## Agents — Akgent
 
@@ -262,6 +270,36 @@ class SummaryAgent(Akgent[BaseConfig, BaseState]):
 | `get_team()` | Team roster via orchestrator |
 | `get_agent_card(role)` | Look up capability profile |
 | `find_agents_with_skill(skill)` | Discover agents by skill |
+
+### Error Handling
+
+When an unhandled exception occurs during message processing, `Akgent` uses
+Pykka's `_handle_failure()` hook (not a try/except wrapper around dispatch):
+
+1. **Log** the error with full context
+2. **Emit `ProcessedMessage`** to the orchestrator (marks the current message as done)
+3. **Check for `WarningError`** — if so, silently acknowledge and return
+4. **Emit `ErrorMessage`** with `exception_type`, `exception_value`, `traceback`,
+   and `current_message` to the orchestrator
+
+The actor **does not crash** — it continues processing subsequent messages.
+
+`WarningError` is a soft signal for non-critical failures (e.g., usage limits
+exceeded). Raise it from a message handler when the error should be logged
+and the current message marked as processed, but no `ErrorMessage` should be
+sent to the orchestrator. Import it from `akgentic.core`:
+
+```python
+from akgentic.core import WarningError
+
+class MyAgent(Akgent[BaseConfig, BaseState]):
+    def receiveMsg_TaskMessage(self, msg: TaskMessage, sender: ActorAddress) -> None:
+        if self._over_budget():
+            raise WarningError("Usage limit exceeded")  # logged, no ErrorMessage
+```
+
+For proxy `ask()` calls, Pykka's reply mechanism handles errors automatically —
+the exception is sent back to the caller, bypassing `_handle_failure()`.
 
 ## ActorSystem & ActorAddress
 
@@ -649,9 +687,10 @@ proxy_addr = orchestrator_addr.createActor(
     config=BaseConfig(name="@Human", role="UserProxy"),
 )
 
-# When the human replies, the external system injects the answer
+# When the human replies, the external system injects the answer.
+# Pass the original UserMessage so the proxy knows who to reply to.
 proxy = system.proxy_ask(proxy_addr, MyUserProxy)
-proxy.process_human_input("Approved", original_user_message)
+proxy.process_human_input("Approved", original_user_message)  # original_user_message: the UserMessage received in Leg 1
 ```
 
 **`akgentic-agent` provides `HumanProxy`**, a richer subclass that handles
@@ -696,41 +735,23 @@ uv sync --all-extras
 
 ### Commands
 
+All commands run from the **monorepo root** (`akgentic-quick-start/`):
+
 ```bash
 # Run tests
-uv run pytest packages/akgentic-core/tests/
+pytest packages/akgentic-core/tests/
 
 # Run tests with coverage
-uv run pytest packages/akgentic-core/tests/ --cov=akgentic.core --cov-fail-under=80
+pytest packages/akgentic-core/tests/ --cov=akgentic.core --cov-fail-under=80
 
 # Lint
-uv run ruff check packages/akgentic-core/src/
+ruff check packages/akgentic-core/src/
 
 # Format
-uv run ruff format packages/akgentic-core/src/
+ruff format packages/akgentic-core/src/
 
 # Type check
-uv run mypy packages/akgentic-core/src/
-```
-
-### Project Structure
-
-```
-src/akgentic/core/
-    __init__.py             # Public API (18 exports)
-    agent.py                # Akgent base class
-    actor_system_impl.py    # ActorSystem, ExecutionContext, ProxyWrapper
-    actor_address.py        # ActorAddress ABC
-    actor_address_impl.py   # Impl, Proxy, Stopped variants
-    agent_card.py           # AgentCard — capability profiles
-    agent_config.py         # BaseConfig, AgentConfig alias
-    agent_state.py          # BaseState with observer
-    orchestrator.py         # Orchestrator, EventSubscriber, Timer
-    user_proxy.py           # UserProxy — human bridge
-    messages/               # Message, UserMessage, telemetry types
-    utils/                  # Serializer / deserializer (internal)
-examples/                   # 6 progressive examples with companion docs
-tests/                      # Unit and integration tests
+mypy packages/akgentic-core/src/
 ```
 
 ## License

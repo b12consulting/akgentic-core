@@ -96,6 +96,7 @@ class ErrorMessage(Message):
 
     exception_type: str
     exception_value: str
+    traceback: str | None = None
     current_message: Message | None = None
 
 
