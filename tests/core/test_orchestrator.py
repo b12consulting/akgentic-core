@@ -686,30 +686,33 @@ class TestGetChildrenOrCreate:
 
     def test_back_to_back_idempotency(self) -> None:
         """Two sequential calls with same name return same ActorAddress and only one actor."""
-        config = BaseConfig(name="orchestrator", role="Orchestrator")
-        orch_ref = Orchestrator.start(config=config)
-        orch = orch_ref.proxy()
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        proxy = system.proxy_ask(orch_addr, Orchestrator)
 
-        addr1 = orch.getChildrenOrCreate(
+        addr1 = proxy.getChildrenOrCreate(
             SimpleAgent, config=BaseConfig(name="#Bar", role="Worker")
-        ).get()
-        addr2 = orch.getChildrenOrCreate(
+        )
+        addr2 = proxy.getChildrenOrCreate(
             SimpleAgent, config=BaseConfig(name="#Bar", role="Worker")
-        ).get()
+        )
 
         # Same actor returned
         assert addr1.agent_id == addr2.agent_id
 
         # Verify only one child with that name by checking team via messages
         # (both calls should have resulted in only one StartMessage for #Bar)
-        messages = orch.get_messages().get()
+        messages = proxy.get_messages()
         bar_starts = [
             m for m in messages
             if isinstance(m, StartMessage) and m.config.name == "#Bar"
         ]
         assert len(bar_starts) == 1
 
-        orch_ref.stop()
+        system.shutdown()
 
     def test_different_names_create_different_children(self) -> None:
         """getChildrenOrCreate creates separate children for different names."""
