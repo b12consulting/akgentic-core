@@ -29,7 +29,7 @@ class SentMessage(Message):
     """
 
     message: Message
-    recipient: ActorAddress
+    recipient: ActorAddress  # type: ignore[override]
 
 
 class ReceivedMessage(Message):
@@ -96,6 +96,7 @@ class ErrorMessage(Message):
 
     exception_type: str
     exception_value: str
+    traceback: str | None = None
     current_message: Message | None = None
 
 
