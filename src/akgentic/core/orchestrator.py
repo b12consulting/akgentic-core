@@ -9,7 +9,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable
-from typing import Protocol, overload, override
+from typing import Any, Protocol, overload, override
 
 from pydantic import Field
 
@@ -427,6 +427,27 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         """
         self._restoring = False
         logger.info("Orchestrator restoration complete, resuming normal operation")
+
+    def getChildrenOrCreate(  # noqa: N802
+        self, actor_class: type[Akgent[Any, Any]], config: BaseConfig
+    ) -> ActorAddress:
+        """Return an existing live child by name, or create a new one.
+
+        Uses the synchronous ``_children`` list rather than
+        ``get_team_member()`` (which depends on the asynchronous
+        ``StartMessage`` arrival) to avoid race conditions when
+        multiple callers request the same singleton concurrently.
+
+        Args:
+            actor_class: Class of the agent to instantiate.
+            config: Configuration for the new agent.
+        Returns:
+            ActorAddress of the existing child or newly created agent.
+        """
+        for child in self._children:
+            if child.is_alive() and child.name == config.name:
+                return child
+        return self.createActor(actor_class, config=config)
 
     def get_team(self) -> list[ActorAddress]:
         """Get list of active agents (excludes Orchestrator role).
