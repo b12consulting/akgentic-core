@@ -18,7 +18,7 @@ from akgentic.core.agent import Akgent
 from akgentic.core.agent_card import AgentCard
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
-from akgentic.core.messages.message import Message, StopRecursively
+from akgentic.core.messages.message import Message
 from akgentic.core.messages.orchestrator import (
     ErrorMessage,
     EventMessage,
@@ -120,6 +120,16 @@ class EventSubscriber(Protocol):
 
         Args:
             restoring: ``True`` when replay starts, ``False`` when it ends.
+        """
+        ...
+
+    def on_stop_request(self) -> None:
+        """Called when an orchestrator makes a stop request (e.g. inactivity timer fires).
+
+        Default implementation is a no-op — subscribers (e.g. ``TimerStopSubscriber``
+        in ``akgentic-team``) override this to decide how to actually stop the
+        team. The orchestrator itself does NOT stop on this signal; shutdown is
+        the subscriber's responsibility.
         """
         ...
 
@@ -237,9 +247,9 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         Any exception during the stop is caught and logged to prevent the
         timer thread from crashing silently.
         """
-        team_id = getattr(self.config, "team_id", "unknown")
+        team_id = self.team_id
         logger.info(f"Orchestrator timeout after {self._timer.delay}s inactivity (team={team_id})")
-        self.send(self.myAddress, StopRecursively())
+        self._notify_subscribers("on_stop_request")
 
     def get_timer(self) -> Timer:
         """Return the inactivity Timer instance (for testing and introspection).

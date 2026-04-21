@@ -1,5 +1,6 @@
 """Unit tests for the Timer helper class and Orchestrator timer integration."""
 
+import logging
 import os
 import threading
 import time
@@ -12,7 +13,7 @@ import pytest
 
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.messages.orchestrator import ErrorMessage, ProcessedMessage, ReceivedMessage
-from akgentic.core.orchestrator import TIMER_DELAY, Orchestrator, Timer
+from akgentic.core.orchestrator import TIMER_DELAY, EventSubscriber, Orchestrator, Timer
 
 
 @pytest.fixture(autouse=True)
@@ -461,18 +462,125 @@ class TestOrchestratorStop:
         assert timer._timer is None
 
 
-class TestOrchestratorTimeoutHandler:
-    """Tests for the _timeout_handler method."""
+class _RecordingStopSubscriber:
+    """Subscriber that records on_stop_request / on_stop / on_message invocations."""
 
-    def test_timeout_causes_orchestrator_to_stop(self) -> None:
-        """After timer fires, orchestrator sends StopRecursively to itself and stops."""
+    def __init__(self) -> None:
+        self.stop_request_count: int = 0
+        self.stop_count: int = 0
+        self.messages: list[object] = []
+
+    def set_restoring(self, restoring: bool) -> None:  # noqa: FBT001
+        """Protocol compliance — no-op for these tests."""
+        pass
+
+    def on_stop_request(self) -> None:
+        self.stop_request_count += 1
+
+    def on_stop(self) -> None:
+        self.stop_count += 1
+
+    def on_message(self, msg: object) -> None:
+        self.messages.append(msg)
+
+
+class TestEventSubscriberProtocol:
+    """AC1: ``on_stop_request`` is part of the ``EventSubscriber`` protocol."""
+
+    def test_on_stop_request_exists_on_protocol(self) -> None:
+        """The ``EventSubscriber`` protocol exposes ``on_stop_request``."""
+        assert hasattr(EventSubscriber, "on_stop_request")
+        assert callable(EventSubscriber.on_stop_request)
+
+    def test_on_stop_request_default_implementation_is_noop(self) -> None:
+        """A subclass that inherits the default definition returns ``None``.
+
+        The protocol body is ``...`` which is compiled to a ``None`` return.
+        Subscribers that do not implement ``on_stop_request`` should therefore
+        silently do nothing.
+        """
+
+        class _MinimalSubscriber(EventSubscriber):
+            pass
+
+        sub = _MinimalSubscriber()
+        # Calling the default method must not raise and must return None
+        assert sub.on_stop_request() is None  # type: ignore[func-returns-value]
+
+
+class TestOrchestratorTimeoutHandler:
+    """AC2/AC3/AC4: ``_timeout_handler`` delegates shutdown via subscribers."""
+
+    def test_timeout_notifies_subscribers_on_stop_request(self) -> None:
+        """AC2: firing the timer calls ``on_stop_request`` on every subscriber."""
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config)
+        orch = orch_ref.proxy()
+
+        sub = _RecordingStopSubscriber()
+        orch.subscribe(sub).get()
+
+        # Invoke the handler the same way ``threading.Timer`` would —
+        # directly via the callback stored on the Timer. This isolates the
+        # behavioural contract of ``_timeout_handler`` from scheduling noise.
+        timer = orch.get_timer().get()
+        timer.timeout_callback()
+
+        # Give the actor thread a moment to process any internal messages
+        # (snapshot_for_subscribers runs on the caller; subscriber calls are
+        # synchronous within _notify_subscribers, so assertions are immediate).
+        assert sub.stop_request_count == 1
+        # on_stop is a separate lifecycle hook; the timeout must not trigger it
+        assert sub.stop_count == 0
+
+        orch_ref.stop()
+
+    def test_timeout_does_not_stop_orchestrator(self) -> None:
+        """AC2/AC3: the orchestrator stays alive after timer fires.
+
+        The refactor delegates shutdown to the subscriber — the orchestrator
+        no longer sends ``StopRecursively`` to itself on inactivity. This
+        test verifies the actor remains alive after a real timeout fires
+        without any subscriber taking action.
+        """
         with patch.dict(os.environ, {"ORCHESTRATOR_TIMEOUT_DELAY": "1"}):
             config = BaseConfig(name="test-orchestrator", role="Orchestrator")
             orch_ref = Orchestrator.start(config=config)
+            orch = orch_ref.proxy()
 
-            # Poll until the actor dies (fires at ~1s) with a 3s hard ceiling
+            sub = _RecordingStopSubscriber()
+            orch.subscribe(sub).get()
+
+            # Wait past the configured 1s inactivity delay so the timer fires.
+            # Poll up to 3s to confirm the subscriber was notified.
             deadline = time.monotonic() + 3.0
-            while orch_ref.is_alive() and time.monotonic() < deadline:
+            while sub.stop_request_count == 0 and time.monotonic() < deadline:
                 time.sleep(0.1)
 
-            assert not orch_ref.is_alive()
+            # Subscriber was notified at least once
+            assert sub.stop_request_count >= 1
+            # Orchestrator remained alive — shutdown is the subscriber's job now
+            assert orch_ref.is_alive()
+
+            orch_ref.stop()
+
+    def test_timeout_log_uses_actor_team_id(self, caplog: pytest.LogCaptureFixture) -> None:
+        """AC4: the inactivity log line uses the actor's ``team_id`` attribute."""
+        team_id = uuid.uuid4()
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config, team_id=team_id)
+        orch = orch_ref.proxy()
+
+        try:
+            timer = orch.get_timer().get()
+            with caplog.at_level(logging.INFO, logger="akgentic.core.orchestrator"):
+                # Fire the handler directly (same callback threading.Timer uses)
+                timer.timeout_callback()
+
+            timeout_records = [
+                r for r in caplog.records if "Orchestrator timeout after" in r.getMessage()
+            ]
+            assert len(timeout_records) == 1
+            assert f"team={team_id}" in timeout_records[0].getMessage()
+        finally:
+            orch_ref.stop()
