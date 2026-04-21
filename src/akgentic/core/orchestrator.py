@@ -9,7 +9,7 @@ import logging
 import os
 import threading
 from collections.abc import Callable
-from typing import Any, Protocol, overload, override
+from typing import Any, Protocol, override
 
 from pydantic import Field
 
@@ -500,47 +500,29 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             None,
         )
 
-    @overload
-    def get_messages(self) -> list[Message]: ...
-
-    @overload
-    def get_messages(self, sender: ActorAddress) -> tuple[list[Message], list[Message]]: ...
-
     def get_messages(
-        self, sender: ActorAddress | None = None
-    ) -> list[Message] | tuple[list[Message], list[Message]]:
+        self, sender: ActorAddress | None = None, message_type: type | None = None
+    ) -> list[Message]:
         """Get messages from message history.
 
         Args:
-            sender: Optional ActorAddress to filter messages by sender.
-                   If provided, returns tuple of (requests, answers).
-                   If None, returns all messages.
+            sender: Optional ActorAddress to filter by sender.
+            message_type: Optional message type to filter by isinstance check.
 
         Returns:
-            If sender is None: list of all messages
-            If sender provided: tuple of (requests from sender, answers to sender)
+            Filtered list of messages matching the given criteria,
+            or all messages if no filters are provided.
         """
-        if sender:
-            # Filter for HelpRequestMessage from sender
-            requests = [
-                request.message
-                for request in self.messages
-                if request.sender == sender
-                and isinstance(request, SentMessage)
-                and request.message.__class__.__name__ == "HelpRequestMessage"
+        if sender and message_type:
+            return [
+                msg
+                for msg in self.messages
+                if msg.sender == sender and isinstance(msg, message_type)
             ]
-            request_ids = {req.id for req in requests}
-
-            # Filter for HelpAnswerMessage matching requests
-            answers = [
-                answer.message
-                for answer in self.messages
-                if isinstance(answer, SentMessage)
-                and answer.message.__class__.__name__ == "HelpAnswerMessage"
-                and hasattr(answer.message, "request_id")
-                and answer.message.request_id in request_ids
-            ]
-            return requests, answers
+        elif sender:
+            return [msg for msg in self.messages if msg.sender == sender]
+        elif message_type:
+            return [msg for msg in self.messages if isinstance(msg, message_type)]
 
         return self.messages
 
