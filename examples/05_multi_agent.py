@@ -408,6 +408,14 @@ class SimpleLogger(EventSubscriber):
         """
         self.message_count += 1
 
+    def set_restoring(self, restoring: bool) -> None:
+        """No-op — this simple logger doesn't need to handle restoring."""
+        pass
+
+    def on_stop_request(self) -> None:
+        """No-op — stop handling is bridged by TimerStopSubscriber in akgentic-team."""
+        pass
+
     def on_stop(self) -> None:
         """Called when orchestrator stops."""
         pass
