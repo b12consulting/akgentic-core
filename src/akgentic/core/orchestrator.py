@@ -124,7 +124,13 @@ class EventSubscriber(Protocol):
         ...
 
     def on_stop_request(self) -> None:
-        """Called when an orchestrator make a stop request (e.g. inactivity timer fires)."""
+        """Called when an orchestrator makes a stop request (e.g. inactivity timer fires).
+
+        Default implementation is a no-op — subscribers (e.g. ``TimerStopSubscriber``
+        in ``akgentic-team``) override this to decide how to actually stop the
+        team. The orchestrator itself does NOT stop on this signal; shutdown is
+        the subscriber's responsibility.
+        """
         ...
 
     def on_stop(self) -> None:
