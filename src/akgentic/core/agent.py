@@ -540,6 +540,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         """
         if self._event_loop.is_running():
             self._event_loop.stop()
+        self._event_loop.close()
 
         self._notify_orchestrator(StopMessage())
         logger.info(f"[{self.config.name}] Stopped.")
