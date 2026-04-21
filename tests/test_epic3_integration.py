@@ -4,7 +4,8 @@ Tests the full end-to-end behaviour of the Orchestrator's inactivity timer,
 verifying that:
   - ReceivedMessage pauses the timer (task_started)
   - ProcessedMessage restarts the timer (task_completed)
-  - Orchestrator stops after timeout when no new messages arrive
+  - Subscribers receive ``on_stop_request`` when the timer fires and the
+    orchestrator itself stays alive (shutdown is delegated to the subscriber)
   - Manual stop cancels the timer cleanly
   - WarningError in handler: timer resets properly, no ErrorMessage sent
   - Other exception in handler: timer resets properly, ErrorMessage sent
@@ -96,23 +97,51 @@ class TestOrchestratorTimerIntegration:
         sender_ref.stop()
         orch_ref.stop()
 
-    def test_orchestrator_stops_after_timeout_with_no_new_messages(self) -> None:
-        """Orchestrator stops itself after inactivity timeout if no new messages arrive.
+    def test_timeout_notifies_subscribers_and_orchestrator_stays_alive(self) -> None:
+        """After the inactivity timeout fires, subscribers are notified via
+        ``on_stop_request`` and the orchestrator itself stays alive.
 
-        Uses a 1-second timeout for test speed.
+        The refactor (Story 3.6) delegates shutdown to subscribers — the
+        orchestrator no longer sends ``StopRecursively`` to itself. Uses a
+        1-second timeout for test speed.
         """
+
+        class _StopSub:
+            def __init__(self) -> None:
+                self.stop_request_count = 0
+
+            def set_restoring(self, restoring: bool) -> None:  # noqa: FBT001
+                pass
+
+            def on_stop_request(self) -> None:
+                self.stop_request_count += 1
+
+            def on_stop(self) -> None:
+                pass
+
+            def on_message(self, msg: Message) -> None:
+                pass
+
         with patch.dict(os.environ, {"ORCHESTRATOR_TIMEOUT_DELAY": "1"}):
             config = BaseConfig(name="orch-timeout-test", role="Orchestrator")
             orch_ref = Orchestrator.start(config=config)
+            orch = orch_ref.proxy()
+
+            sub = _StopSub()
+            orch.subscribe(sub).get()
 
             assert orch_ref.is_alive()
 
-            # Poll until the actor dies (fires at ~1s) with a 3s hard ceiling
+            # Wait for the timer (1s) to fire; poll the subscriber up to 3s.
             deadline = time.monotonic() + 3.0
-            while orch_ref.is_alive() and time.monotonic() < deadline:
+            while sub.stop_request_count == 0 and time.monotonic() < deadline:
                 time.sleep(0.1)
 
-            assert not orch_ref.is_alive()
+            assert sub.stop_request_count >= 1
+            # Orchestrator did NOT self-stop — the subscriber owns shutdown now
+            assert orch_ref.is_alive()
+
+            orch_ref.stop()
 
     def test_timer_resets_on_new_message_after_previous_task_completes(self) -> None:
         """Timer resets correctly through multiple receive/process cycles."""
