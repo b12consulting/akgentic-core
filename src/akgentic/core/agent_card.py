@@ -8,6 +8,7 @@ This ensures each agent gets an independent copy, preventing shared mutable stat
 
 from __future__ import annotations
 
+import warnings
 from typing import TYPE_CHECKING, Any, TypeVar, get_args, get_origin
 
 from pydantic import Field, model_validator
@@ -18,6 +19,26 @@ from akgentic.core.utils.serializer import SerializableBaseModel
 
 if TYPE_CHECKING:
     pass
+
+
+# Module-level flag — ensures the legacy ``role=`` deprecation warning fires
+# exactly once per process, not once per card. See Story 9.2 Dev Notes.
+_ROLE_DEPRECATION_WARNED = False
+
+
+def _warn_legacy_role_once() -> None:
+    """Emit the legacy ``role=`` ``DeprecationWarning`` at most once per process."""
+    global _ROLE_DEPRECATION_WARNED
+    if _ROLE_DEPRECATION_WARNED:
+        return
+    _ROLE_DEPRECATION_WARNED = True
+    warnings.warn(
+        "AgentCard.role is deprecated as a top-level field — set role on config.role "
+        "instead. The legacy top-level `role=` has been hoisted into config.role for "
+        "backward compatibility; this shim will be removed in a future release.",
+        DeprecationWarning,
+        stacklevel=3,
+    )
 
 
 # Cache for resolved ConfigType per agent class — walking __orig_bases__ is
@@ -121,38 +142,159 @@ class AgentCard(SerializableBaseModel):
 
     Example:
         >>> card = AgentCard(
-        ...     role="ResearchAgent",
         ...     description="Performs web research and data gathering",
         ...     skills=["web_search", "pdf_extraction"],
         ...     agent_class="examples.multi_agent.ResearchAgent",
         ...     config=BaseConfig(name="research", role="ResearchAgent"),
         ...     routes_to=["WriterAgent", "AnalystAgent"]
         ... )
-        >>> # Now other agents can discover this profile and its config
+        >>> # ``role`` is now a derived accessor sourced from ``config.role``
+        >>> card.role
+        'ResearchAgent'
+        >>> # Other agents can discover this profile and its config
         >>> print(card.skills)
         ['web_search', 'pdf_extraction']
         >>> card.can_route_to("WriterAgent")
         True
 
     Attributes:
-        role: Agent role/type identifier (e.g., "ResearchAgent")
         description: Human-readable description of what this agent does
         skills: List of capabilities this agent provides
         agent_class: Fully qualified class name (str) or actual class (type) for instantiation
-        config: Default BaseConfig (or subclass) for this profile
+        config: Default BaseConfig (or subclass) for this profile — role lives here
         routes_to: List of roles this agent can send requests to.
                    Empty list means can route to any role (no restrictions).
                    Agents can always respond to requests regardless of this field.
         metadata: Extensible key-value storage for custom attributes
+
+    Note:
+        ``role`` is exposed as a ``@property`` that reads ``config.role`` — it is
+        not a declared field. Constructing with the legacy ``role="X"`` keyword
+        is still accepted for backward compatibility: the value is hoisted into
+        ``config.role`` with a one-time ``DeprecationWarning``. If a caller
+        supplies both a top-level ``role=`` and a non-empty ``config.role`` that
+        disagree, a ``ValidationError`` is raised.
     """
 
-    role: str
     description: str
     skills: list[str]
     agent_class: str | type
     config: BaseConfig = Field(default_factory=BaseConfig)
     routes_to: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def role(self) -> str:
+        """Agent role identifier, derived from ``config.role`` (single source of truth).
+
+        ``role`` is no longer a declared Pydantic field on ``AgentCard``; it is a
+        read-only accessor that delegates to ``self.config.role``. This removes
+        the possibility of drift between ``card.role`` and ``card.config.role``
+        — historically two independent slots that had to be kept in sync by
+        convention.
+        """
+        return self.config.role
+
+    @model_validator(mode="before")
+    @classmethod
+    def hoist_legacy_role_into_config(cls, data: Any) -> Any:
+        """Accept the legacy top-level ``role=`` keyword and hoist it into ``config.role``.
+
+        Declared *before* :meth:`coerce_config_to_agent_class_generic` so the
+        legacy-shape normalisation runs first — by the time the class-coercion
+        validator sees the data, the canonical shape (``config.role`` populated,
+        no top-level ``role``) is in place (Story 9.2 Dev Notes).
+
+        Rules:
+
+        * If input contains a top-level ``"role"`` and ``config.role`` is empty
+          or missing → copy the value down into ``config.role``, drop the
+          top-level key, emit a one-time ``DeprecationWarning`` (AC #3).
+        * If input contains a top-level ``"role"`` *and* a non-empty
+          ``config.role`` that disagrees → raise ``ValueError`` (AC #4).
+        * If input contains a top-level ``"role"`` and a non-empty
+          ``config.role`` that agrees → drop the top-level key silently, no
+          warning (AC #7) — existing YAML should not spam logs.
+        * Non-dict inputs and inputs lacking the top-level ``"role"`` pass
+          through unchanged.
+
+        The validator does not enforce non-empty ``config.role`` here — that is
+        handled by :meth:`require_non_empty_config_role` (``mode="after"``).
+        """
+        if not isinstance(data, dict):
+            return data
+
+        if "role" not in data:
+            return data
+
+        top_level_role = data["role"]
+        # Only act on string values. Anything else is invalid shape and we
+        # simply leave it for downstream validation to report.
+        if not isinstance(top_level_role, str):
+            return data
+
+        config_value = data.get("config")
+        config_role = cls._extract_config_role(config_value)
+
+        if config_role and top_level_role and config_role != top_level_role:
+            raise ValueError(
+                "AgentCard.role (top-level, legacy) and config.role disagree: "
+                f"role={top_level_role!r} vs config.role={config_role!r}. "
+                "Remove the top-level `role` and set `config.role` only."
+            )
+
+        new_data = {k: v for k, v in data.items() if k != "role"}
+
+        if not config_role and top_level_role:
+            # Hoist legacy top-level role → config.role and warn once.
+            new_config = cls._with_config_role(config_value, top_level_role)
+            new_data["config"] = new_config
+            _warn_legacy_role_once()
+
+        return new_data
+
+    @staticmethod
+    def _extract_config_role(config_value: Any) -> str:
+        """Return ``config.role`` from dict / ``BaseConfig`` / missing config, else ``""``."""
+        if config_value is None:
+            return ""
+        if isinstance(config_value, BaseConfig):
+            return config_value.role
+        if isinstance(config_value, dict):
+            role = config_value.get("role", "")
+            return role if isinstance(role, str) else ""
+        return ""
+
+    @staticmethod
+    def _with_config_role(config_value: Any, role: str) -> Any:
+        """Return a copy of *config_value* with ``role`` set (dict, ``BaseConfig``, or new dict).
+
+        Used by the legacy-``role=`` hoist; leaves unknown shapes alone.
+        """
+        if config_value is None:
+            return {"role": role}
+        if isinstance(config_value, BaseConfig):
+            return config_value.model_copy(update={"role": role})
+        if isinstance(config_value, dict):
+            return {**config_value, "role": role}
+        # Unknown shape — do not mutate; downstream validation will complain.
+        return config_value
+
+    @model_validator(mode="after")
+    def require_non_empty_config_role(self) -> AgentCard:
+        """Reject cards whose ``config.role`` is empty after any legacy-``role`` hoisting.
+
+        ``config.role`` is the orchestrator's registry key (it is used at
+        :func:`akgentic.core.orchestrator.Orchestrator.register_agent_profile`)
+        so an empty role makes the card silently unroutable. This validator
+        makes the failure loud and early (AC #5).
+        """
+        if not self.config.role:
+            raise ValueError(
+                "AgentCard.config.role is required and must be non-empty — "
+                "it is the registry key used by the orchestrator."
+            )
+        return self
 
     @model_validator(mode="before")
     @classmethod
