@@ -7,7 +7,6 @@ Covers acceptance criteria #1–#11 from
 from __future__ import annotations
 
 import warnings
-from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -233,38 +232,12 @@ class TestOrchestratorRegistryKey:
             system.shutdown()
 
 
-class TestRepoFixturesDropLegacyRole:
-    """AC #11: agent YAML fixtures in the parent repo no longer carry top-level role."""
-
-    FIXTURE_DIR = Path(__file__).resolve().parents[4] / "data/catalog/agent-team-v1/agent"
-
-    @pytest.mark.parametrize(
-        "filename",
-        ["assistant.yaml", "expert.yaml", "human_proxy.yaml", "human_support.yaml", "manager.yaml"],
-    )
-    def test_fixture_has_no_top_level_role(self, filename: str) -> None:
-        """Lightweight textual check — avoids a PyYAML dependency in akgentic-core tests.
-
-        The fixtures use a simple two-space-indent YAML layout, so we can assert
-        (a) there is a ``payload:`` section and (b) no two-space-indented
-        ``role:`` line exists directly under it — the legacy shape. A
-        four-space-indent ``role:`` inside ``config:`` is still allowed.
-        """
-        path = self.FIXTURE_DIR / filename
-        if not path.exists():
-            pytest.skip(f"fixture {path} not present in this checkout")
-        text = path.read_text()
-        assert "payload:" in text, f"{filename}: missing payload: section"
-        bad_lines = [
-            line
-            for line in text.splitlines()
-            if line.startswith("  role:") and not line.startswith("   ")
-        ]
-        assert not bad_lines, (
-            f"{filename}: top-level payload.role is forbidden (Story 9.2 AC #11) — "
-            f"move it to payload.config.role. Offending lines: {bad_lines}"
-        )
-        # Positive check: config.role line is present and non-empty.
-        assert any("    role:" in line for line in text.splitlines()), (
-            f"{filename}: payload.config.role must be set."
-        )
+# AC #11 (agent YAML fixtures drop top-level `role:`) is intentionally NOT
+# asserted in this test module. Those fixtures live in the PARENT repo
+# (``data/catalog/agent-team-v1/agent/*.yaml``) — outside the ``akgentic-core``
+# submodule boundary. A submodule test that reads parent-repo files would
+# silently ``pytest.skip`` in standalone CI (where the submodule is checked
+# out on its own) and would violate CLAUDE.md Golden Rule #4. The backward-
+# compatible hoist path exercised by ``TestLegacyRoleHoist`` above is what
+# keeps the legacy YAML shape working; fixture migration is verified by the
+# parent-repo catalog load in integration tests.
