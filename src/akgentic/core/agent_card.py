@@ -8,11 +8,12 @@ This ensures each agent gets an independent copy, preventing shared mutable stat
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, TypeVar, cast, get_args, get_origin
+from typing import TYPE_CHECKING, Any, TypeVar, get_args, get_origin
 
 from pydantic import Field, model_validator
 
 from akgentic.core.agent_config import BaseConfig
+from akgentic.core.utils import import_class
 from akgentic.core.utils.serializer import SerializableBaseModel
 
 if TYPE_CHECKING:
@@ -27,6 +28,8 @@ _CONFIG_TYPE_CACHE: dict[type, type[BaseConfig] | None] = {}
 def _resolve_agent_class(value: str | type) -> type:
     """Resolve ``agent_class`` (str FQCN or type) to the actual class.
 
+    Thin wrapper around :func:`akgentic.core.utils.import_class` that adds the
+    type short-circuit and a clearer error for empty / unqualified inputs.
     Shared by ``AgentCard.get_agent_class()`` and the ``config`` coercion
     model-validator.
 
@@ -50,12 +53,7 @@ def _resolve_agent_class(value: str | type) -> type:
             f"(e.g. 'mypackage.agents.MyAgent'), got: {value!r}"
         )
 
-    components = value.split(".")
-    module_path = ".".join(components[:-1])
-    class_name = components[-1]
-
-    module = __import__(module_path, fromlist=[class_name])
-    return cast(type, getattr(module, class_name))
+    return import_class(value)
 
 
 def _extract_config_type(agent_cls: type) -> type[BaseConfig] | None:
@@ -221,9 +219,7 @@ class AgentCard(SerializableBaseModel):
             agent_cls = _resolve_agent_class(agent_class_raw)
         except (ValueError, ImportError, AttributeError) as exc:
             # AC #8: surface import errors as ValidationError via ValueError.
-            raise ValueError(
-                f"Could not resolve agent_class={agent_class_raw!r}: {exc}"
-            ) from exc
+            raise ValueError(f"Could not resolve agent_class={agent_class_raw!r}: {exc}") from exc
 
         config_type = _extract_config_type(agent_cls)
         if config_type is None or config_type is BaseConfig:
