@@ -34,12 +34,17 @@ class TestAgentCard:
         assert retrieved_config.name == "test"
 
     def test_create_agent_card_with_dict_config(self) -> None:
-        """AgentCard accepts dict config."""
+        """AgentCard accepts dict config.
+
+        Uses ``akgentic.core.Akgent`` (itself unparameterised) so the
+        config-coercion validator falls back to ``BaseConfig`` without
+        attempting to import a non-existent ``test.TestAgent`` module.
+        """
         card = AgentCard(
             role="TestAgent",
             description="A test agent",
             skills=["testing"],
-            agent_class="test.TestAgent",
+            agent_class="akgentic.core.Akgent",
             config={"name": "test", "role": "TestAgent"},
         )
 

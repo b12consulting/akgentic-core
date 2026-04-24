@@ -8,12 +8,108 @@ This ensures each agent gets an independent copy, preventing shared mutable stat
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, TypeVar, get_args, get_origin
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from akgentic.core.agent_config import BaseConfig
+from akgentic.core.utils import import_class
 from akgentic.core.utils.serializer import SerializableBaseModel
+
+if TYPE_CHECKING:
+    pass
+
+
+# Cache for resolved ConfigType per agent class — walking __orig_bases__ is
+# non-trivial, and AgentCard.model_validate is hot on catalog load.
+_CONFIG_TYPE_CACHE: dict[type, type[BaseConfig] | None] = {}
+
+
+def _resolve_agent_class(value: str | type) -> type:
+    """Resolve ``agent_class`` (str FQCN or type) to the actual class.
+
+    Thin wrapper around :func:`akgentic.core.utils.import_class` that adds the
+    type short-circuit and a clearer error for empty / unqualified inputs.
+    Shared by ``AgentCard.get_agent_class()`` and the ``config`` coercion
+    model-validator.
+
+    Args:
+        value: Either a class object or a fully qualified dotted path string.
+
+    Returns:
+        The resolved class object.
+
+    Raises:
+        ValueError: If *value* is an empty string or not a dotted path.
+        ImportError / ModuleNotFoundError: If the module cannot be imported.
+        AttributeError: If the class is not found in the module.
+    """
+    if isinstance(value, type):
+        return value
+
+    if not value or "." not in value:
+        raise ValueError(
+            f"agent_class must be a fully qualified dotted path "
+            f"(e.g. 'mypackage.agents.MyAgent'), got: {value!r}"
+        )
+
+    return import_class(value)
+
+
+def _extract_config_type(agent_cls: type) -> type[BaseConfig] | None:
+    """Walk ``agent_cls.__mro__`` for the first concrete ``Akgent[ConfigType, …]`` binding.
+
+    Inspects each base's ``__orig_bases__`` for an entry whose origin is
+    :class:`akgentic.core.agent.Akgent`. Returns the first type argument when
+    it is a concrete :class:`BaseConfig` subclass; returns ``None`` when the
+    argument is a :class:`typing.TypeVar` (unparameterised subclass), when
+    *agent_cls* is not an :class:`Akgent` subclass at all, or when no such
+    binding is found.
+
+    Results are memoised in ``_CONFIG_TYPE_CACHE`` keyed by *agent_cls*.
+
+    Args:
+        agent_cls: The candidate agent class.
+
+    Returns:
+        The concrete ``ConfigType`` (subclass of ``BaseConfig``) declared by the
+        first ``Akgent[X, Y]`` binding found in the MRO, or ``None`` when no
+        usable binding exists.
+    """
+    cached = _CONFIG_TYPE_CACHE.get(agent_cls)
+    if cached is not None or agent_cls in _CONFIG_TYPE_CACHE:
+        return cached
+
+    # Lazy import to avoid module-initialisation cycles: agent.py imports
+    # agent_card, and we cannot import Akgent at module top-level here.
+    from akgentic.core.agent import Akgent
+
+    if not (isinstance(agent_cls, type) and issubclass(agent_cls, Akgent)):
+        _CONFIG_TYPE_CACHE[agent_cls] = None
+        return None
+
+    config_type: type[BaseConfig] | None = None
+    for base_cls in agent_cls.__mro__:
+        orig_bases = getattr(base_cls, "__orig_bases__", ())
+        for orig in orig_bases:
+            if get_origin(orig) is not Akgent:
+                continue
+            args = get_args(orig)
+            if not args:
+                continue
+            candidate = args[0]
+            if isinstance(candidate, TypeVar):
+                # Unparameterised — keep searching up the MRO in case a
+                # sibling/parent provides a concrete binding.
+                continue
+            if isinstance(candidate, type) and issubclass(candidate, BaseConfig):
+                config_type = candidate
+                break
+        if config_type is not None:
+            break
+
+    _CONFIG_TYPE_CACHE[agent_cls] = config_type
+    return config_type
 
 
 class AgentCard(SerializableBaseModel):
@@ -58,6 +154,87 @@ class AgentCard(SerializableBaseModel):
     routes_to: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
+    @model_validator(mode="before")
+    @classmethod
+    def coerce_config_to_agent_class_generic(cls, data: Any) -> Any:
+        """Coerce ``config`` to the concrete ``ConfigType`` declared by ``agent_class``.
+
+        Runs in ``mode="before"``, after ``SerializableBaseModel.deserialize_types``,
+        so *data* is a plain dict (if validating from raw payload) by the time we
+        see it. Leaves non-dict payloads and already-typed ``BaseConfig`` instances
+        untouched.
+
+        The resolution is intentionally tolerant:
+
+        * Unresolvable ``agent_class`` (empty string, bad FQCN) is left for the
+          field-level validator to report — we simply skip coercion in that case
+          so that the underlying ``ValueError`` / ``AttributeError`` raised by the
+          import path surfaces with its original message.
+        * ``_extract_config_type`` returning ``None`` (unparameterised class, or
+          a non-``Akgent`` class) falls back to the declared ``BaseConfig`` — the
+          field-level validator still produces a valid ``BaseConfig`` from the
+          input dict (AC #7).
+
+        Args:
+            data: Raw input passed to ``model_validate`` — typically a dict, but
+                Pydantic may pass a model instance when re-validating.
+
+        Returns:
+            The (possibly updated) input data. When coercion applies,
+            ``data["config"]`` is replaced with a concrete ``ConfigType``
+            instance; otherwise *data* is returned unchanged.
+
+        Raises:
+            ValueError: When ``agent_class`` is a string FQCN that cannot be
+                imported — re-raised as ``ValueError`` so Pydantic surfaces it
+                as a ``ValidationError`` (AC #8).
+        """
+        if not isinstance(data, dict):
+            return data
+
+        agent_class_raw = data.get("agent_class")
+        if agent_class_raw is None:
+            return data
+
+        # ``SerializableBaseModel.deserialize_types`` may not have run yet
+        # (Pydantic does not guarantee a parent-first ordering for
+        # ``mode="before"`` validators defined on the subclass). Accept the
+        # serialised ``{"__type__": "pkg.Class"}`` marker here as well so
+        # that round-trips through ``model_dump()``/``model_validate()``
+        # work unconditionally (AC #9).
+        if isinstance(agent_class_raw, dict) and "__type__" in agent_class_raw:
+            agent_class_raw = agent_class_raw["__type__"]
+
+        config_value = data.get("config")
+        # Already a BaseConfig instance → leave it alone (AC #3).
+        if isinstance(config_value, BaseConfig):
+            return data
+
+        # Only coerce dict config payloads; anything else is handed to the
+        # field-level validator unchanged.
+        if not isinstance(config_value, dict):
+            return data
+
+        try:
+            agent_cls = _resolve_agent_class(agent_class_raw)
+        except (ValueError, ImportError, AttributeError) as exc:
+            # AC #8: surface import errors as ValidationError via ValueError.
+            raise ValueError(f"Could not resolve agent_class={agent_class_raw!r}: {exc}") from exc
+
+        config_type = _extract_config_type(agent_cls)
+        if config_type is None or config_type is BaseConfig:
+            # AC #2 / AC #7: no-op when the generic resolves to BaseConfig or
+            # cannot be resolved — the declared annotation still applies.
+            return data
+
+        # Strip __model__ marker if the incoming dict tags itself as something
+        # different; model_validate on the concrete type will re-add its own.
+        # We only strip when it conflicts: if __model__ already names the
+        # target type (or a subclass), SerializableBaseModel.deserialize_types
+        # has already normalised things and we can pass the dict through.
+        data = {**data, "config": config_type.model_validate(config_value)}
+        return data
+
     def get_config_copy(self) -> BaseConfig:
         """Get a deep copy of the config as BaseConfig instance.
 
@@ -91,21 +268,7 @@ class AgentCard(SerializableBaseModel):
             ImportError: If the module cannot be imported.
             AttributeError: If the class is not found in the module.
         """
-        if isinstance(self.agent_class, type):
-            return self.agent_class
-
-        if not self.agent_class or "." not in self.agent_class:
-            raise ValueError(
-                f"agent_class must be a fully qualified dotted path "
-                f"(e.g. 'mypackage.agents.MyAgent'), got: {self.agent_class!r}"
-            )
-
-        components = self.agent_class.split(".")
-        module_path = ".".join(components[:-1])
-        class_name = components[-1]
-
-        module = __import__(module_path, fromlist=[class_name])
-        return cast(type, getattr(module, class_name))
+        return _resolve_agent_class(self.agent_class)
 
     def has_skill(self, skill: str) -> bool:
         """Check if this profile has a specific skill.
