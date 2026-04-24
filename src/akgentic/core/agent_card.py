@@ -121,38 +121,71 @@ class AgentCard(SerializableBaseModel):
 
     Example:
         >>> card = AgentCard(
-        ...     role="ResearchAgent",
         ...     description="Performs web research and data gathering",
         ...     skills=["web_search", "pdf_extraction"],
         ...     agent_class="examples.multi_agent.ResearchAgent",
         ...     config=BaseConfig(name="research", role="ResearchAgent"),
         ...     routes_to=["WriterAgent", "AnalystAgent"]
         ... )
-        >>> # Now other agents can discover this profile and its config
+        >>> # ``role`` is a derived accessor sourced from ``config.role``
+        >>> card.role
+        'ResearchAgent'
+        >>> # Other agents can discover this profile and its config
         >>> print(card.skills)
         ['web_search', 'pdf_extraction']
         >>> card.can_route_to("WriterAgent")
         True
 
     Attributes:
-        role: Agent role/type identifier (e.g., "ResearchAgent")
         description: Human-readable description of what this agent does
         skills: List of capabilities this agent provides
         agent_class: Fully qualified class name (str) or actual class (type) for instantiation
-        config: Default BaseConfig (or subclass) for this profile
+        config: Default BaseConfig (or subclass) for this profile — role lives here
         routes_to: List of roles this agent can send requests to.
                    Empty list means can route to any role (no restrictions).
                    Agents can always respond to requests regardless of this field.
         metadata: Extensible key-value storage for custom attributes
+
+    Note:
+        ``role`` is exposed as a ``@property`` that reads ``config.role`` — it is
+        not a declared field. ``config.role`` is the single source of truth and
+        must be non-empty; callers MUST set it via ``config=BaseConfig(role=...)``.
     """
 
-    role: str
     description: str
     skills: list[str]
     agent_class: str | type
     config: BaseConfig = Field(default_factory=BaseConfig)
     routes_to: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @property
+    def role(self) -> str:
+        """Agent role identifier, derived from ``config.role`` (single source of truth).
+
+        ``role`` is no longer a declared Pydantic field on ``AgentCard``; it is a
+        read-only accessor that delegates to ``self.config.role``. This removes
+        the possibility of drift between ``card.role`` and ``card.config.role``
+        — historically two independent slots that had to be kept in sync by
+        convention.
+        """
+        return self.config.role
+
+    @model_validator(mode="after")
+    def require_non_empty_config_role(self) -> AgentCard:
+        """Reject cards whose ``config.role`` is empty.
+
+        ``config.role`` is the orchestrator's registry key (it is used at
+        :func:`akgentic.core.orchestrator.Orchestrator.register_agent_profile`)
+        so an empty role makes the card silently unroutable. This validator
+        makes the failure loud and early (AC #5).
+        """
+        if not self.config.role:
+            raise ValueError(
+                "AgentCard.config.role is required and must be non-empty — "
+                "it is the registry key used by the orchestrator."
+            )
+        return self
 
     @model_validator(mode="before")
     @classmethod
