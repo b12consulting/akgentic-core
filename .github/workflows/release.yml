@@ -1,12 +1,16 @@
 name: Release
 
+# Manual release: reads version from pyproject.toml on master, tags master HEAD,
+# builds the wheel, and creates a GitHub Release with the wheel attached.
+#
+# Bumping the version is a separate maintainer action via a normal PR. This
+# workflow does NOT push commits to master — branch protection blocks that.
+# The release flow is therefore two-step:
+#   1. Open a "chore: bump version to X.Y.Z" PR; merge it.
+#   2. Trigger this workflow from the Actions tab.
+
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Version to release (e.g. 0.2.0)"
-        required: true
-        type: string
 
 jobs:
   release:
@@ -14,9 +18,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - name: Checkout
+      - name: Checkout master
         uses: actions/checkout@v4
         with:
+          ref: master
           fetch-depth: 0
 
       - name: Install uv
@@ -27,18 +32,30 @@ jobs:
       - name: Set up Python 3.12
         run: uv python install 3.12
 
-      - name: Bump version in pyproject.toml
+      - name: Read version from pyproject.toml
+        id: version
         run: |
-          sed -i 's/^version = ".*"/version = "${{ inputs.version }}"/' pyproject.toml
-          grep '^version = ' pyproject.toml
+          VERSION=$(grep -E '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+          echo "Releasing version: $VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Commit and tag
+      - name: Verify tag does not already exist
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          if git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "::error::Tag v$VERSION already exists. Bump the version in pyproject.toml first."
+            exit 1
+          fi
+
+      - name: Tag master HEAD
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -am "chore: release v${{ inputs.version }}"
-          git tag "v${{ inputs.version }}"
-          git push origin HEAD --tags
+          git tag "v$VERSION"
+          git push origin "v$VERSION"
 
       - name: Build wheel
         run: uv build --wheel --out-dir dist/
@@ -46,7 +63,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: "v${{ inputs.version }}"
-          name: "v${{ inputs.version }}"
+          tag_name: "v${{ steps.version.outputs.version }}"
+          name: "v${{ steps.version.outputs.version }}"
           files: dist/*.whl
           generate_release_notes: true
