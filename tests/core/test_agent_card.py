@@ -20,14 +20,12 @@ class TestAgentCard:
         """AgentCard can store config."""
         config = BaseConfig(name="test", role="TestAgent")
         card = AgentCard(
-            description="A test agent",
             skills=["testing", "validation"],
             agent_class="test.TestAgent",
             config=config,
         )
 
         assert card.role == "TestAgent"
-        assert card.description == "A test agent"
         assert "testing" in card.skills
         retrieved_config = card.get_config_copy()
         assert retrieved_config.name == "test"
@@ -247,7 +245,6 @@ class TestOrchestratorCatalog:
 
             # Register profile
             card = AgentCard(
-                description="Test agent",
                 skills=["testing"],
                 agent_class="test.TestAgent",
                 config=BaseConfig(name="test", role="TestAgent"),
@@ -258,7 +255,6 @@ class TestOrchestratorCatalog:
             retrieved = orch_proxy.get_agent_profile("TestAgent")
             assert retrieved is not None
             assert retrieved.role == "TestAgent"
-            assert retrieved.description == "Test agent"
         finally:
             system.shutdown()
 
