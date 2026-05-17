@@ -152,8 +152,14 @@ class AgentCard(SerializableBaseModel):
         on the card payload.
     """
 
-    skills: list[str]
     agent_class: str | type
+    skills: list[str] = Field(
+        default_factory=list, 
+        description="List of capabilities used for the team's dynamic discovery"
+    )
+    description: str = Field(
+        ..., description="Description of the agent role used for the team's dynamic discovery"
+    )
     config: BaseConfig = Field(default_factory=BaseConfig)
     routes_to: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
