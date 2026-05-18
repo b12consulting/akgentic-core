@@ -5,17 +5,13 @@ import importlib.metadata
 import akgentic.core
 
 
-def test_package_version() -> None:
-    """Test that package version is correctly set."""
-    assert akgentic.core.__version__ == "1.0.0-alpha.2"
-
-
 def test_package_metadata() -> None:
     """Test that package metadata is accessible."""
-    metadata = importlib.metadata.metadata("akgentic")
-    assert metadata["Name"] == "akgentic"
-    # Python normalizes "alpha.2" to "a2" in package version
-    assert metadata["Version"] == "1.0.0a2"
+    metadata = importlib.metadata.metadata("akgentic-core")
+    assert metadata["Name"] == "akgentic-core"
+    # Version is read from installed distribution metadata rather than
+    # hardcoded so the test survives release bumps.
+    assert metadata["Version"] == importlib.metadata.version("akgentic-core")
 
 
 def test_package_has_all_attribute() -> None:

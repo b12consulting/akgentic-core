@@ -22,6 +22,7 @@ class TestAgentCard:
         card = AgentCard(
             skills=["testing", "validation"],
             agent_class="test.TestAgent",
+            description="Test agent for profile catalog tests",
             config=config,
         )
 
@@ -247,6 +248,7 @@ class TestOrchestratorCatalog:
             card = AgentCard(
                 skills=["testing"],
                 agent_class="test.TestAgent",
+                description="Test agent for orchestrator profile registration",
                 config=BaseConfig(name="test", role="TestAgent"),
             )
             orch_proxy.register_agent_profile(card)
