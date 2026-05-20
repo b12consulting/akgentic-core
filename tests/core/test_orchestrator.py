@@ -1201,3 +1201,169 @@ class TestOnMessageDispatchUnchanged:
         assert sub.restoring_calls == []
 
         system.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Story 17.2 — Orchestrator.on_stop fan-out before clear (ADR-011 §3)
+# ---------------------------------------------------------------------------
+
+
+class _LenAtStopRecorder:
+    """Subscriber that snapshots ``len(subscribers)`` at the moment ``on_stop`` fires.
+
+    Used to verify AC #1 — the subscriber is still attached to the orchestrator
+    when its ``on_stop`` body executes (i.e. fan-out runs BEFORE
+    ``self.subscribers.clear()``).
+    """
+
+    def __init__(self) -> None:
+        self.subscribers_list_ref: list[EventSubscriber] | None = None
+        self.calls: list[tuple[uuid.UUID, int]] = []
+
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
+        pass
+
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
+        pass
+
+    def on_stop(self, team_id: uuid.UUID) -> None:
+        # Capture len() at the moment fan-out fires. AC #1 requires this to be
+        # ≥ 1 (subscriber is still attached when its on_stop runs).
+        snapshot = len(self.subscribers_list_ref) if self.subscribers_list_ref is not None else -1
+        self.calls.append((team_id, snapshot))
+
+    def on_message(self, msg: Message) -> None:
+        pass
+
+
+class _OnStopRaisingSubscriber:
+    """Subscriber whose ``on_stop`` raises; other hooks are no-ops.
+
+    Used to verify AC #4 — a raising subscriber does not block the post-stop
+    invariants (``super().on_stop()`` still runs, ``subscribers.clear()`` still
+    runs, ``Stopped !`` log line still runs).
+    """
+
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
+        pass
+
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
+        pass
+
+    def on_stop(self, team_id: uuid.UUID) -> Never:
+        raise RuntimeError("boom")
+
+    def on_message(self, msg: Message) -> None:
+        pass
+
+
+class TestOnStopFanOutThenClear:
+    """Story 17.2 — Orchestrator.on_stop fans out THEN clears subscribers.
+
+    Behavioural invariants under test (ACs #1–#5):
+
+    - Fan-out fires while the subscriber is still attached (snapshot
+      ``len(subscribers) >= 1`` from inside ``on_stop``).
+    - ``team_id`` passed to ``on_stop`` is the orchestrator's own ``team_id``.
+    - ``subscribers`` list is empty after ``on_stop`` returns.
+    - A subscriber raising in ``on_stop`` does not block ``clear()`` running.
+    - Three-subscriber fault isolation contract from 17.1 is preserved (first
+      and third still receive their call when the middle one raises).
+    """
+
+    def test_on_stop_fan_out_before_clear_then_list_empty(self) -> None:
+        """AC #1, #2, #3: fan-out runs while attached; subscribers list cleared after stop."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        recorder = _LenAtStopRecorder()
+        orch_proxy.subscribe(recorder)
+
+        # Capture the live subscribers-list reference BEFORE stop so we can
+        # observe the post-stop ``clear()`` via the same Python list object.
+        subscribers_list = orch_proxy.subscribers
+        recorder.subscribers_list_ref = subscribers_list
+        assert recorder in subscribers_list
+
+        orch_team_id = orch_addr.team_id
+
+        # Trigger the real on_stop via the system shutdown path.
+        system.shutdown()
+
+        # AC #1: fan-out fired exactly once, with the orchestrator's team_id,
+        # and the subscriber was still attached at the moment of the call.
+        assert len(recorder.calls) == 1
+        recorded_team_id, len_at_fan_out = recorder.calls[0]
+        assert recorded_team_id == orch_team_id
+        assert len_at_fan_out >= 1
+
+        # AC #2 + AC #3: subscribers list cleared after on_stop returned.
+        assert subscribers_list == []
+
+    def test_on_stop_raising_subscriber_does_not_block_clear(self) -> None:
+        """AC #4: clear() still runs and recorder still fires when a sibling raises."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        recorder = _LenAtStopRecorder()
+        failing = _OnStopRaisingSubscriber()
+        orch_proxy.subscribe(recorder)
+        orch_proxy.subscribe(failing)
+
+        subscribers_list = orch_proxy.subscribers
+        recorder.subscribers_list_ref = subscribers_list
+
+        # Stop the orchestrator. The failing subscriber raises inside
+        # ``_notify_subscribers_lifecycle`` but its per-subscriber try/except
+        # (landed in 17.1) swallows it — fan-out completes for the recorder,
+        # ``super().on_stop()`` runs, and ``clear()`` runs unconditionally.
+        system.shutdown()  # MUST NOT raise
+
+        # Recorder still received its call exactly once.
+        assert len(recorder.calls) == 1
+
+        # AC #4: ``clear()`` ran even though one subscriber raised.
+        assert subscribers_list == []
+
+    def test_on_stop_three_subscribers_middle_raises(self) -> None:
+        """AC #5: first and third still receive on_stop when the middle one raises."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        first = _LenAtStopRecorder()
+        middle = _OnStopRaisingSubscriber()
+        third = _LenAtStopRecorder()
+
+        orch_proxy.subscribe(first)
+        orch_proxy.subscribe(middle)
+        orch_proxy.subscribe(third)
+
+        subscribers_list = orch_proxy.subscribers
+        first.subscribers_list_ref = subscribers_list
+        third.subscribers_list_ref = subscribers_list
+
+        orch_team_id = orch_addr.team_id
+
+        system.shutdown()
+
+        # AC #5: both recorders received their call exactly once with the
+        # orchestrator's own team_id (fault-isolation from 17.1 preserved).
+        assert len(first.calls) == 1
+        assert len(third.calls) == 1
+        assert first.calls[0][0] == orch_team_id
+        assert third.calls[0][0] == orch_team_id
+
+        # AC #4 redux: clear() still ran post-stop.
+        assert subscribers_list == []

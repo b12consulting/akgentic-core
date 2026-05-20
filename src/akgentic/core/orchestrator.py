@@ -244,6 +244,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     def on_stop(self) -> None:
         self._notify_subscribers_lifecycle("on_stop", self.team_id)
         super().on_stop()
+        self.subscribers.clear()
         logger.info(f">>> [{self.config.name}] Stopped !")
 
     @override
