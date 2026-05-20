@@ -528,7 +528,7 @@ class TestOrchestratorTimeoutHandler:
 
         # Give the actor thread a moment to process any internal messages
         # (snapshot_for_subscribers runs on the caller; subscriber calls are
-        # synchronous within _notify_subscribers, so assertions are immediate).
+        # synchronous within _notify_subscribers_lifecycle, so assertions are immediate).
         assert sub.stop_request_count == 1
         # on_stop is a separate lifecycle hook; the timeout must not trigger it
         assert sub.stop_count == 0

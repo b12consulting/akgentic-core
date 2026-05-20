@@ -963,7 +963,7 @@ class TestSnapshotForSubscribers:
 
 
 # ---------------------------------------------------------------------------
-# Story 17.1 — team_id propagation through _notify_subscribers
+# Story 17.1 — team_id propagation through _notify_subscribers_lifecycle
 # ---------------------------------------------------------------------------
 
 
@@ -988,31 +988,31 @@ class _LifecycleRaisingSubscriber:
 
 
 class _NotifyExposingOrchestrator(Orchestrator):
-    """Orchestrator subclass that exposes ``_notify_subscribers`` to Pykka proxies.
+    """Orchestrator subclass that exposes the notify helpers to Pykka proxies.
 
     Pykka's proxy filters out underscore-prefixed methods, so tests that need
-    to drive ``_notify_subscribers`` directly (lifecycle dispatch in
+    to drive ``_notify_subscribers_lifecycle`` directly (lifecycle dispatch in
     Story 17.1 — there is no in-source caller for ``set_restoring``) cannot
     invoke it through ``system.proxy_ask(...)``. This thin wrapper exposes
-    the helper under a public name without changing production semantics.
+    each helper under a public name without changing production semantics.
     """
 
-    def notify_subscribers(
+    def notify_subscribers_lifecycle(
         self,
         event_method: str,
-        message: Message | None = None,
-        *,
-        team_id: uuid.UUID | None = None,
+        team_id: uuid.UUID,
         **kwargs: Any,
     ) -> None:
-        """Public façade over ``_notify_subscribers`` for proxy-driven tests."""
-        self._notify_subscribers(
-            event_method, message, team_id=team_id, **kwargs
-        )
+        """Public façade over ``_notify_subscribers_lifecycle`` for proxy-driven tests."""
+        self._notify_subscribers_lifecycle(event_method, team_id, **kwargs)
+
+    def notify_subscribers_message(self, event_method: str, message: Message) -> None:
+        """Public façade over ``_notify_subscribers_message`` for proxy-driven tests."""
+        self._notify_subscribers_message(event_method, message)
 
 
 class TestNotifySubscribersTeamIdPropagation:
-    """Story 17.1 — `_notify_subscribers` propagates team_id to lifecycle hooks."""
+    """Story 17.1 — `_notify_subscribers_lifecycle` propagates team_id to lifecycle hooks."""
 
     def test_set_restoring_passes_team_id_to_subscribers(self) -> None:
         """AC #2: lifecycle dispatch forwards team_id + restoring=True."""
@@ -1027,7 +1027,7 @@ class TestNotifySubscribersTeamIdPropagation:
         orch_proxy.subscribe(sub)
 
         orch_team_id = orch_addr.team_id
-        orch_proxy.notify_subscribers("set_restoring", team_id=orch_team_id, restoring=True)
+        orch_proxy.notify_subscribers_lifecycle("set_restoring", orch_team_id, restoring=True)
 
         assert sub.restoring_calls == [(orch_team_id, True)]
         assert sub.restoring is True
@@ -1035,7 +1035,7 @@ class TestNotifySubscribersTeamIdPropagation:
         system.shutdown()
 
     def test_on_stop_request_passes_team_id_to_subscribers(self) -> None:
-        """AC #3: `_notify_subscribers("on_stop_request", team_id=...)` forwards team_id."""
+        """AC #3: `_notify_subscribers_lifecycle("on_stop_request", team_id)` forwards team_id."""
         system = ActorSystem()
         orch_addr = system.createActor(
             _NotifyExposingOrchestrator,
@@ -1047,18 +1047,18 @@ class TestNotifySubscribersTeamIdPropagation:
         orch_proxy.subscribe(sub)
 
         orch_team_id = orch_addr.team_id
-        orch_proxy.notify_subscribers("on_stop_request", team_id=orch_team_id)
+        orch_proxy.notify_subscribers_lifecycle("on_stop_request", orch_team_id)
 
         assert sub.stop_request_team_ids == [orch_team_id]
 
         system.shutdown()
 
     def test_on_stop_passes_team_id_to_subscribers(self) -> None:
-        """AC #1: `_notify_subscribers("on_stop", team_id=...)` forwards team_id.
+        """AC #1: `_notify_subscribers_lifecycle("on_stop", team_id)` forwards team_id.
 
-        Exercises the call directly via `_notify_subscribers` (not the full
-        Pykka stop() path) so the test isolates the signature change in 17.1
-        from the body-reordering 17.2 will deliver.
+        Exercises the call directly via `_notify_subscribers_lifecycle` (not
+        the full Pykka stop() path) so the test isolates the signature change
+        in 17.1 from the body-reordering 17.2 will deliver.
         """
         system = ActorSystem()
         orch_addr = system.createActor(
@@ -1071,7 +1071,7 @@ class TestNotifySubscribersTeamIdPropagation:
         orch_proxy.subscribe(sub)
 
         orch_team_id = orch_addr.team_id
-        orch_proxy.notify_subscribers("on_stop", team_id=orch_team_id)
+        orch_proxy.notify_subscribers_lifecycle("on_stop", orch_team_id)
 
         assert sub.stop_team_ids == [orch_team_id]
         assert sub.stopped is True
@@ -1118,7 +1118,7 @@ class TestLifecycleFanOutFaultIsolation:
         orch_proxy.subscribe(third)
 
         orch_team_id = orch_addr.team_id
-        orch_proxy.notify_subscribers("set_restoring", team_id=orch_team_id, restoring=False)
+        orch_proxy.notify_subscribers_lifecycle("set_restoring", orch_team_id, restoring=False)
 
         assert first.restoring_calls == [(orch_team_id, False)]
         assert third.restoring_calls == [(orch_team_id, False)]
@@ -1143,7 +1143,7 @@ class TestLifecycleFanOutFaultIsolation:
         orch_proxy.subscribe(third)
 
         orch_team_id = orch_addr.team_id
-        orch_proxy.notify_subscribers("on_stop_request", team_id=orch_team_id)
+        orch_proxy.notify_subscribers_lifecycle("on_stop_request", orch_team_id)
 
         assert first.stop_request_team_ids == [orch_team_id]
         assert third.stop_request_team_ids == [orch_team_id]
@@ -1168,7 +1168,7 @@ class TestLifecycleFanOutFaultIsolation:
         orch_proxy.subscribe(third)
 
         orch_team_id = orch_addr.team_id
-        orch_proxy.notify_subscribers("on_stop", team_id=orch_team_id)
+        orch_proxy.notify_subscribers_lifecycle("on_stop", orch_team_id)
 
         assert first.stop_team_ids == [orch_team_id]
         assert third.stop_team_ids == [orch_team_id]
@@ -1177,7 +1177,7 @@ class TestLifecycleFanOutFaultIsolation:
 
 
 class TestOnMessageDispatchUnchanged:
-    """AC #5: `_notify_subscribers("on_message", message)` still dispatches as before."""
+    """AC #5: `_notify_subscribers_message("on_message", message)` still dispatches as before."""
 
     def test_on_message_does_not_receive_team_id(self) -> None:
         """Message dispatch passes the snapshotted message and NO team_id kwarg."""
