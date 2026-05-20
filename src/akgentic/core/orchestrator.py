@@ -196,6 +196,31 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         ... )
         >>> # Agents automatically send telemetry to orchestrator
         >>> messages = orchestrator_ref.get_messages().get()
+
+    Load-bearing assumption — Pykka mailbox drain on self-stop:
+        When an ``Orchestrator`` (or any ``Akgent``) calls ``self.stop()`` from
+        inside one of its own ``receiveMsg_*`` handlers — the canonical shape
+        every ``orchestrator_proxy.stop()`` graceful-stop call drives via
+        ``Akgent.receiveMsg_StopRecursively`` → ``self.stop()`` — Pykka
+        guarantees that the actor's mailbox is fully drained before ``on_stop``
+        fires. Every queued message is processed to completion first;
+        ``on_stop`` runs exactly once, afterwards.
+
+        The dispatch path this invariant protects is
+        ``self._notify_subscribers_lifecycle("on_stop", self.team_id)``, called
+        from ``Orchestrator.on_stop`` BEFORE ``super().on_stop()``. Downstream
+        subscribers (``RedisStreamSubscriber.on_stop`` and the rest of the
+        master cross-package ADR-024 chain — see also package-local ADR-011)
+        rely on the invariant: without it, an ``on_message`` → ``XADD`` could
+        land *after* ``on_stop`` → ``DEL`` and resurface the very race ADR-024
+        eliminates.
+
+        Verification test:
+        ``packages/akgentic-core/tests/core/test_pykka_mailbox_drain_on_self_stop.py``
+        — ``test_pykka_drains_mailbox_before_on_stop_on_self_stop``. If a
+        future Pykka upgrade regresses this guarantee, that test fails and
+        surfaces the regression before the master ADR-024 chain breaks in
+        production.
     """
 
     @override
