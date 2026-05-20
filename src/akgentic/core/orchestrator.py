@@ -8,6 +8,7 @@ message flows, and state changes using in-memory storage.
 import logging
 import os
 import threading
+import uuid
 from collections.abc import Callable
 from typing import Any, Protocol, override
 
@@ -111,7 +112,7 @@ class EventSubscriber(Protocol):
         - PostgresEventSubscriber: Persists events to PostgreSQL
     """
 
-    def set_restoring(self, restoring: bool) -> None:  # noqa: FBT001
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
         """Toggle restore-replay guard.
 
         Called by ``TeamManager.resume_team()`` before and after replaying
@@ -119,22 +120,33 @@ class EventSubscriber(Protocol):
         skip processing during restore. Default implementation is a no-op.
 
         Args:
+            team_id: ``team_id`` of the orchestrator triggering the notification,
+                enabling per-team routing on shared subscriber instances.
             restoring: ``True`` when replay starts, ``False`` when it ends.
         """
         ...
 
-    def on_stop_request(self) -> None:
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
         """Called when an orchestrator makes a stop request (e.g. inactivity timer fires).
 
         Default implementation is a no-op — subscribers (e.g. ``TimerStopSubscriber``
         in ``akgentic-team``) override this to decide how to actually stop the
         team. The orchestrator itself does NOT stop on this signal; shutdown is
         the subscriber's responsibility.
+
+        Args:
+            team_id: ``team_id`` of the orchestrator triggering the notification,
+                enabling per-team routing on shared subscriber instances.
         """
         ...
 
-    def on_stop(self) -> None:
-        """Called when an orchestrator stops."""
+    def on_stop(self, team_id: uuid.UUID) -> None:
+        """Called when an orchestrator stops.
+
+        Args:
+            team_id: ``team_id`` of the orchestrator triggering the notification,
+                enabling per-team routing on shared subscriber instances.
+        """
         ...
 
     def on_message(self, msg: Message) -> None:
@@ -230,7 +242,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
     @override
     def on_stop(self) -> None:
-        self._notify_subscribers("on_stop")
+        self._notify_subscribers("on_stop", team_id=self.team_id)
         super().on_stop()
         logger.info(f">>> [{self.config.name}] Stopped !")
 
@@ -249,7 +261,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         """
         team_id = self.team_id
         logger.info(f"Orchestrator timeout after {self._timer.delay}s inactivity (team={team_id})")
-        self._notify_subscribers("on_stop_request")
+        self._notify_subscribers("on_stop_request", team_id=team_id)
 
     def get_timer(self) -> Timer:
         """Return the inactivity Timer instance (for testing and introspection).
@@ -290,22 +302,36 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
         return snapshot_addresses(message)  # type: ignore[return-value]
 
-    def _notify_subscribers(self, event_method: str, message: Message | None = None) -> None:
+    def _notify_subscribers(
+        self,
+        event_method: str,
+        message: Message | None = None,
+        *,
+        team_id: uuid.UUID | None = None,
+        **kwargs: Any,
+    ) -> None:
         """Unified subscriber notification with fault tolerance.
 
         Args:
-            event_method: Name of the subscriber method to call
-            message: Message to pass to subscriber
+            event_method: Name of the subscriber method to call.
+            message: Message to pass to subscriber (``on_message`` dispatch).
+            team_id: When set, dispatch as a lifecycle call
+                (``set_restoring``, ``on_stop_request``, ``on_stop``) with
+                ``team_id`` as the first positional argument.
+            **kwargs: Extra kwargs forwarded to the lifecycle method
+                (e.g. ``restoring=True`` for ``set_restoring``).
         """
         if message is not None:
             message = self.snapshot_for_subscribers(message)
         for subscriber in self.subscribers:
             try:
                 method = getattr(subscriber, event_method)
-                if message is None:
-                    method()
-                else:
+                if team_id is not None:
+                    method(team_id, **kwargs)
+                elif message is not None:
                     method(message)
+                else:
+                    method()
             except Exception as e:
                 logger.error(
                     f"Subscriber {subscriber.__class__.__name__} failed {event_method}: {e}"
