@@ -103,6 +103,79 @@ class WedgedWorker(Akgent):
         return None
 
 
+# ---------------------------------------------------------------------------
+# Tool-actor gate harness (story 18.2)
+# ---------------------------------------------------------------------------
+
+# Records the ORDER in which tool actors are told to stop (their ``stop()`` is
+# invoked). Behaviour-only: a test asserts on the sequence of tool names, never
+# on any ADR-reference string (Golden Rule #8). Reset by ``_reset_tool_state``.
+_tool_stop_order: list[str] = []
+
+# Captures whether a consumer could successfully invoke its tool DURING teardown
+# (after stop() was called, before the consumer's own StopMessage landed).
+_tool_invoke_ok = threading.Event()
+
+
+def _reset_tool_state() -> None:
+    """Clear the per-test tool-gate observation state."""
+    _tool_stop_order.clear()
+    _tool_invoke_ok.clear()
+
+
+class ToolActor(Akgent):
+    """A ``#``-prefixed tool actor backing a tool that ``@`` agents call.
+
+    Records its own name into ``_tool_stop_order`` when its ``stop`` runs, then
+    stops normally so its ``StopMessage`` telemetry still flows. NOTE: the tells
+    are fire-and-forget (``proxy_tell``), so this records *execution* order on each
+    tool's own thread — order-independent membership is what tests assert, not the
+    sequence. Exposes a trivial ``ping`` an in-flight consumer can ask to prove the
+    tool actor is still live during teardown.
+    """
+
+    def ping(self) -> str:
+        return self.config.name
+
+    def stop(self) -> None:  # type: ignore[override]
+        _tool_stop_order.append(self.config.name)
+        super().stop()
+
+
+class ToolConsumerWorker(Akgent):
+    """An ``@`` consumer that, mid-handler, invokes its ``#`` tool actor.
+
+    The tool address is published on the module-level ``_consumer_tool_ref`` holder
+    before the message is sent. The consumer enters its handler (sets
+    ``_in_handler``), holds it open so a stop() arrives while it is busy, then asks
+    the tool — which must still be alive (it is deferred to phase 2) — and records
+    success on ``_tool_invoke_ok``.
+    """
+
+    def receiveMsg_UserMessage(self, message: UserMessage, sender: ActorAddress) -> None:
+        _in_handler.set()
+        time.sleep(_HANDLER_HOLD_S)
+        tool = _consumer_tool_ref[0]
+        if tool is not None and tool.is_alive():
+            result = self.proxy_ask(tool, ToolActor).ping()
+            if result is not None:
+                _tool_invoke_ok.set()
+
+
+# Holder so a consumer can reach its tool address from inside its handler thread.
+_consumer_tool_ref: list[ActorAddress | None] = [None]
+
+
+def _create_tool(orch_proxy: Orchestrator, name: str) -> ActorAddress:
+    """Create a ``#``-prefixed tool actor as a direct child of the orchestrator."""
+    return orch_proxy.createActor(ToolActor, config=BaseConfig(name=name, role="Tool"))
+
+
+def _create_consumer(orch_proxy: Orchestrator, worker_cls: type[Akgent]) -> ActorAddress:
+    """Create an ``@``-prefixed non-tool consumer under the orchestrator."""
+    return orch_proxy.createActor(worker_cls, config=BaseConfig(name="@Consumer", role="Worker"))
+
+
 def _build_team(
     system: ActorSystem, worker_cls: type[Akgent]
 ) -> tuple[ActorAddress, ActorAddress, RecordingSubscriber]:
@@ -426,3 +499,181 @@ def test_subscriber_snapshots_gcd_telemetry_sender() -> None:
     assert snapshot.sender.serialize()["__actor_type__"].endswith(".TelemetryWorker")
 
     system.shutdown()
+
+
+# ---------------------------------------------------------------------------
+# Two-phase tool-agent stop gate (story 18.2, ADR-012 §2a)
+# ---------------------------------------------------------------------------
+
+
+def test_tool_actor_stopped_only_after_non_tool_agents() -> None:
+    """AC3/AC5: a ``#`` tool actor is left alive + untold at stop() and is told to
+    stop only after the non-tool consumer (and its subtree) has fully stopped.
+
+    Consumer is created BEFORE the tool, so the tool is the later child; the
+    consumer holds its handler open, so its StopMessage lands well after stop().
+    """
+    _reset_tool_state()
+    system = ActorSystem()
+    orch_addr = system.createActor(
+        Orchestrator, config=BaseConfig(name="@Orchestrator", role="Orchestrator")
+    )
+    orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+    consumer = _create_consumer(orch_proxy, TelemetryWorker)
+    tool = _create_tool(orch_proxy, "#VectorStore")
+
+    system.tell(consumer, UserMessage(content="hello"))
+    assert _in_handler.wait(timeout=5.0), "consumer never entered its handler"
+
+    # PHASE 1: stop() tells the non-tool consumer, defers the tool actor.
+    event = orch_proxy.stop(5.0)
+    # The tool actor is still alive and has NOT been told to stop yet: the
+    # consumer is mid-handler and its StopMessage cannot have landed.
+    assert tool.is_alive()
+    assert _tool_stop_order == []
+
+    # PHASE 2: once the consumer's handler returns and its StopMessage lands, the
+    # deferred tool actor is told to stop and the team finalizes.
+    assert event.wait(timeout=10.0)
+    assert _tool_stop_order == ["#VectorStore"]
+    assert not tool.is_alive()
+    assert not orch_addr.is_alive()
+
+
+def test_consumer_can_invoke_tool_during_teardown() -> None:
+    """AC3: a consumer finishing its in-flight handler can still invoke its ``#``
+    tool actor after stop() is called and before its own StopMessage lands."""
+    _reset_tool_state()
+    system = ActorSystem()
+    orch_addr = system.createActor(
+        Orchestrator, config=BaseConfig(name="@Orchestrator", role="Orchestrator")
+    )
+    orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+    consumer = _create_consumer(orch_proxy, ToolConsumerWorker)
+    tool = _create_tool(orch_proxy, "#VectorStore")
+    _consumer_tool_ref[0] = tool
+
+    system.tell(consumer, UserMessage(content="hello"))
+    assert _in_handler.wait(timeout=5.0), "consumer never entered its handler"
+
+    # Stop while the consumer is mid-handler; it will ask its tool before finishing.
+    event = orch_proxy.stop(5.0)
+    assert event.wait(timeout=10.0)
+
+    # The mid-teardown tool invocation succeeded (no dead-actor crash): the tool
+    # was still alive when the consumer called it.
+    assert _tool_invoke_ok.is_set()
+    assert not orch_addr.is_alive()
+
+
+def test_multiple_tool_actors_all_stopped_after_non_tool_agents() -> None:
+    """AC2/AC5: a team with two ``#`` tool actors tears them BOTH down — after the
+    non-tool consumer has stopped — when the gate fires.
+
+    The orchestrator *dispatches* the stop tells in reverse creation order —
+    ``_pending_tool_stops`` is built from ``_live_children_reversed()`` (a pure
+    list reversal), so the dispatch order is correct by construction. The order
+    the tool actors then *execute* their stop is NOT asserted here: the tells are
+    fire-and-forget (``proxy_tell``), so each tool runs its ``stop`` on its own
+    thread and the completion order is a scheduling detail, not a contract.
+    """
+    _reset_tool_state()
+    system = ActorSystem()
+    orch_addr = system.createActor(
+        Orchestrator, config=BaseConfig(name="@Orchestrator", role="Orchestrator")
+    )
+    orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+    consumer = _create_consumer(orch_proxy, TelemetryWorker)
+    tool_a = _create_tool(orch_proxy, "#VectorStore")  # dependency, created first
+    tool_b = _create_tool(orch_proxy, "#PlanningTool")  # consumer of A, created last
+
+    system.tell(consumer, UserMessage(content="hello"))
+    assert _in_handler.wait(timeout=5.0)
+
+    event = orch_proxy.stop(5.0)
+    assert event.wait(timeout=10.0)
+
+    # Both tool actors were told to stop and are down; order-independent.
+    assert set(_tool_stop_order) == {"#PlanningTool", "#VectorStore"}
+    assert not tool_a.is_alive()
+    assert not tool_b.is_alive()
+
+
+def test_tools_only_team_stops_immediately() -> None:
+    """AC4: a team whose only children are ``#`` tool actors finalizes promptly —
+    phase 2 is kicked from stop() itself, with no non-tool StopMessage needed."""
+    _reset_tool_state()
+    system = ActorSystem()
+    orch_addr = system.createActor(
+        Orchestrator, config=BaseConfig(name="@Orchestrator", role="Orchestrator")
+    )
+    orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+    tool_a = _create_tool(orch_proxy, "#VectorStore")
+    tool_b = _create_tool(orch_proxy, "#PlanningTool")
+
+    # No non-tool agent → no StopMessage would ever drive the gate; stop() itself
+    # must kick phase 2 and tear both tools down (dispatch order is reverse
+    # creation order by construction; execution/completion order is a scheduling
+    # detail and is not asserted).
+    event = orch_proxy.stop(5.0)
+    assert event.wait(timeout=10.0)
+    assert set(_tool_stop_order) == {"#PlanningTool", "#VectorStore"}
+    assert not tool_a.is_alive()
+    assert not tool_b.is_alive()
+    assert not orch_addr.is_alive()
+
+
+def test_backstop_flushes_pending_tool_actors(caplog: pytest.LogCaptureFixture) -> None:
+    """AC6: a wedged non-tool agent prevents phase 2 → the backstop _force_stop
+    still tells the deferred tool actors to stop before forcing teardown, with a
+    WARNING logged."""
+    _reset_tool_state()
+    system = ActorSystem()
+    orch_addr = system.createActor(
+        Orchestrator, config=BaseConfig(name="@Orchestrator", role="Orchestrator")
+    )
+    orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+    consumer = _create_consumer(orch_proxy, WedgedWorker)
+    tool = _create_tool(orch_proxy, "#VectorStore")
+
+    system.tell(consumer, UserMessage(content="hello"))
+    assert _in_handler.wait(timeout=5.0)
+
+    grace = 1.0
+    with caplog.at_level(logging.WARNING):
+        event = orch_proxy.stop(grace)
+        # The wedged consumer never emits its StopMessage, so phase 2 cannot fire
+        # on its own; the tool stays deferred until the backstop flushes it.
+        assert not event.wait(timeout=0.3)
+        assert event.wait(timeout=grace + 5.0)
+
+    # The backstop flushed the deferred tool actor (graceful tell) before forcing.
+    assert _tool_stop_order == ["#VectorStore"]
+    assert not tool.is_alive()
+    assert any("forcing teardown" in rec.message for rec in caplog.records)
+
+
+def test_completion_waits_for_whole_roster_including_tools() -> None:
+    """AC7: the stop event fires only after the tool actors have ALSO stopped —
+    not when only the non-tool roster has emptied."""
+    _reset_tool_state()
+    system = ActorSystem()
+    orch_addr = system.createActor(
+        Orchestrator, config=BaseConfig(name="@Orchestrator", role="Orchestrator")
+    )
+    orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+    consumer = _create_consumer(orch_proxy, TelemetryWorker)
+    tool = _create_tool(orch_proxy, "#VectorStore")
+
+    system.tell(consumer, UserMessage(content="hello"))
+    assert _in_handler.wait(timeout=5.0)
+
+    event = orch_proxy.stop(5.0)
+    assert event.wait(timeout=10.0)
+
+    # The completion event sets (in the orchestrator's on_stop) only after the
+    # whole roster — tool actors included — has emptied: the tool actor was told
+    # to stop and is down, and the orchestrator has finalized.
+    assert _tool_stop_order == ["#VectorStore"]
+    assert not tool.is_alive()
+    assert not orch_addr.is_alive()
