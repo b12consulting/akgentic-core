@@ -36,6 +36,12 @@ logger = logging.getLogger(__name__)
 
 TIMER_DELAY = 3600  # 1 hour default inactivity timeout
 
+# Default grace period (seconds) for a non-blocking orchestrator stop before the
+# backstop timer forces teardown (ADR-012 §2/§4). It is the single stop timeout:
+# callers wait on the returned event with NO timeout, and the backstop guarantees
+# the event is set within ~STOP_TIMEOUT seconds.
+STOP_TIMEOUT = 30.0
+
 
 class Timer:
     """Helper class for inactivity timeout management.
@@ -252,6 +258,12 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         # Shutdown flag
         self._stopping: bool = False
 
+        # Non-blocking-stop completion signal + backstop timer (ADR-012 §2/§4).
+        # Created lazily when stop() is first called; the backstop forces
+        # finalization if a child wedges and the roster never empties.
+        self._stop_event: threading.Event | None = None
+        self._stop_backstop: threading.Timer | None = None
+
         # Event subscribers for Phase 3 extensibility
         self.subscribers: list[EventSubscriber] = []
 
@@ -267,9 +279,15 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
     @override
     def on_stop(self) -> None:
+        self._cancel_stop_backstop()
         self._notify_subscribers_lifecycle("on_stop", self.team_id)
         super().on_stop()
         self.subscribers.clear()
+        # Release any caller blocked in stop().wait(). Event.set() is idempotent,
+        # so the graceful path and the forced (backstop) path can both call it
+        # with no guard flag (ADR-012 §4).
+        if self._stop_event is not None:
+            self._stop_event.set()
         logger.info(f">>> [{self.config.name}] Stopped !")
 
     @override
@@ -391,20 +409,29 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self._notify_subscribers_message("on_message", message)
 
     def receiveMsg_StopMessage(self, message: StopMessage, sender: ActorAddress) -> None:
-        """Handle agent stop events.
+        """Handle agent stop events (ADR-012 §3).
 
-        Skips recording if orchestrator is shutting down (_stopping flag).
+        Always records the ``StopMessage`` and invalidates the team-roster cache
+        so ``get_team()`` reflects each child stopping. During an in-progress
+        non-blocking teardown (``_stopping``) this doubles as the completion
+        signal: once the roster empties, the orchestrator finalizes via
+        ``_finalize_stop()`` (event is set in ``on_stop``). Subscriber dispatch is
+        suppressed while ``_stopping`` to preserve the XADD-before-DEL ordering
+        and resume-history semantics (teardown ``StopMessage``s must stay out of
+        the stream).
 
         Args:
             message: StopMessage from agent
             sender: ActorAddress of sending agent
         """
-        if self._stopping:
-            # Don't record StopMessages during orchestrator shutdown
-            return
-
         self.messages.append(message)
-        self._current_team_members = None  # Clear cache
+        self._current_team_members = None  # Invalidate roster cache
+
+        if self._stopping:
+            if not self.get_team():  # whole tree down (GC-safe identity — ADR-012 §5)
+                self._finalize_stop()
+            return  # suppress subscriber dispatch during teardown
+
         self._notify_subscribers_message("on_message", message)
 
     def receiveMsg_SentMessage(self, message: SentMessage, sender: ActorAddress) -> None:
@@ -539,13 +566,17 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         if self._current_team_members is not None:
             return self._current_team_members
 
-        # Compute from message history using comprehensions
+        # Compute from message history using comprehensions.
+        # Exclude the orchestrator ITSELF by identity (agent_id), not by role
+        # string: the orchestrator is never its own team member, and a
+        # role-string filter both misses a self that carries a non-orchestrator
+        # role and wrongly drops legitimate sub-orchestrator members.
         started_agentid_addr_dict = {
             str(msg.sender.agent_id): msg.sender
             for msg in self.messages
             if isinstance(msg, StartMessage)
             and msg.sender is not None
-            and msg.sender.role != "Orchestrator"
+            and msg.sender.agent_id != self.agent_id
         }
         stopped_agent_id_set = {
             str(msg.sender.agent_id)
@@ -637,16 +668,99 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         """
         return self.state_dict
 
-    def stop(self) -> None:
-        """Override stop to cancel timer and set _stopping flag before shutdown.
+    def stop(self, grace_timeout: float = STOP_TIMEOUT) -> threading.Event:  # type: ignore[override]
+        """Initiate a non-blocking, recursive team teardown (ADR-012 §2).
 
-        Cancels the inactivity timer first to prevent it from firing during
-        shutdown, then sets the _stopping flag to suppress StopMessage recording,
-        then calls the parent stop() method.
+        Tells every child to stop, then returns IMMEDIATELY without waiting — the
+        orchestrator's actor thread stays free to answer reentrant asks
+        (``get_team()``) while the team drains bottom-up. This is precisely what
+        makes stop deadlock-proof: the orchestrator never blocks on a child, so a
+        child that re-enters the orchestrator mid-message can always be served.
+
+        The returned :class:`threading.Event` is the completion signal. It is
+        **guaranteed** to be set within ~``grace_timeout`` seconds, one of two
+        ways:
+
+        * **gracefully** — the moment the last agent has stopped (the common
+          case, typically milliseconds); or
+        * **forcibly** — if a child wedges and the team never reaches quiescence,
+          the internal backstop timer fires at ``grace_timeout`` and tears the
+          orchestrator down anyway (logs a WARNING; the wedged child is reaped
+          later by ``ActorRegistry.stop_all()``).
+
+        To block until the team is fully stopped, wait on the event with **no
+        timeout** — it cannot hang, because the backstop bounds it::
+
+            orchestrator.stop(grace_timeout).wait()    # returns within ~grace
+
+        Calling ``stop()`` and ignoring the event is a valid fire-and-forget
+        teardown. Idempotent: calling ``stop()`` again while already stopping
+        returns the same event and does not re-tell the children.
+
+        Args:
+            grace_timeout: Seconds to allow for graceful quiescence before the
+                backstop forces teardown. This is the ONLY stop timeout. Callers
+                do NOT pass a separate wait timeout: a wait shorter than this
+                could only ever yield a spurious failure, and a longer one is
+                redundant (the event is already guaranteed to set by
+                ``grace_timeout``).
+
+        Returns:
+            A ``threading.Event`` set once the orchestrator is fully stopped —
+            mailbox drained, subscribers' ``on_stop`` fired, actor deregistered.
         """
-        self._timer.cancel()
+        if self._stopping:
+            # Idempotent — same event, no re-tell of children.
+            assert self._stop_event is not None
+            return self._stop_event
+
+        self._timer.cancel()  # no inactivity auto-stop mid-teardown
         self._stopping = True
-        super().stop()
+        self._stop_event = threading.Event()
+        self.stop_children(blocking=False)  # TELL children; do not block
+        self._arm_stop_backstop(grace_timeout)  # guarantees the event sets (§4)
+        if not self.get_team():  # zero-agent team: nothing will report
+            self._finalize_stop()
+        return self._stop_event
+
+    def _arm_stop_backstop(self, grace_timeout: float) -> None:
+        """Arm the backstop timer that forces teardown after ``grace_timeout``."""
+        self._stop_backstop = threading.Timer(grace_timeout, self._force_stop)
+        self._stop_backstop.daemon = True
+        self._stop_backstop.start()
+
+    def _cancel_stop_backstop(self) -> None:
+        """Cancel the backstop timer if armed (idempotent)."""
+        if self._stop_backstop is not None:
+            self._stop_backstop.cancel()
+            self._stop_backstop = None
+
+    def _finalize_stop(self) -> None:
+        """Stop the orchestrator actor itself WITHOUT re-running stop_children.
+
+        ``super().stop()`` == ``Akgent.stop()`` == blocking ``stop_children``, which
+        hangs on a child that is alive-but-mid-``on_stop``. The native ref stop
+        enqueues ``_ActorStop``; the mailbox drains and ``on_stop`` runs (setting
+        the event). Cancels the backstop so it cannot fire spuriously after a
+        graceful finalize.
+        """
+        self._cancel_stop_backstop()
+        self.actor_ref.stop(block=False)
+
+    def _force_stop(self) -> None:
+        """Force finalization from the backstop Timer thread (ADR-012 §4).
+
+        Runs on the Timer thread, NOT the actor thread. Uses the native
+        ``actor_ref.stop(block=False)`` — NOT ``super().stop()`` — so it does not
+        re-enter ``stop_children`` and block on the very child that wedged. The
+        native stop enqueues ``_ActorStop``; the orchestrator's own actor thread
+        then drains its mailbox and runs ``on_stop`` (which sets the event).
+        """
+        if self.actor_ref.is_alive():
+            logger.warning(
+                "Orchestrator stop timed out (team=%s); forcing teardown", self.team_id
+            )
+            self.actor_ref.stop(block=False)
 
     # =============================================================================
     # Agent Profile Catalog Management

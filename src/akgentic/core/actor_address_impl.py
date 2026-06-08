@@ -47,10 +47,28 @@ class ActorAddressImpl(ActorAddress):
     def __init__(self, actor_ref: ActorRef[Any]) -> None:
         """Initialize with a Pykka ActorRef.
 
+        Caches the address *identity* (``agent_id`` and ``role``) eagerly at
+        construction (ADR-012 §5). Addresses are only ever built from live refs,
+        so the underlying actor is alive here; caching makes ``agent_id``,
+        ``role``, ``__eq__`` and ``__hash__`` survive the actor's garbage
+        collection — required so ``get_team()`` and the telemetry identity guards
+        stay safe during teardown over already-collected senders.
+
         Args:
             actor_ref: The Pykka ActorRef to wrap.
         """
         self._actor_ref = actor_ref
+        self._agent_id: uuid.UUID | None = None
+        self._role: str | None = None
+        try:
+            actor = actor_ref._actor_weakref()
+            if actor is not None:
+                self._agent_id = actor.agent_id
+                self._role = actor.config.role
+        except Exception:  # noqa: BLE001
+            # Identity stays unset → properties fall back to live resolve.
+            self._agent_id = None
+            self._role = None
 
     def _resolve_actor(self) -> Any:
         """Dereference the weak reference to the underlying actor.
@@ -68,11 +86,16 @@ class ActorAddressImpl(ActorAddress):
 
     @property
     def agent_id(self) -> uuid.UUID:
-        """Unique identifier from the underlying actor.
+        """Unique identifier (cached at construction; GC-safe — ADR-012 §5).
+
+        Returns the cached identity if available, falling back to a live resolve
+        only when the cache is unset.
 
         Returns:
             UUID from the actor's agent_id attribute.
         """
+        if self._agent_id is not None:
+            return self._agent_id
         return self._resolve_actor().agent_id  # type: ignore[no-any-return]
 
     @property
@@ -87,11 +110,17 @@ class ActorAddressImpl(ActorAddress):
 
     @property
     def role(self) -> str:
-        """Agent role from the underlying actor's config.
+        """Agent role (cached at construction; GC-safe — ADR-012 §5).
+
+        Returns the cached identity if available, falling back to a live resolve
+        only when the cache is unset. Role is fixed after construction for all
+        current agents, so caching it is safe.
 
         Returns:
             Role string from config, or class name as fallback.
         """
+        if self._role is not None:
+            return self._role
         actor = self._resolve_actor()
         return actor.config.role  # type: ignore[no-any-return]
 
