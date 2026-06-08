@@ -291,9 +291,14 @@ def test_get_team_safe_after_member_gc() -> None:
     assert not orch_addr.is_alive()
 
 
-def test_actor_address_identity_survives_gc() -> None:
-    """After the actor is collected, agent_id / role / __eq__ / __hash__ still
-    work; name / serialize() behave as documented (live-resolving)."""
+def test_actor_address_metadata_survives_gc() -> None:
+    """After the actor is collected, EVERY metadata read and serialize() return
+    the construction-time snapshot with no RuntimeError (ADR-013).
+
+    This generalises the earlier agent_id/role-only guarantee: name, team_id,
+    squad_id, handle_user_message() and serialize() are now equally GC-safe, and
+    is_alive() returns False instead of raising.
+    """
     system = ActorSystem()
     orch_addr = system.createActor(
         Orchestrator, config=BaseConfig(name="@Orchestrator", role="Orchestrator")
@@ -306,6 +311,7 @@ def test_actor_address_identity_survives_gc() -> None:
 
     cached_id = impl.agent_id
     cached_role = impl.role
+    cached_name = impl.name
 
     # Stop + collect the underlying actor.
     addr._actor_ref.stop(block=True)  # type: ignore[attr-defined]
@@ -318,11 +324,13 @@ def test_actor_address_identity_survives_gc() -> None:
     assert impl == twin  # __eq__ works post-GC (reads cached agent_id)
     assert hash(impl) == hash(cached_id)
 
-    # name / serialize() remain live-resolving → raise on a collected actor.
-    with pytest.raises(RuntimeError):
-        _ = impl.name
-    with pytest.raises(RuntimeError):
-        _ = impl.serialize()
+    # name / serialize() are now snapshot-backed → resilient on a collected actor.
+    assert impl.name == cached_name == "@Solo"
+    assert impl.is_alive() is False
+    serialized = impl.serialize()
+    assert serialized["name"] == "@Solo"
+    assert serialized["role"] == "Worker"
+    assert serialized["__actor_type__"].endswith(".Akgent")
 
 
 def test_agent_stop_still_blocking() -> None:
@@ -374,3 +382,47 @@ def test_shutdown_waits_on_orchestrator_events() -> None:
     # shutdown returned → every orchestrator finalized.
     assert not orch_addr.is_alive()
     assert len(system.orchestrators) == 0
+
+
+def test_subscriber_snapshots_gcd_telemetry_sender() -> None:
+    """A late ProcessedMessage whose sender has been stopped + GC'd is snapshotted
+    for subscribers without crashing (the §3.1 serialize() case).
+
+    Drives the exact production entry point — ``Orchestrator.snapshot_for_subscribers``
+    → ``snapshot_addresses`` → ``ActorAddressImpl.serialize()``. Before ADR-013 the
+    serialize resolved the now-collected sender and threw, dropping the message; with
+    the resilient snapshot it composes from the cache, yielding a populated proxy.
+    """
+    from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
+    from akgentic.core.messages.orchestrator import ProcessedMessage
+
+    system = ActorSystem()
+    orch_addr = system.createActor(
+        Orchestrator, config=BaseConfig(name="@Orchestrator", role="Orchestrator")
+    )
+    orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+    # Build a sender address from a short-lived worker, then stop + GC it so the
+    # sender's underlying actor is gone by the time the message is snapshotted.
+    worker_addr = orch_proxy.createActor(
+        TelemetryWorker, config=BaseConfig(name="@Telemetry", role="Worker")
+    )
+    sender = ActorAddressImpl(worker_addr._actor_ref)  # type: ignore[attr-defined]
+    system.proxy_ask(worker_addr, Akgent).stop()
+    del worker_addr
+    gc.collect()
+    assert sender.is_alive() is False  # underlying actor collected
+
+    # A late telemetry message whose sender is the now-collected worker.
+    late = ProcessedMessage(sender=sender, recipient=orch_addr, message_id=uuid.uuid4())
+
+    # The subscriber-snapshot step must NOT raise on the GC'd sender.
+    snapshot = Orchestrator.snapshot_for_subscribers(late)
+
+    # The snapshot carries a serialized proxy of the dead sender, not the live impl.
+    assert isinstance(snapshot.sender, ActorAddressProxy)
+    assert snapshot.sender.name == "@Telemetry"
+    assert snapshot.sender.role == "Worker"
+    assert snapshot.sender.serialize()["__actor_type__"].endswith(".TelemetryWorker")
+
+    system.shutdown()
