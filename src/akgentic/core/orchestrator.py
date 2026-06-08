@@ -264,6 +264,14 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self._stop_event: threading.Event | None = None
         self._stop_backstop: threading.Timer | None = None
 
+        # Tool actors (name prefixed "#") deferred to phase 2 of the stop
+        # sequence (ADR-012 §2a): populated in phase 1 (reverse creation order)
+        # and CLEARED once told, which is the fire-once guard preventing a re-tell
+        # on every subsequent StopMessage. Tool actors stop only after every
+        # non-tool agent has fully stopped, so a consumer still inside a handler
+        # can never call a tool whose actor was already torn down.
+        self._pending_tool_stops: list[ActorAddress] = []
+
         # Event subscribers for Phase 3 extensibility
         self.subscribers: list[EventSubscriber] = []
 
@@ -428,6 +436,9 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self._current_team_members = None  # Invalidate roster cache
 
         if self._stopping:
+            # PHASE 2 gate (ADR-012 §2a): once the non-tool roster has emptied,
+            # tell the deferred tool actors to stop (reverse creation order).
+            self._maybe_stop_pending_tools()
             if not self.get_team():  # whole tree down (GC-safe identity — ADR-012 §5)
                 self._finalize_stop()
             return  # suppress subscriber dispatch during teardown
@@ -717,11 +728,74 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self._timer.cancel()  # no inactivity auto-stop mid-teardown
         self._stopping = True
         self._stop_event = threading.Event()
-        self.stop_children(blocking=False)  # TELL children; do not block
+        self._stop_non_tool_children()  # PHASE 1: tell non-tool children; defer tools (§2a)
+        # Kick phase 2 now in case there are NO non-tool agents to wait for (a
+        # tools-only team): no StopMessage would ever arrive to drive the gate,
+        # so tell the tool actors straight away. A no-op when non-tool agents
+        # exist (the roster still has them) — the gate then fires on their stops.
+        self._maybe_stop_pending_tools()
         self._arm_stop_backstop(grace_timeout)  # guarantees the event sets (§4)
         if not self.get_team():  # zero-agent team: nothing will report
             self._finalize_stop()
         return self._stop_event
+
+    @staticmethod
+    def _is_tool_actor(addr: ActorAddress) -> bool:
+        """A tool actor is identified by the ``#`` name-prefix convention.
+
+        Tool actors (``#VectorStore``, ``#PlanningTool``, ``#KnowledgeGraphTool``,
+        ``#SandboxActor``, …) back the tools other agents call mid-handler; they
+        are stopped in phase 2, after every non-tool agent (ADR-012 §2a).
+        """
+        return addr.name.startswith("#")
+
+    def _live_children_reversed(self) -> list[ActorAddress]:
+        """Live children in REVERSE creation order.
+
+        ``_children`` preserves creation order (append-only in ``createActor``).
+        Tool actors are created in dependency order by ``ToolFactory``'s
+        topological sort (a prerequisite like ``#VectorStore`` is created before
+        its consumers ``#PlanningTool``/``#KnowledgeGraphTool``). Reversing that
+        order therefore stops consumers before their dependency — no runtime
+        ``depends_on`` lookup needed. INVARIANT: creation order encodes stop
+        order; do not reorder ``_children`` or drop the topological sort.
+        """
+        return [child for child in reversed(self._children) if child.is_alive()]
+
+    def _stop_non_tool_children(self) -> None:
+        """PHASE 1 of the stop sequence (ADR-012 §2a).
+
+        Tells every NON-tool child to stop (reverse creation order) and stashes
+        the tool actors in ``_pending_tool_stops`` (also reverse-ordered) for
+        phase 2. Tool actors stay alive here, so a consumer agent finishing its
+        in-flight handler can still invoke its tool.
+        """
+        reversed_live = self._live_children_reversed()
+        self._pending_tool_stops = [c for c in reversed_live if self._is_tool_actor(c)]
+        for child in reversed_live:
+            if not self._is_tool_actor(child):
+                self.proxy_tell(child, Akgent).stop()  # non-blocking tell
+
+    def _maybe_stop_pending_tools(self) -> None:
+        """PHASE 2 of the stop sequence (ADR-012 §2a).
+
+        Once no non-tool agent remains in the roster (every non-tool subtree has
+        emitted its ``StopMessage`` — the "fully stopped" signal), tell the
+        deferred tool actors to stop, in the reverse creation order captured in
+        phase 1 (consumers before their dependency, e.g. ``#PlanningTool`` before
+        ``#VectorStore``). Fires exactly once — guarded by ``_pending_tool_stops``.
+
+        The roster gate reads ``get_team()`` (whole-tree, telemetry-derived) so a
+        consumer's grandchildren must also be down before tools stop. Never blocks.
+        """
+        if not self._pending_tool_stops:
+            return
+        if any(not self._is_tool_actor(member) for member in self.get_team()):
+            return  # non-tool agents still alive — wait for the next StopMessage
+        for child in self._pending_tool_stops:  # already reverse-ordered (phase 1)
+            if child.is_alive():
+                self.proxy_tell(child, Akgent).stop()
+        self._pending_tool_stops = []
 
     def _arm_stop_backstop(self, grace_timeout: float) -> None:
         """Arm the backstop timer that forces teardown after ``grace_timeout``."""
@@ -760,6 +834,15 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             logger.warning(
                 "Orchestrator stop timed out (team=%s); forcing teardown", self.team_id
             )
+            # A non-tool agent wedged before phase 2 fired, so the tool actors may
+            # still be un-told. Flush their stop tells (reverse order) for a last
+            # graceful chance before forcing teardown; any that wedge are reaped by
+            # ActorRegistry.stop_all() (ADR-012 §2a/§4). Non-blocking — the backstop
+            # must not block on a wedged child either.
+            for child in self._pending_tool_stops:
+                if child.is_alive():
+                    self.proxy_tell(child, Akgent).stop()
+            self._pending_tool_stops = []
             self.actor_ref.stop(block=False)
 
     # =============================================================================
