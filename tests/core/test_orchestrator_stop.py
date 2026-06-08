@@ -103,6 +103,22 @@ class WedgedWorker(Akgent):
         return None
 
 
+class ProbingOrchestrator(Orchestrator):
+    """Orchestrator that exposes the teardown-window roster lookup on its actor thread.
+
+    ``probe_lookup_during_stopping`` runs inside the orchestrator's own message
+    loop (driven via ``proxy_ask``), so it observes the same shrinking roster a
+    mid-handler agent's reentrant ``get_team_member()`` would see while the team
+    is being torn down. It only flips ``_stopping`` and reads the roster — it
+    initiates no teardown — so the orchestrator stays alive for the assertion.
+    """
+
+    def probe_lookup_during_stopping(self, *names: str) -> list[ActorAddress | None]:
+        self._stopping = True
+        self._current_team_members = None  # force a fresh roster read
+        return [self.get_team_member(name) for name in names]
+
+
 def _build_team(
     system: ActorSystem, worker_cls: type[Akgent]
 ) -> tuple[ActorAddress, ActorAddress, RecordingSubscriber]:
@@ -374,3 +390,67 @@ def test_shutdown_waits_on_orchestrator_events() -> None:
     # shutdown returned → every orchestrator finalized.
     assert not orch_addr.is_alive()
     assert len(system.orchestrators) == 0
+
+
+# ---------------------------------------------------------------------------
+# Characterization — teardown recipient-resolution race (story 18.2)
+# ---------------------------------------------------------------------------
+
+
+def test_get_team_member_returns_none_for_stopped_member_during_teardown() -> None:
+    """Characterizes the teardown recipient-resolution race documented in story 18.2.
+
+    During teardown the roster shrinks as each agent emits its ``StopMessage``
+    (``get_team()`` shrinks). An agent still finishing its in-flight handler may
+    resolve a recipient against this shrinking roster via
+    ``Orchestrator.get_team_member(name)``. If the target has already stopped and
+    left the roster, the lookup returns ``None`` — and the agent-side router
+    drops the send silently (the silent-drop fix is an ``akgentic-agent``
+    follow-up, out of scope here).
+
+    This pins down the core-boundary behaviour: with ``_stopping`` set, a lookup
+    for an already-stopped member returns ``None``, while a still-running member
+    is still resolvable. Behaviour-only — no ADR-reference-string assertions
+    (Golden Rule #8).
+    """
+    system = ActorSystem()
+    orch_addr = system.createActor(
+        ProbingOrchestrator,
+        config=BaseConfig(name="@Orchestrator", role="Orchestrator"),
+    )
+    orch_proxy = system.proxy_ask(orch_addr, ProbingOrchestrator)
+
+    # Two members: the recipient (@Human, stopped first during teardown) and a
+    # still-running sender (@Worker) finishing its in-flight handler.
+    human_addr = orch_proxy.createActor(
+        TelemetryWorker, config=BaseConfig(name="@Human", role="HumanProxy")
+    )
+    worker_addr = orch_proxy.createActor(
+        TelemetryWorker, config=BaseConfig(name="@Worker", role="Worker")
+    )
+    assert human_addr is not None
+    assert worker_addr is not None
+
+    # Both are resolvable before any teardown.
+    assert orch_proxy.get_team_member("@Human") is not None
+    assert orch_proxy.get_team_member("@Worker") is not None
+
+    # @Human stops first (emits its StopMessage, leaves the roster) — the
+    # HumanProxy-torn-down-first case from the story. Blocking child stop keeps
+    # the orchestrator alive so we can probe its roster afterwards.
+    system.proxy_ask(human_addr, Akgent).stop()
+    time.sleep(0.2)  # let the StopMessage land and invalidate the roster cache
+
+    # Probe the roster the way a mid-handler agent would during teardown:
+    # _stopping is set on the orchestrator's own thread, then the lookups run.
+    human_lookup, worker_lookup = orch_proxy.probe_lookup_during_stopping(
+        "@Human", "@Worker"
+    )
+
+    # The stopped recipient resolves to None — the lookup miss that leads to the
+    # silent drop. The still-running sender is still resolvable.
+    assert human_lookup is None
+    assert worker_lookup is not None
+    assert worker_lookup.name == "@Worker"
+
+    system.shutdown()
