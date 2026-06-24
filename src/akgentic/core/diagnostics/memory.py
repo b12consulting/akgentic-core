@@ -3,12 +3,18 @@
 Pure, infrastructure-agnostic toolkit (stdlib + pydantic only — no FastAPI, no
 sibling-package imports) so any package layered on ``akgentic-core`` shares one
 diagnostic surface instead of copying it. The FastAPI debug router that exposes
-these primitives lives in ``akgentic-infra-department`` (ADR-015 §2); it stays
-out of core to preserve core's zero-infrastructure-deps invariant.
+these primitives is a shared worker route in ``akgentic-infra`` (ADR-015 §2); it
+stays out of core to preserve core's zero-infrastructure-deps invariant.
 
-``ObjectCensus`` captures live-instance counts per class (the A/B leak primitive).
-``MemorySampler`` records, once per iteration, three independent signals so a
-plateau can be classified instead of guessed at:
+``ObjectCensus.capture`` snapshots live-instance counts per class.
+
+``ObjectCensus.diff`` ranks the per-class growth between two snapshots (the A/B
+leak primitive — which *types* accumulated). 
+
+``ReferrerReport.capture`` then names *who* still holds a leaked type, 
+walking ``gc.get_referrers`` from sampled instances up to the long-lived 
+root pinning them. ``MemorySampler`` records, once per iteration, three 
+independent signals so a plateau can be classified instead of guessed at:
 
 * **heap** — ``tracemalloc`` current traced bytes (live Python objects). Grows
   linearly with iterations ⇒ a real object leak.
@@ -337,13 +343,49 @@ class ReferrerNode(BaseModel):
 
 
 class ReferrerReport(BaseModel):
-    """Referrer chains for sampled live instances of one class."""
+    """Referrer chains for sampled live instances of one class — names the leak root.
+
+    Build one with :meth:`capture`, passing a class flagged by an
+    :class:`ObjectCensus` diff (e.g. the worst-growing type): it samples live
+    instances and walks up ``gc.get_referrers`` to the long-lived object still
+    pinning them, so the report points at the holder rather than the leaked type.
+    """
 
     type_name: str = Field(description="Class whose holders were traced")
     live_count: int = Field(description="Total live instances of this class")
     samples: list[ReferrerNode] = Field(
         default_factory=list, description="One referrer tree per sampled instance"
     )
+
+    @classmethod
+    def capture(
+        cls,
+        type_name: str,
+        *,
+        depth: int = 4,
+        fanout: int = 3,
+        samples: int = 3,
+        newest: bool = True,
+    ) -> ReferrerReport:
+        """Trace who still holds live instances of ``type_name`` — names the leak root.
+
+        Collects cycles, samples ``samples`` live instances of the class (the LAST in
+        heap order when ``newest`` — the ones most likely allocated during a load run,
+        i.e. the leaked ones), and walks up ``gc.get_referrers`` ``depth`` hops
+        (``fanout`` per hop) so each chain ends at the long-lived root pinning them.
+        """
+        gc.collect()
+        instances = [o for o in gc.get_objects() if type(o).__name__ == type_name]
+        chosen = instances[-samples:] if newest else instances[:samples]
+        trees = [
+            ReferrerNode(
+                type_name=type_name,
+                detail=_short(inst),
+                referrers=_walk(inst, depth, fanout, {id(inst), id(instances), id(chosen)}),
+            )
+            for inst in chosen
+        ]
+        return cls(type_name=type_name, live_count=len(instances), samples=trees)
 
 
 ReferrerNode.model_rebuild()  # resolve the self-referential `referrers` field
