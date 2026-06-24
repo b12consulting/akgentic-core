@@ -7,9 +7,6 @@ ordering, never absolute byte counts (RSS/heap are environment-dependent).
 
 from __future__ import annotations
 
-import importlib
-import sys
-
 from akgentic.core.diagnostics import (
     MemorySample,
     MemorySampler,
@@ -34,14 +31,17 @@ from akgentic.core.diagnostics.memory import (
 
 def test_module_imports_without_fastapi() -> None:
     """The promoted module must not pull FastAPI into core (zero-infra invariant)."""
-    # Re-importing the pure module never registers fastapi as a dependency of it,
-    # and exposes none of the FastAPI router surface that stays in infra-department.
-    reloaded = importlib.reload(memory_module)
-    assert not hasattr(reloaded, "router")
-    assert not hasattr(reloaded, "census")
-    assert not hasattr(reloaded, "census_diff")
-    assert not hasattr(reloaded, "referrers")
-    assert "fastapi" not in sys.modules.get(reloaded.__name__).__dict__
+    # The pure module exposes none of the FastAPI router surface (which stays in
+    # infra) and never registers fastapi among its own module-level imports.
+    # NB: do not importlib.reload() here — an in-place reload rebinds this module's
+    # classes while leaving already-imported references (package re-exports, other
+    # tests' imports) pointing at the originals, corrupting model validation for
+    # every subsequent test.
+    assert not hasattr(memory_module, "router")
+    assert not hasattr(memory_module, "census")
+    assert not hasattr(memory_module, "census_diff")
+    assert not hasattr(memory_module, "referrers")
+    assert "fastapi" not in memory_module.__dict__
 
 
 def test_module_source_has_no_fastapi_import() -> None:
@@ -389,6 +389,35 @@ def test_referrer_node_and_report_instantiate() -> None:
 
     assert report.samples[0].referrers[0].type_name == "dict"
     assert report.live_count == 2
+
+
+class _ReferrerTarget:
+    """Distinctly-named class so the capture can find its live instances by name."""
+
+
+def test_referrer_report_capture_traces_live_instances() -> None:
+    """capture() finds live instances of the named class and walks up to a holder."""
+    held = [_ReferrerTarget(), _ReferrerTarget()]  # a 'list' holder keeps them live
+
+    report = ReferrerReport.capture("_ReferrerTarget", depth=3, fanout=3, samples=2)
+
+    assert report.type_name == "_ReferrerTarget"
+    assert report.live_count >= 2
+    assert len(report.samples) == 2
+    assert all(node.type_name == "_ReferrerTarget" for node in report.samples)
+    assert held  # keep the targets alive through the assertion
+
+
+def test_referrer_report_capture_caps_samples_and_handles_absent_type() -> None:
+    """samples slices to the cap; an unknown type yields an empty, zero-count report."""
+    held = [_ReferrerTarget() for _ in range(4)]
+    capped = ReferrerReport.capture("_ReferrerTarget", samples=1)
+    assert len(capped.samples) == 1
+
+    missing = ReferrerReport.capture("ClassThatHasNoLiveInstances_xyz", samples=3)
+    assert missing.live_count == 0
+    assert missing.samples == []
+    assert held  # keep the targets alive through the assertion
 
 
 # --- helper smoke -------------------------------------------------------------

@@ -345,6 +345,36 @@ class ReferrerReport(BaseModel):
         default_factory=list, description="One referrer tree per sampled instance"
     )
 
+    @classmethod
+    def capture(
+        cls,
+        type_name: str,
+        *,
+        depth: int = 4,
+        fanout: int = 3,
+        samples: int = 3,
+        newest: bool = True,
+    ) -> ReferrerReport:
+        """Trace who still holds live instances of ``type_name`` — names the leak root.
+
+        Collects cycles, samples ``samples`` live instances of the class (the LAST in
+        heap order when ``newest`` — the ones most likely allocated during a load run,
+        i.e. the leaked ones), and walks up ``gc.get_referrers`` ``depth`` hops
+        (``fanout`` per hop) so each chain ends at the long-lived root pinning them.
+        """
+        gc.collect()
+        instances = [o for o in gc.get_objects() if type(o).__name__ == type_name]
+        chosen = instances[-samples:] if newest else instances[:samples]
+        trees = [
+            ReferrerNode(
+                type_name=type_name,
+                detail=_short(inst),
+                referrers=_walk(inst, depth, fanout, {id(inst), id(instances), id(chosen)}),
+            )
+            for inst in chosen
+        ]
+        return cls(type_name=type_name, live_count=len(instances), samples=trees)
+
 
 ReferrerNode.model_rebuild()  # resolve the self-referential `referrers` field
 
