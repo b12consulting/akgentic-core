@@ -3,12 +3,16 @@
 Pure, infrastructure-agnostic toolkit (stdlib + pydantic only — no FastAPI, no
 sibling-package imports) so any package layered on ``akgentic-core`` shares one
 diagnostic surface instead of copying it. The FastAPI debug router that exposes
-these primitives lives in ``akgentic-infra-department`` (ADR-015 §2); it stays
-out of core to preserve core's zero-infrastructure-deps invariant.
+these primitives is a shared worker route in ``akgentic-infra`` (ADR-015 §2); it
+stays out of core to preserve core's zero-infrastructure-deps invariant.
 
-``ObjectCensus`` captures live-instance counts per class (the A/B leak primitive).
-``MemorySampler`` records, once per iteration, three independent signals so a
-plateau can be classified instead of guessed at:
+``ObjectCensus.capture`` snapshots live-instance counts per class and
+``ObjectCensus.diff`` ranks the per-class growth between two snapshots (the A/B
+leak primitive — which *types* accumulated). ``ReferrerReport.capture`` then
+names *who* still holds a leaked type, walking ``gc.get_referrers`` from sampled
+instances up to the long-lived root pinning them. ``MemorySampler`` records, once
+per iteration, three independent signals so a plateau can be classified instead
+of guessed at:
 
 * **heap** — ``tracemalloc`` current traced bytes (live Python objects). Grows
   linearly with iterations ⇒ a real object leak.
@@ -337,7 +341,13 @@ class ReferrerNode(BaseModel):
 
 
 class ReferrerReport(BaseModel):
-    """Referrer chains for sampled live instances of one class."""
+    """Referrer chains for sampled live instances of one class — names the leak root.
+
+    Build one with :meth:`capture`, passing a class flagged by an
+    :class:`ObjectCensus` diff (e.g. the worst-growing type): it samples live
+    instances and walks up ``gc.get_referrers`` to the long-lived object still
+    pinning them, so the report points at the holder rather than the leaked type.
+    """
 
     type_name: str = Field(description="Class whose holders were traced")
     live_count: int = Field(description="Total live instances of this class")
