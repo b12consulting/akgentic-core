@@ -561,8 +561,11 @@ class TestNoActorEventLoop:
         assert actor is not None
         assert not hasattr(actor, "_event_loop")
 
-        # Stop and verify exactly one StopMessage reached the orchestrator.
-        ref.proxy().stop().get(timeout=5)
+        # Block until the actor thread is fully joined: on_stop() (and its
+        # StopMessage notify) runs during Pykka's shutdown, after the run loop
+        # exits — a proxy stop().get() can return before it completes. The
+        # blocking ActorRef.stop() guarantees on_stop has finished here.
+        ref.stop(block=True)
 
         from akgentic.core.messages.orchestrator import StopMessage
 
