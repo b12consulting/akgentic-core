@@ -6,13 +6,15 @@ diagnostic surface instead of copying it. The FastAPI debug router that exposes
 these primitives is a shared worker route in ``akgentic-infra`` (ADR-015 §2); it
 stays out of core to preserve core's zero-infrastructure-deps invariant.
 
-``ObjectCensus.capture`` snapshots live-instance counts per class and
+``ObjectCensus.capture`` snapshots live-instance counts per class.
+
 ``ObjectCensus.diff`` ranks the per-class growth between two snapshots (the A/B
-leak primitive — which *types* accumulated). ``ReferrerReport.capture`` then
-names *who* still holds a leaked type, walking ``gc.get_referrers`` from sampled
-instances up to the long-lived root pinning them. ``MemorySampler`` records, once
-per iteration, three independent signals so a plateau can be classified instead
-of guessed at:
+leak primitive — which *types* accumulated). 
+
+``ReferrerReport.capture`` then names *who* still holds a leaked type, 
+walking ``gc.get_referrers`` from sampled instances up to the long-lived 
+root pinning them. ``MemorySampler`` records, once per iteration, three 
+independent signals so a plateau can be classified instead of guessed at:
 
 * **heap** — ``tracemalloc`` current traced bytes (live Python objects). Grows
   linearly with iterations ⇒ a real object leak.
