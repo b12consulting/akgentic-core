@@ -459,16 +459,17 @@ class _StreamLikeSubscriber:
 
 
 class TestEmitMessage:
-    """Story 22.1 — `emitMessage` publishes to subscribers without history append.
+    """Story 22.1 — `emitMessage` publishes a pre-formed message to subscribers.
 
     Behavioural invariants under test (ACs #1–#3, #5):
 
     - Both a persistence-like and a stream-like subscriber receive the emitted
       message via ``on_message`` in a single fan-out.
     - ``team_id`` is stamped from the orchestrator (even when the incoming
-      message carries a different/unset ``team_id``).
-    - ``self.messages`` (agent-visible history) does NOT grow — the defining
-      difference from ``restore_message``.
+      message carries a different/unset ``team_id``), and the orchestrator is set
+      as the sender (``Message.init``).
+    - The message is appended to ``self.messages`` (the team's record), like the
+      other emission paths; it is NOT routed to any agent for processing.
     """
 
     def test_emit_fans_out_to_both_sinks_and_stamps_team_id(self) -> None:
@@ -493,17 +494,19 @@ class TestEmitMessage:
         # AC #3: single fan-out reaches BOTH sinks exactly once.
         assert len(persistence.messages) == 1
         assert len(stream.messages) == 1
-        # AC #1: the emitted message (no address fields → no snapshot copy).
-        assert persistence.messages[0] is msg
-        assert stream.messages[0] is msg
+        # AC #1: both sinks receive the emitted message. emitMessage now sets the
+        # sender address (Message.init), so subscribers get a snapshot copy whose
+        # content is preserved (identity is no longer expected).
+        assert persistence.messages[0].content == "injected notification"
+        assert stream.messages[0].content == "injected notification"
         # AC #1: team_id stamped from the orchestrator.
         assert persistence.messages[0].team_id == team_id
         assert stream.messages[0].team_id == team_id
 
         system.shutdown()
 
-    def test_emit_does_not_append_to_history(self) -> None:
-        """AC #2: emitMessage does NOT grow self.messages (unlike restore_message)."""
+    def test_emit_appends_to_history(self) -> None:
+        """AC #2: emitMessage appends the message to self.messages (team record)."""
         system = ActorSystem()
         orch_addr = system.createActor(
             Orchestrator,
@@ -515,12 +518,12 @@ class TestEmitMessage:
         orch_proxy.subscribe(sub)
 
         before = len(orch_proxy.get_messages())
-        orch_proxy.emitMessage(UserMessage(content="not persisted to history"))
+        orch_proxy.emitMessage(UserMessage(content="added to history"))
         after = len(orch_proxy.get_messages())
 
-        # Subscriber saw it, but agent-visible history is unchanged.
+        # Subscriber saw it AND it is now part of the team's message record.
         assert len(sub.messages) == 1
-        assert after == before
+        assert after == before + 1
 
         system.shutdown()
 
