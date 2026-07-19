@@ -536,6 +536,22 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self._current_team_members = None  # Invalidate cache
         self._notify_subscribers_message("on_message", message)
 
+    def emitMessage(self, message: Message) -> None:  # noqa: N802
+        """Publish a pre-formed message to this team's subscribers (persist + stream).
+
+        Stamps ``team_id`` from the orchestrator and fans out via
+        ``_notify_subscribers_message`` WITHOUT routing to any agent and WITHOUT
+        appending to ``self.messages`` (the agent-visible history) — the twin of
+        ``restore_message`` for injected notifications. Public + camelCase so the
+        team layer can reach the fan-out through the actor proxy (Pykka excludes
+        ``_``-prefixed members). See akgentic-team ADR-22 §Dependency.
+
+        Args:
+            message: The pre-formed message to publish to all subscribers.
+        """
+        message.team_id = self.team_id
+        self._notify_subscribers_message("on_message", message)
+
     def end_restoration(self) -> None:
         """Signal that restoration replay is complete.
 

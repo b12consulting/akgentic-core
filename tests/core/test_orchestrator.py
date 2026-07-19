@@ -407,6 +407,152 @@ class TestRestoreMessage:
 
 
 # ---------------------------------------------------------------------------
+# Story 22.1 — Orchestrator.emitMessage fan-out seam
+# ---------------------------------------------------------------------------
+
+
+class _PersistenceLikeSubscriber:
+    """Durable-sink fake: records every message handed to ``on_message``.
+
+    Models the persistence half of the standard subscriber pair. Lifecycle
+    hooks are no-ops so the subscriber can ride the shutdown fan-out cleanly.
+    """
+
+    def __init__(self) -> None:
+        self.messages: list[Message] = []
+
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
+        pass
+
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
+        pass
+
+    def on_stop(self, team_id: uuid.UUID) -> None:
+        pass
+
+    def on_message(self, msg: Message) -> None:
+        self.messages.append(msg)
+
+
+class _StreamLikeSubscriber:
+    """Live-stream-sink fake: records every message handed to ``on_message``.
+
+    Models the streaming half of the standard subscriber pair, distinct from
+    the persistence sink so a single ``emitMessage`` fan-out to BOTH can be
+    asserted.
+    """
+
+    def __init__(self) -> None:
+        self.messages: list[Message] = []
+
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
+        pass
+
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
+        pass
+
+    def on_stop(self, team_id: uuid.UUID) -> None:
+        pass
+
+    def on_message(self, msg: Message) -> None:
+        self.messages.append(msg)
+
+
+class TestEmitMessage:
+    """Story 22.1 — `emitMessage` publishes to subscribers without history append.
+
+    Behavioural invariants under test (ACs #1–#3, #5):
+
+    - Both a persistence-like and a stream-like subscriber receive the emitted
+      message via ``on_message`` in a single fan-out.
+    - ``team_id`` is stamped from the orchestrator (even when the incoming
+      message carries a different/unset ``team_id``).
+    - ``self.messages`` (agent-visible history) does NOT grow — the defining
+      difference from ``restore_message``.
+    """
+
+    def test_emit_fans_out_to_both_sinks_and_stamps_team_id(self) -> None:
+        """AC #1, #3, #5: both sinks receive the emitted message; team_id stamped."""
+        system = ActorSystem()
+        team_id = uuid.uuid4()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+            team_id=team_id,
+        )
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        persistence = _PersistenceLikeSubscriber()
+        stream = _StreamLikeSubscriber()
+        orch_proxy.subscribe(persistence)
+        orch_proxy.subscribe(stream)
+
+        msg = UserMessage(content="injected notification")
+        orch_proxy.emitMessage(msg)
+
+        # AC #3: single fan-out reaches BOTH sinks exactly once.
+        assert len(persistence.messages) == 1
+        assert len(stream.messages) == 1
+        # AC #1: the emitted message (no address fields → no snapshot copy).
+        assert persistence.messages[0] is msg
+        assert stream.messages[0] is msg
+        # AC #1: team_id stamped from the orchestrator.
+        assert persistence.messages[0].team_id == team_id
+        assert stream.messages[0].team_id == team_id
+
+        system.shutdown()
+
+    def test_emit_does_not_append_to_history(self) -> None:
+        """AC #2: emitMessage does NOT grow self.messages (unlike restore_message)."""
+        system = ActorSystem()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+        )
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = _PersistenceLikeSubscriber()
+        orch_proxy.subscribe(sub)
+
+        before = len(orch_proxy.get_messages())
+        orch_proxy.emitMessage(UserMessage(content="not persisted to history"))
+        after = len(orch_proxy.get_messages())
+
+        # Subscriber saw it, but agent-visible history is unchanged.
+        assert len(sub.messages) == 1
+        assert after == before
+
+        system.shutdown()
+
+    def test_emit_stamps_team_id_over_a_different_incoming_value(self) -> None:
+        """AC #1: emitMessage overwrites a foreign/unset incoming team_id."""
+        system = ActorSystem()
+        orch_team_id = uuid.uuid4()
+        orch_addr = system.createActor(
+            Orchestrator,
+            config=BaseConfig(name="orchestrator", role="Orchestrator"),
+            team_id=orch_team_id,
+        )
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = _StreamLikeSubscriber()
+        orch_proxy.subscribe(sub)
+
+        # Incoming message carries a DIFFERENT team_id.
+        foreign_team_id = uuid.uuid4()
+        msg = UserMessage(content="stamp me")
+        msg.team_id = foreign_team_id
+        assert foreign_team_id != orch_team_id
+
+        orch_proxy.emitMessage(msg)
+
+        assert len(sub.messages) == 1
+        assert sub.messages[0].team_id == orch_team_id
+
+        system.shutdown()
+
+
+# ---------------------------------------------------------------------------
 # Test event types for event_class filtering
 # ---------------------------------------------------------------------------
 
