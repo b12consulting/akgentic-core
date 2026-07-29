@@ -11,11 +11,14 @@ from __future__ import annotations
 import asyncio
 import gc
 import importlib.util
+import logging
+import sys
 import weakref
 
 import pytest
-
+from akgentic.core import agent as agent_module
 from akgentic.core.agent import Akgent, _evict_anyio_run_vars
+from akgentic.core.messages.orchestrator import StopMessage
 
 # anyio is an optional transitive dep (pydantic-ai/httpx); the eviction feature is
 # best-effort precisely because anyio may be absent. Skip only the anyio-shape tests
@@ -64,6 +67,19 @@ class TestEvictAnyioRunVars:
         assert loop not in _run_vars
 
 
+class TestEvictDegradesWithoutAnyio:
+    """Eviction degrades to a silent no-op when anyio's private API is unreachable."""
+
+    def test_evict_is_noop_when_anyio_import_fails(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # A None entry in sys.modules makes the import raise, standing in for anyio
+        # being absent or having renamed/relocated _run_vars.
+        monkeypatch.setitem(sys.modules, "anyio.lowlevel", None)
+
+        loop = asyncio.new_event_loop()
+        loop.close()
+        _evict_anyio_run_vars(loop)  # must swallow the ImportError, not raise
+
+
 class TestCancelPendingTasks:
     """Stragglers are cancelled and awaited before the loop closes."""
 
@@ -74,12 +90,15 @@ class TestCancelPendingTasks:
             async def _forever() -> None:
                 await asyncio.sleep(3600)
 
-            loop.create_task(_forever())
-            assert any(not t.done() for t in asyncio.all_tasks(loop))
+            task = loop.create_task(_forever())
+            assert not task.done()
 
             Akgent._cancel_pending_tasks(loop)
 
-            assert all(t.done() for t in asyncio.all_tasks(loop))
+            # The straggler itself was cancelled and awaited, not merely dropped.
+            assert task.done()
+            assert task.cancelled()
+            assert not asyncio.all_tasks(loop)
         finally:
             loop.close()
 
@@ -112,3 +131,58 @@ class TestDrainEventLoop:
         Akgent._drain_event_loop(stub, loop)  # type: ignore[arg-type]
 
         assert loop.is_closed()
+
+
+class _FailingLoop:
+    """Loop stand-in whose teardown raises, exercising the drain's failure path."""
+
+    def is_closed(self) -> bool:
+        return False
+
+    def shutdown_asyncgens(self) -> None:
+        raise RuntimeError("teardown boom")
+
+
+class _OnStopProbe:
+    """Borrows Akgent's teardown methods so on_stop can run without a live actor."""
+
+    on_stop = Akgent.on_stop
+    _drain_event_loop = Akgent._drain_event_loop
+    _cancel_pending_tasks = staticmethod(Akgent._cancel_pending_tasks)
+    config = _DrainStub._Config()
+
+    def __init__(self, loop: object) -> None:
+        self._event_loop = loop
+        self.notified: list[object] = []
+
+    def _notify_orchestrator(self, message: object) -> None:
+        self.notified.append(message)
+
+
+class TestDrainFailureIsBestEffort:
+    """A failing teardown is logged and swallowed — it never blocks stop telemetry."""
+
+    def test_failure_is_logged_and_run_vars_still_evicted(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        evicted: list[object] = []
+        monkeypatch.setattr(agent_module, "_evict_anyio_run_vars", evicted.append)
+
+        loop = _FailingLoop()
+        with caplog.at_level(logging.WARNING):
+            Akgent._drain_event_loop(_DrainStub(), loop)  # type: ignore[arg-type]
+
+        assert "event-loop drain failed" in caplog.text
+        # The eviction lives in a finally, so it runs even when the close path raised.
+        assert evicted == [loop]
+
+    def test_stop_message_is_sent_even_when_drain_fails(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        probe = _OnStopProbe(_FailingLoop())
+
+        with caplog.at_level(logging.WARNING):
+            probe.on_stop()
+
+        assert "event-loop drain failed" in caplog.text
+        assert [type(m) for m in probe.notified] == [StopMessage]
