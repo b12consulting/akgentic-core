@@ -1,0 +1,112 @@
+name: Publish to PyPI
+
+# Publishes this distribution to TestPyPI or PyPI using Trusted Publishing
+# (OIDC). No API token is stored: PyPI verifies this workflow's identity at
+# upload time and mints a short-lived one.
+#
+# PyPI-side setup, once per index, BEFORE the first publish:
+#   PyPI -> Publishing -> "Add a new pending publisher"
+#     Owner:            b12consulting
+#     Repository name:  akgentic-core
+#     Workflow name:    publish-pypi.yml   <- this file's name; renaming it
+#                                             breaks the publisher config
+#     Environment:      pypi               (or testpypi on TestPyPI)
+#
+# Each package lives in its own repository, so the (repository, workflow,
+# environment) triple is already unique per project — every publisher can be
+# registered up front, with no serialized one-at-a-time bootstrap.
+#
+# Name and version are read from pyproject.toml, so bump the version first.
+# PyPI never allows re-uploading a version: a botched upload burns that
+# number permanently.
+#
+# Copying this to a sibling package: only the "Repository name" comment above
+# needs editing — every step derives the project name from pyproject.toml.
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "Index to publish to"
+        type: choice
+        options:
+          - testpypi
+          - pypi
+        default: testpypi
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Gates the upload behind the environment's protection rules, and is part
+    # of the identity PyPI checks. Must match the publisher's Environment.
+    environment: ${{ inputs.target }}
+    permissions:
+      # Declaring any permissions block zeroes every scope not listed, so
+      # checkout needs contents:read stated explicitly here.
+      contents: read
+      # Required for the OIDC exchange — without it the action cannot prove
+      # which workflow it is.
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v8.1.0
+        with:
+          version: "latest"
+
+      - name: Set up Python 3.12
+        run: uv python install 3.12
+
+      - name: Read name and version from pyproject.toml
+        id: dist
+        run: |
+          NAME=$(grep -m1 -E '^name = ' pyproject.toml | sed -E 's/name = "(.*)"/\1/')
+          VERSION=$(grep -m1 -E '^version = ' pyproject.toml | sed -E 's/version = "(.*)"/\1/')
+          echo "Distribution: $NAME $VERSION"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      # Fail loudly on an unbumped version rather than skip it silently. This
+      # repo publishes one deliberate release per run, so a version that is
+      # already on the index is a forgotten bump, not a no-op. Runs before the
+      # build so the failure is immediate.
+      - name: Verify version is not already on the index
+        env:
+          NAME: ${{ steps.dist.outputs.name }}
+          VERSION: ${{ steps.dist.outputs.version }}
+          HOST: ${{ inputs.target == 'testpypi' && 'test.pypi.org' || 'pypi.org' }}
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' \
+            "https://${HOST}/pypi/${NAME}/${VERSION}/json")
+          if [ "$code" = "200" ]; then
+            echo "::error::${NAME} ${VERSION} is already on ${HOST}. Bump the version in pyproject.toml."
+            exit 1
+          fi
+          echo "${NAME} ${VERSION} is free on ${HOST} (HTTP ${code})."
+
+      - name: Build sdist and wheel
+        run: uv build --out-dir dist/
+
+      - name: Check metadata
+        run: uvx twine check dist/*
+
+      - name: Verify exactly one sdist and one wheel
+        run: |
+          ls -1 dist/
+          count=$(ls -1 dist/ | wc -l)
+          if [ "$count" -ne 2 ]; then
+            echo "::error::Expected 2 files (sdist + wheel), found $count"
+            exit 1
+          fi
+
+      - name: Publish
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+          repository-url: >-
+            ${{ inputs.target == 'testpypi'
+                && 'https://test.pypi.org/legacy/'
+                || 'https://upload.pypi.org/legacy/' }}
+          print-hash: true
