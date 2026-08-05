@@ -590,7 +590,7 @@ can be fully reconstructed by:
 3. Replaying persisted events via `restore_message()` to rebuild in-memory state
 
 `akgentic-team` implements the full 3-phase restore protocol on top of these
-primitives. See [akgentic-team](../akgentic-team/README.md) for details.
+primitives. See [akgentic-team](https://github.com/b12consulting/akgentic-team/blob/master/README.md) for details.
 
 ## AgentCard — Capability Discovery
 
@@ -697,11 +697,11 @@ proxy.process_human_input("Approved", original_user_message)  # original_user_me
 multi-hop routing via continuation chains — useful when the request travels
 through several agents before reaching the human (e.g. Manager → Dev → Human →
 Dev → Manager). See
-[`akgentic-agent`](../akgentic-agent/README.md) for details.
+[`akgentic-agent`](https://github.com/b12consulting/akgentic-agent/blob/master/README.md) for details.
 
 ## Examples
 
-Six progressive, self-contained examples in the [examples/](examples/)
+Six progressive, self-contained examples in the [examples/](https://github.com/b12consulting/akgentic-core/tree/master/examples)
 directory. Each includes a runnable `.py` script and a companion `.md`
 explaining concepts and pitfalls.
 
@@ -718,7 +718,7 @@ uv run python examples/01_hello_world.py
 | 05 | `05_multi_agent.py` | Multi-agent workflows, `UserProxy`, `EventSubscriber` |
 | 06 | `06_agent_cards.py` | `AgentCard`, capability catalog, routing constraints |
 
-See [`examples/README.md`](examples/README.md) for the full concept index.
+See [`examples/README.md`](https://github.com/b12consulting/akgentic-core/blob/master/examples/README.md) for the full concept index.
 
 ## Development
 
