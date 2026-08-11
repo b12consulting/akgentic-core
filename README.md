@@ -502,9 +502,22 @@ class WorkerAgent(Akgent[WorkerConfig, WorkerState]):
         # Orchestrator is notified automatically
 ```
 
-`update_state()` performs a full Pydantic round-trip: merges the dict into
-`model_dump()`, deserializes via `AkgentDeserializeContext`, then calls
-`init_state()` which preserves the observer and notifies.
+`update_state(self, updates: dict[str, Any]) -> None` performs a full
+Pydantic round-trip: merges `updates` into `model_dump()`, deserializes via
+`AkgentDeserializeContext`, then calls `init_state()` which preserves the
+observer and notifies.
+
+> **Note — direct field mutation does not auto-notify.** `update_state()` is
+> the only path that notifies the Orchestrator automatically. If you mutate a
+> field on `self.state` directly instead (e.g. `self.state.count += 1`),
+> Pydantic attribute assignment does not trigger any hook — you must call
+> `self.state.notify_state_change()` yourself afterward, or the Orchestrator's
+> `state_dict` and any `EventSubscriber`s never learn about the change:
+>
+> ```python
+> self.state.count += effective
+> self.state.notify_state_change()   # required after direct mutation
+> ```
 
 ## Orchestrator & Multi-Agent Coordination
 
