@@ -554,6 +554,8 @@ orch.get_team_member("@Writer")    # Find by name
 orch.get_messages()                # Full telemetry log
 orch.get_states()                  # Latest state per agent
 orch.get_events()                  # All EventMessages (optional agent_id/event_class filters)
+orch.get_metadata()                # Team-scoped business context (None if unset)
+orch.set_metadata(ctx)             # Replace it wholesale (None clears it)
 ```
 
 ### `team_id` Inheritance
@@ -591,6 +593,47 @@ orch.subscribe(MySubscriber())
 `on_message()` receives all telemetry types: `StartMessage`, `StopMessage`,
 `SentMessage`, `ReceivedMessage`, `ProcessedMessage`, `ErrorMessage`,
 `StateChangedMessage`, `EventMessage`.
+
+### Team Metadata
+
+`team_metadata` is caller-defined, **team-scoped** business context — tenant,
+case reference, channel, department — that any agent in the team can read at
+runtime through the Orchestrator. It is opaque to core: the value arrives as an
+already-validated `SerializableBaseModel` subclass, and core stores and returns
+it unchanged, never validating, inspecting, or indexing it. The schema and the
+filtering built on it live in `akgentic-team`.
+
+```python
+from akgentic.core import Orchestrator
+from akgentic.core.utils.serializer import SerializableBaseModel
+
+class CaseContext(SerializableBaseModel):
+    tenant: str
+    case: str
+
+orch = system.proxy_ask(orchestrator_addr, Orchestrator)
+
+orch.set_metadata(CaseContext(tenant="acme", case="C-1234"))
+ctx = orch.get_metadata()           # CaseContext(tenant='acme', case='C-1234')
+orch.set_metadata(None)             # clears it
+```
+
+`set_metadata(metadata)` **replaces** the value wholesale — it never merges, so
+what is set does not depend on write history. `get_metadata()` returns the
+caller's own subclass by reference; treat it as read-only and call
+`set_metadata()` with a new model to change it.
+
+Setting the value emits **no** `StateChangedMessage`. The value is therefore not
+part of any agent state snapshot, and an `EventSubscriber` will not observe
+metadata writes on the telemetry stream — a snapshot would become a second
+persisted copy, free to diverge from the record that team listing indexes.
+
+> **Note — the Orchestrator's copy is a cache, not the system of record.** The
+> authoritative value lives in `akgentic-team`'s `Process` record. The team layer
+> writes that record first and only then pushes to the live actor, best-effort,
+> so after a failed push the actor's copy can legitimately lag until the next
+> team resume repopulates it. Code that needs the authoritative value must read
+> `Process`, not `get_metadata()`.
 
 ### Team Restoration
 
