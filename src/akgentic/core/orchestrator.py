@@ -193,6 +193,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         llm_context_dict: Per-agent LLM context (keyed by agent_id string)
         tool_state_dict: Per-tool state tracking
         subscribers: List of event subscribers for extensibility
+        team_metadata: Team-scoped business context, opaque to core (see get_metadata)
 
     Example:
         >>> system = ActorSystem.start().proxy()
@@ -251,6 +252,12 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
         # Agent profile catalog (keyed by role)
         self.agent_cards: dict[str, AgentCard] = {}
+
+        # Team-scoped business context, opaque to core (tenant, case reference,
+        # channel, ...). A peer of state_dict/agent_cards: mutable orchestrator
+        # state that is deliberately NOT part of BaseState. See get_metadata /
+        # set_metadata for why it lives here rather than on state or config.
+        self.team_metadata: SerializableBaseModel | None = None
 
         # Team roster cache
         self._current_team_members: list[ActorAddress] | None = None
@@ -697,6 +704,46 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             Dictionary mapping agent_id (as string) to agent state
         """
         return self.state_dict
+
+    def get_metadata(self) -> SerializableBaseModel | None:
+        """Get this team's business context, or ``None`` if the team declares none.
+
+        Returns the caller-supplied model *by reference* — the concrete subclass,
+        not a base-coerced copy. Core never validates, inspects or indexes it: the
+        value arrives already validated against the contract its team declared, and
+        that contract lives two layers above core (see ADR-24 §D6, akgentic-team).
+
+        This is a **cache**, not the system of record. The authoritative copy is the
+        team layer's ``Process`` record — the one team listing indexes. The
+        orchestrator's copy can legitimately lag: the team layer writes its database
+        first and only then pushes here, best-effort, for a running team (ADR-24 §D7).
+        A reader that needs the authoritative value reads ``Process``, not the actor.
+
+        Returns:
+            The team's metadata model, or None when no metadata is set.
+        """
+        return self.team_metadata
+
+    def set_metadata(self, metadata: SerializableBaseModel | None) -> None:
+        """Replace this team's business context. ``None`` clears it.
+
+        Wholesale replacement, never a merge: "which fields are set now" must not
+        depend on write history. Passing ``None`` stores the clear.
+
+        Deliberately emits NO ``StateChangedMessage`` and never touches
+        ``state_dict``. A state change here would be snapshotted into the persisted
+        agent-state collection by the team layer's persistence subscriber, producing
+        a second copy of the metadata with nothing linking it to the ``Process``
+        record — and since the index derived from that record is what team listing
+        queries, divergence would make the index silently lie. That is also why the
+        value is a runtime attribute rather than a ``BaseState`` field, and why
+        ``BaseConfig`` (not frozen, static by convention) is the wrong home for data
+        that is mutable by design. See ADR-24 §D6/§D7 (akgentic-team).
+
+        Args:
+            metadata: The team's metadata model, or None to clear it.
+        """
+        self.team_metadata = metadata
 
     def stop(self, grace_timeout: float = STOP_TIMEOUT) -> threading.Event:  # type: ignore[override]
         """Initiate a non-blocking, recursive team teardown (ADR-012 §2).
