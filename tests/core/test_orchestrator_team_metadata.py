@@ -110,7 +110,6 @@ def test_set_then_get_round_trips_concrete_subclass() -> None:
 
     result = proxy.get_metadata()
     assert type(result) is _Meta
-    assert isinstance(result, _Meta)
     # Subclass-specific fields survive the round trip.
     assert result.tenant == "acme"
     assert result.case == "C-1234"
@@ -177,14 +176,26 @@ def test_set_metadata_emits_no_state_changed_message() -> None:
     collection by a downstream persistence subscriber, creating a second copy of
     the metadata that can diverge from the authoritative team record. This test
     is what stops a later refactor from moving the value into ``BaseState``.
+
+    ``state_dict`` is populated *before* the recorder is attached, for two
+    reasons: it makes the "no entry added **or modified**" half of the
+    requirement real (comparing two empty dicts would only ever catch an
+    addition), and it keeps the worker's own start/state telemetry out of the
+    recorder. Both writes are already queued on the orchestrator's mailbox when
+    ``subscribe`` is enqueued behind them, so the ordering is deterministic
+    rather than timing-dependent.
     """
     system = ActorSystem()
     orch = _start_orchestrator(system)
     proxy = system.proxy_ask(orch, Orchestrator)
 
+    worker = proxy.createActor(_Worker, config=BaseConfig(name="@Worker", role="Worker"))
+    system.proxy_ask(worker, _Worker).init_state(_WorkerState(counter=7))
+
     recorder = RecordingSubscriber()
     proxy.subscribe(recorder)
-    states_before = dict(proxy.get_states())
+    states_before = {aid: state.model_dump() for aid, state in proxy.get_states().items()}
+    assert states_before != {}, "state_dict must be non-empty or the invariance check is weak"
 
     proxy.set_metadata(_Meta(tenant="acme", case="C-1234"))
     proxy.set_metadata(None)
@@ -192,7 +203,8 @@ def test_set_metadata_emits_no_state_changed_message() -> None:
 
     assert [m for m in recorder.messages if isinstance(m, StateChangedMessage)] == []
     assert recorder.messages == []
-    assert dict(proxy.get_states()) == states_before
+    states_after = {aid: state.model_dump() for aid, state in proxy.get_states().items()}
+    assert states_after == states_before
 
     system.shutdown()
 

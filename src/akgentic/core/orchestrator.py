@@ -193,7 +193,8 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         llm_context_dict: Per-agent LLM context (keyed by agent_id string)
         tool_state_dict: Per-tool state tracking
         subscribers: List of event subscribers for extensibility
-        team_metadata: Team-scoped business context, opaque to core (see get_metadata)
+        team_metadata: Team-scoped business context, opaque to core
+            (see get_metadata / set_metadata)
 
     Example:
         >>> system = ActorSystem.start().proxy()
@@ -718,6 +719,13 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         orchestrator's copy can legitimately lag: the team layer writes its database
         first and only then pushes here, best-effort, for a running team (ADR-24 §D7).
         A reader that needs the authoritative value reads ``Process``, not the actor.
+
+        Treat the returned model as **read-only**. It is handed back by reference —
+        a defensive copy is not an option, since it would coerce the value back to
+        this base type and lose the caller's subclass — so mutating a field on it
+        edits the orchestrator's own state from the caller's thread, outside the
+        actor's serialization and bypassing the replace path. To change the
+        metadata, build a new model and call ``set_metadata``.
 
         Returns:
             The team's metadata model, or None when no metadata is set.
