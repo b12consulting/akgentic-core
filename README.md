@@ -555,7 +555,7 @@ orch.get_messages()                # Full telemetry log
 orch.get_states()                  # Latest state per agent
 orch.get_events()                  # All EventMessages (optional agent_id/event_class filters)
 orch.get_metadata()                # Team-scoped business context (None if unset)
-orch.set_metadata(ctx)             # Replace it wholesale (None clears it)
+orch.set_metadata(metadata)        # Replace it wholesale (None clears it)
 ```
 
 ### `team_id` Inheritance
@@ -605,7 +605,7 @@ filtering built on it live in `akgentic-team`.
 
 ```python
 from akgentic.core import Orchestrator
-from akgentic.core.utils.serializer import SerializableBaseModel
+from akgentic.core.utils import SerializableBaseModel
 
 class CaseContext(SerializableBaseModel):
     tenant: str
@@ -633,7 +633,10 @@ persisted copy, free to diverge from the record that team listing indexes.
 > writes that record first and only then pushes to the live actor, best-effort,
 > so after a failed push the actor's copy can legitimately lag until the next
 > team resume repopulates it. Code that needs the authoritative value must read
-> `Process`, not `get_metadata()`.
+> `Process`, not `get_metadata()`. This is also the one value the telemetry
+> replay described under **Team Restoration** below does not bring back — no
+> metadata write ever reaches the telemetry log, so `akgentic-team` repopulates
+> it from `Process` as part of restoring the team.
 
 ### Team Restoration
 
