@@ -322,6 +322,19 @@ class TestNotificationMessage:
         """A bare NotificationMessage is not an ErrorMessage."""
         assert isinstance(NotificationMessage(content="x"), ErrorMessage) is False
 
+    def test_model_tag_and_round_trip(self) -> None:
+        """The __model__ tag names NotificationMessage and a round-trip preserves both fields."""
+        msg = Message()
+        notification = NotificationMessage(content="x", current_message=msg)
+
+        payload = notification.model_dump()
+        assert payload["__model__"] == "akgentic.core.messages.orchestrator.NotificationMessage"
+
+        restored = NotificationMessage.model_validate(payload)
+        assert restored.content == "x"
+        assert restored.current_message is not None
+        assert restored.current_message.id == msg.id
+
 
 class TestErrorMessage:
     """Tests for ErrorMessage orchestrator message."""
