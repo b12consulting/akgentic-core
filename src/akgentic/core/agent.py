@@ -43,7 +43,11 @@ if TYPE_CHECKING:
 
 
 class WarningError(Exception):
-    """Custom exception type for non-critical warnings that should not trigger error telemetry."""
+    """Non-critical condition the handler already dealt with.
+
+    Surfaced to the orchestrator as a WarningMessage rather than an ErrorMessage,
+    so it is observable without being reported as a failure.
+    """
 
     pass
 
@@ -412,7 +416,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         else:
             logger.error(f"[{self.config.name}] ERROR processing message: {exception_value!s}")
 
-        # Capture current_message before clearing for use in ErrorMessage
+        # Capture current_message before clearing: both notifications below carry it
         failed_message = self._current_message
 
         if self._current_message is not None:

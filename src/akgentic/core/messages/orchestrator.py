@@ -116,12 +116,12 @@ class ErrorMessage(NotificationMessage):
 
 
 class WarningMessage(NotificationMessage):
-    """Telemetry message for a WarningError: a condition the actor already handled
-    (e.g. notified a human) and is surfacing for observability only.
+    """Telemetry message for a WarningError.
 
-    Unlike ErrorMessage, it carries no exception type, value or traceback, because
-    nothing failed. It declares no fields of its own: the inherited `content`
-    carries the warning text.
+    Records a condition the actor already handled (e.g. notified a human) and is
+    surfacing for observability only. Unlike ErrorMessage it carries no exception
+    type, value or traceback, because nothing failed. It declares no fields of its
+    own: the inherited `content` carries the warning text.
     """
 
 
