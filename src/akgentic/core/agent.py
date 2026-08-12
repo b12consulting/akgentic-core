@@ -425,7 +425,11 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
 
         if isinstance(exception_value, WarningError):
             self._notify_orchestrator(
-                WarningMessage(content=str(exception_value), current_message=failed_message)
+                WarningMessage(
+                    content_type=type(exception_value).__name__,
+                    content=str(exception_value),
+                    current_message=failed_message,
+                )
             )
             return
 

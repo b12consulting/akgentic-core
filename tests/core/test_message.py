@@ -527,14 +527,15 @@ class TestWarningMessage:
         assert isinstance(WarningMessage(content="x"), ErrorMessage) is False
 
     def test_model_tag_and_round_trip(self) -> None:
-        """The __model__ tag names WarningMessage and a round-trip preserves both fields."""
+        """The __model__ tag names WarningMessage; a round-trip preserves all three fields."""
         msg = Message()
-        warning = WarningMessage(content="x", current_message=msg)
+        warning = WarningMessage(content_type="WarningError", content="x", current_message=msg)
 
         payload = warning.model_dump()
         assert payload["__model__"] == "akgentic.core.messages.orchestrator.WarningMessage"
 
         restored = WarningMessage.model_validate(payload)
+        assert restored.content_type == "WarningError"
         assert restored.content == "x"
         assert restored.current_message is not None
         assert restored.current_message.id == msg.id

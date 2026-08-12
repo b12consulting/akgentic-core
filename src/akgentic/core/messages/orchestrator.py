@@ -87,9 +87,9 @@ class NotificationMessage(Message):
 
     Attributes:
         content_type: Optional discriminator for the kind of condition — the
-            exception's class name for an ErrorMessage. None when the producer
-            has no kind to report. Defaults so events persisted before this
-            field existed stay deserializable.
+            raised class's name for both ErrorMessage and WarningMessage. None
+            when the producer has no kind to report. Defaults so events persisted
+            before this field existed stay deserializable.
         content: Human-readable text of the condition, on the base so any consumer
             reads `.content` uniformly across subclasses without an isinstance check.
             Defaults to the empty string so events persisted before this field
@@ -122,8 +122,8 @@ class WarningMessage(NotificationMessage):
     Records a condition the actor already handled (e.g. notified a human) and is
     surfacing for observability only. Unlike ErrorMessage it carries no traceback,
     because nothing failed. It declares no fields of its own: the inherited
-    `content` carries the warning text, and the inherited `content_type` the kind
-    of condition when the producer has one to report.
+    `content_type` carries the raised warning's class name and `content` its text,
+    the same pair an ErrorMessage uses for the exception it reports.
     """
 
 

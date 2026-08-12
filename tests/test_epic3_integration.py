@@ -281,10 +281,11 @@ class TestTimerBehaviourOnHandlerErrors:
             f"WarningError should not produce ErrorMessage, got {error_messages}"
         )
 
-        # A WarningMessage carries the warning text and the message being processed
+        # A WarningMessage carries the warning's class name, its text, and the message
         warning_messages = [m for m in new_messages if isinstance(m, WarningMessage)]
         assert len(warning_messages) == 1
         warning = warning_messages[0]
+        assert warning.content_type == "WarningError"
         assert warning.content == "non-critical issue"
         assert warning.current_message is not None
         assert warning.current_message.id == trigger.id
