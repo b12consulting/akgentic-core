@@ -14,6 +14,7 @@ from akgentic.core.messages.message import (
 from akgentic.core.messages.orchestrator import (
     ErrorMessage,
     EventMessage,
+    NotificationMessage,
     ProcessedMessage,
     ReceivedMessage,
     SentMessage,
@@ -26,6 +27,7 @@ __all__ = [
     "ErrorMessage",
     "EventMessage",
     "Message",
+    "NotificationMessage",
     "ProcessedMessage",
     "ReceivedMessage",
     "ResultMessage",

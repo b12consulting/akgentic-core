@@ -323,6 +323,7 @@ class TestTimerBehaviourOnHandlerErrors:
         )
         assert error_messages[0].exception_type == "RuntimeError"
         assert "critical failure" in error_messages[0].exception_value
+        assert error_messages[0].content == error_messages[0].exception_value
 
         agent_ref.stop()
         orch_ref.stop()

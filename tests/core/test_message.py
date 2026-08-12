@@ -15,6 +15,7 @@ from akgentic.core.messages.message import (
 )
 from akgentic.core.messages.orchestrator import (
     ErrorMessage,
+    NotificationMessage,
     ProcessedMessage,
     ReceivedMessage,
     SentMessage,
@@ -297,6 +298,31 @@ class TestStopMessage:
         assert isinstance(stop.id, uuid.UUID)
 
 
+class TestNotificationMessage:
+    """Tests for NotificationMessage, the shared base of notification telemetry."""
+
+    def test_instantiation_without_arguments(self) -> None:
+        """Both fields default: content to the empty string, current_message to None."""
+        notification = NotificationMessage()
+        assert notification.content == ""
+        assert notification.current_message is None
+
+    def test_both_fields_can_be_set(self) -> None:
+        """content and current_message are settable."""
+        msg = Message()
+        notification = NotificationMessage(content="x", current_message=msg)
+        assert notification.content == "x"
+        assert notification.current_message is msg
+
+    def test_is_a_message(self) -> None:
+        """NotificationMessage derives from Message."""
+        assert isinstance(NotificationMessage(), Message)
+
+    def test_is_not_an_error_message(self) -> None:
+        """A bare NotificationMessage is not an ErrorMessage."""
+        assert isinstance(NotificationMessage(content="x"), ErrorMessage) is False
+
+
 class TestErrorMessage:
     """Tests for ErrorMessage orchestrator message."""
 
@@ -305,6 +331,7 @@ class TestErrorMessage:
         error = ErrorMessage(
             exception_type="ValueError",
             exception_value="Invalid input",
+            content="Invalid input",
         )
         assert error.exception_type == "ValueError"
         assert error.exception_value == "Invalid input"
@@ -314,6 +341,7 @@ class TestErrorMessage:
         error = ErrorMessage(
             exception_type="Error",
             exception_value="msg",
+            content="msg",
         )
         assert error.current_message is None
 
@@ -323,9 +351,68 @@ class TestErrorMessage:
         error = ErrorMessage(
             exception_type="Error",
             exception_value="msg",
+            content="msg",
             current_message=msg,
         )
         assert error.current_message is msg
+
+    def test_inheritance_chain(self) -> None:
+        """ErrorMessage is both a NotificationMessage and a Message."""
+        error = ErrorMessage(exception_type="Error", exception_value="msg", content="msg")
+        assert isinstance(error, NotificationMessage)
+        assert isinstance(error, Message)
+        assert issubclass(ErrorMessage, NotificationMessage)
+        assert issubclass(NotificationMessage, Message)
+
+    def test_model_dump_key_set(self) -> None:
+        """Serialized key set is the inherited Message fields plus content and its own."""
+        error = ErrorMessage(content="v", exception_type="E", exception_value="v")
+        assert set(error.model_dump().keys()) == {
+            "id",
+            "parent_id",
+            "team_id",
+            "timestamp",
+            "sender",
+            "recipient",
+            "display_type",
+            "content",
+            "current_message",
+            "exception_type",
+            "exception_value",
+            "traceback",
+            "__model__",
+        }
+
+    def test_model_tag_and_round_trip(self) -> None:
+        """The __model__ tag names ErrorMessage and a dump/validate round-trip preserves fields."""
+        msg = Message()
+        error = ErrorMessage(
+            exception_type="ValueError",
+            exception_value="boom",
+            content="boom",
+            traceback="tb",
+            current_message=msg,
+        )
+        payload = error.model_dump()
+        assert payload["__model__"] == "akgentic.core.messages.orchestrator.ErrorMessage"
+
+        restored = ErrorMessage.model_validate(payload)
+        assert isinstance(restored, ErrorMessage)
+        assert restored.content == "boom"
+        assert restored.exception_type == "ValueError"
+        assert restored.exception_value == "boom"
+        assert restored.traceback == "tb"
+        assert restored.current_message is not None
+        assert restored.current_message.id == msg.id
+
+    def test_validate_payload_without_content(self) -> None:
+        """A payload persisted before content existed still deserializes, with content blank."""
+        payload = ErrorMessage(content="x", exception_type="E", exception_value="x").model_dump()
+        del payload["content"]
+
+        restored = ErrorMessage.model_validate(payload)
+        assert restored.content == ""
+        assert restored.exception_value == "x"
 
 
 class TestStateChangedMessage:

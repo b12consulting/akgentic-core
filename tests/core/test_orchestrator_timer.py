@@ -331,6 +331,7 @@ class TestOrchestratorTimerMessageHandlers:
         return ErrorMessage(
             exception_type="ValueError",
             exception_value="something went wrong",
+            content="something went wrong",
         )
 
     def test_received_message_increments_task_count(self) -> None:
