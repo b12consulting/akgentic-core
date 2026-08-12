@@ -612,7 +612,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         self.state = state
         self.notify_state_change(self.state)
 
-    def init_llm_context(self, context: list[Message]) -> None:
+    def init_llm_context(self, context: list[EventMessage]) -> None:
         """Restore LLM conversation context after team resume.
 
         No-op in the base class. Overridden by LLM-capable agents
