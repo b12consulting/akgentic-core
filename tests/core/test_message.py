@@ -311,7 +311,7 @@ class TestNotificationMessage:
         assert notification.content == ""
         assert notification.current_message is None
 
-    def test_both_fields_can_be_set(self) -> None:
+    def test_content_and_current_message_can_be_set(self) -> None:
         """content and current_message are settable."""
         msg = Message()
         notification = NotificationMessage(content="x", current_message=msg)
@@ -348,14 +348,15 @@ class TestNotificationMessage:
         assert isinstance(NotificationMessage(content="x"), ErrorMessage) is False
 
     def test_model_tag_and_round_trip(self) -> None:
-        """The __model__ tag names NotificationMessage and a round-trip preserves both fields."""
+        """The __model__ tag names NotificationMessage; a round-trip preserves all three fields."""
         msg = Message()
-        notification = NotificationMessage(content="x", current_message=msg)
+        notification = NotificationMessage(content_type="Kind", content="x", current_message=msg)
 
         payload = notification.model_dump()
         assert payload["__model__"] == "akgentic.core.messages.orchestrator.NotificationMessage"
 
         restored = NotificationMessage.model_validate(payload)
+        assert restored.content_type == "Kind"
         assert restored.content == "x"
         assert restored.current_message is not None
         assert restored.current_message.id == msg.id
@@ -426,10 +427,17 @@ class TestErrorMessage:
         assert "exception_type" not in ErrorMessage.model_fields
         assert "exception_value" not in ErrorMessage.model_fields
 
-        error = ErrorMessage(content_type="E", content="v", exception_type="ValueError")
+        error = ErrorMessage(
+            content_type="E",
+            content="v",
+            exception_type="ValueError",
+            exception_value="boom",
+        )
         assert hasattr(error, "exception_type") is False
+        assert hasattr(error, "exception_value") is False
         with pytest.raises(AttributeError):
             _ = error.exception_value
+        assert set(error.model_dump()) & {"exception_type", "exception_value"} == set()
 
     def test_model_tag_and_round_trip(self) -> None:
         """The __model__ tag names ErrorMessage and a dump/validate round-trip preserves fields."""
@@ -472,6 +480,7 @@ class TestErrorMessage:
         restored = ErrorMessage.model_validate(payload)
         assert restored.content_type is None
         assert restored.content == ""
+        assert set(restored.model_dump()) & {"exception_type", "exception_value"} == set()
 
 
 class TestWarningMessage:
@@ -484,7 +493,7 @@ class TestWarningMessage:
         assert warning.content == ""
         assert warning.current_message is None
 
-    def test_both_fields_can_be_set(self) -> None:
+    def test_content_and_current_message_can_be_set(self) -> None:
         """The inherited content and current_message declarations are settable."""
         msg = Message()
         warning = WarningMessage(content="non-critical issue", current_message=msg)
