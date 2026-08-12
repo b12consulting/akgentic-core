@@ -346,6 +346,7 @@ class TestActorAddressImplResilientAfterGC:
         assert isinstance(address.agent_id, uuid.UUID)
         assert isinstance(address.team_id, uuid.UUID)
         assert isinstance(address.squad_id, uuid.UUID)
+        assert address.is_user_proxy is False
 
     def test_serialize_survives_actor_gc(self) -> None:
         """serialize() returns the full dict after stop + GC (the §3.1 serialize case)."""

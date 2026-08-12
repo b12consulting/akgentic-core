@@ -34,8 +34,8 @@ class ActorAddressImpl(ActorAddress):
 
     To make that lifecycle safe, **all** metadata (``agent_id``, ``name``,
     ``role``, ``team_id``, ``squad_id``, the actor ``type`` and the
-    ``is_user_proxy`` flag) is captured into private vars at
-    construction. Every accessor, ``serialize()`` and ``__repr__`` read the cache
+    ``is_user_proxy`` flag) is captured into private vars at construction. Every
+    accessor, ``serialize()`` and ``__repr__`` read the cache
     — reading metadata or checking liveness NEVER raises on a collected actor.
     The live ``_actor_ref`` is retained for message *delivery* only (``send`` /
     ``proxy``).

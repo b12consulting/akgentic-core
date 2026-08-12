@@ -368,9 +368,10 @@ def test_actor_address_metadata_survives_gc() -> None:
     """After the actor is collected, EVERY metadata read and serialize() return
     the construction-time snapshot with no RuntimeError (ADR-013).
 
-    This generalises the earlier agent_id/role-only guarantee: name, team_id,
-    squad_id, is_user_proxy and serialize() are now equally GC-safe, and
-    is_alive() returns False instead of raising.
+    This generalises the earlier agent_id/role-only guarantee: name and
+    serialize() are now equally GC-safe, and is_alive() returns False instead of
+    raising. The remaining cached reads (team_id, squad_id, is_user_proxy) are
+    covered by TestActorAddressImplResilientAfterGC in test_actor_address.py.
     """
     system = ActorSystem()
     orch_addr = system.createActor(

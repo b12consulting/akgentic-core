@@ -577,7 +577,6 @@ def _make_mock_impl(
     actor.agent_id = uuid.uuid4()
     actor.config = config
     actor.team_id = uuid.uuid4()
-    actor.receiveMsg_UserMessage = MagicMock()
     actor.__class__ = type(
         "MockAgent", (), {"__module__": "test.agents", "__name__": "MockAgent"},
     )
