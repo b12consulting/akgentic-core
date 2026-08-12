@@ -12,6 +12,7 @@ from akgentic.core.messages.message import (
     date_time_factory,
 )
 from akgentic.core.messages.orchestrator import (
+    ClosedNotification,
     ErrorMessage,
     EventMessage,
     NotificationMessage,
@@ -25,6 +26,7 @@ from akgentic.core.messages.orchestrator import (
 )
 
 __all__ = [
+    "ClosedNotification",
     "ErrorMessage",
     "EventMessage",
     "Message",

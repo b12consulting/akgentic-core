@@ -9,6 +9,7 @@ Source: akgentic-framework/libs/akgentic/akgentic/core/messages/orchestrator.py
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from akgentic.core.actor_address import ActorAddress
@@ -150,3 +151,18 @@ class EventMessage(Message):
     """
 
     event: Any
+
+
+@dataclass(frozen=True)
+class ClosedNotification:
+    """Domain event recording that a notification was dismissed by the user.
+
+    Carried by ``EventMessage(event=...)`` like any other domain-event
+    payload — it is deliberately not a ``Message`` subclass and needs no
+    orchestrator handler of its own.
+
+    Attributes:
+        message_id: ``id`` of the ``NotificationMessage`` that was dismissed.
+    """
+
+    message_id: uuid.UUID

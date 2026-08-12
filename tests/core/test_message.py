@@ -4,6 +4,7 @@ Tests base Message class, UserMessage, ResultMessage, and orchestrator messages.
 """
 
 import uuid
+from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
 
 import pytest
@@ -16,7 +17,9 @@ from akgentic.core.messages.message import (
     date_time_factory,
 )
 from akgentic.core.messages.orchestrator import (
+    ClosedNotification,
     ErrorMessage,
+    EventMessage,
     NotificationMessage,
     ProcessedMessage,
     ReceivedMessage,
@@ -26,6 +29,8 @@ from akgentic.core.messages.orchestrator import (
     StopMessage,
     WarningMessage,
 )
+from akgentic.core.utils.deserializer import deserialize_object
+from akgentic.core.utils.serializer import serialize
 
 
 class TestDateTimeFactory:
@@ -539,6 +544,67 @@ class TestWarningMessage:
         assert restored.content == "x"
         assert restored.current_message is not None
         assert restored.current_message.id == msg.id
+
+
+class TestClosedNotification:
+    """Tests for ClosedNotification, the payload recording a dismissed notification."""
+
+    def test_construction_exposes_message_id(self) -> None:
+        """The single field is readable back as given."""
+        message_id = uuid.uuid4()
+        closed = ClosedNotification(message_id=message_id)
+        assert closed.message_id == message_id
+
+    def test_is_frozen(self) -> None:
+        """Reassigning the field raises, so a stored dismissal cannot be mutated in place."""
+        closed = ClosedNotification(message_id=uuid.uuid4())
+        with pytest.raises(FrozenInstanceError):
+            closed.message_id = uuid.uuid4()  # type: ignore[misc]
+
+    def test_is_not_a_message_subclass(self) -> None:
+        """It is a payload, not telemetry: EventMessage is its carrier, not its base."""
+        assert issubclass(ClosedNotification, Message) is False
+
+    def test_serialize_emits_model_tag_and_uuid_string(self) -> None:
+        """serialize() tags the class path and renders message_id as a canonical UUID string."""
+        message_id = uuid.uuid4()
+
+        payload = serialize(ClosedNotification(message_id=message_id))
+
+        assert payload == {
+            "message_id": str(message_id),
+            "__model__": "akgentic.core.messages.orchestrator.ClosedNotification",
+        }
+
+    def test_deserialize_restores_message_id_as_uuid(self) -> None:
+        """deserialize_object() coerces the serialized string back to a real uuid.UUID.
+
+        The coercion depends on `uuid` staying a module-level import in
+        orchestrator.py: behind TYPE_CHECKING the TypeAdapter silently fails to
+        build and message_id comes back as the raw `str`, with no error raised.
+        """
+        message_id = uuid.uuid4()
+
+        restored = deserialize_object(serialize(ClosedNotification(message_id=message_id)))
+
+        assert isinstance(restored, ClosedNotification)
+        assert isinstance(restored.message_id, uuid.UUID)
+        assert restored.message_id == message_id
+
+    def test_round_trip_inside_event_message(self) -> None:
+        """A dump/validate cycle through the real EventMessage carrier restores the payload.
+
+        `EventMessage.event` is typed `Any`, so `.event` must be asserted to be a
+        ClosedNotification before its field is read — a plain dict would otherwise slip through.
+        """
+        message_id = uuid.uuid4()
+        msg = EventMessage(event=ClosedNotification(message_id=message_id))
+
+        restored = EventMessage.model_validate(msg.model_dump())
+
+        assert isinstance(restored.event, ClosedNotification)
+        assert isinstance(restored.event.message_id, uuid.UUID)
+        assert restored.event.message_id == message_id
 
 
 class TestStateChangedMessage:
