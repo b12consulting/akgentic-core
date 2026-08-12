@@ -33,12 +33,11 @@ class ActorAddressImpl(ActorAddress):
     orchestrator history, queued telemetry, or subscriber snapshots.
 
     To make that lifecycle safe, **all** metadata (``agent_id``, ``name``,
-    ``role``, ``team_id``, ``squad_id``, the actor ``type``, the
-    ``user_message`` flag and the ``is_user_proxy`` flag) is captured into
-    private vars at construction. Every
-    accessor, ``serialize()`` and ``__repr__`` read the cache — reading metadata
-    or checking liveness NEVER raises on a collected actor. The live
-    ``_actor_ref`` is retained for message *delivery* only (``send`` /
+    ``role``, ``team_id``, ``squad_id``, the actor ``type``, the ``user_message``
+    flag and the ``is_user_proxy`` flag) is captured into private vars at
+    construction. Every accessor, ``serialize()`` and ``__repr__`` read the cache
+    — reading metadata or checking liveness NEVER raises on a collected actor.
+    The live ``_actor_ref`` is retained for message *delivery* only (``send`` /
     ``proxy``).
 
     Note:
@@ -86,10 +85,6 @@ class ActorAddressImpl(ActorAddress):
         try:
             actor = actor_ref._actor_weakref()
             if actor is not None:
-                # Local import: a module-scope one would close the cycle
-                # agent.py -> actor_address_impl.py -> user_proxy.py -> agent.py.
-                from akgentic.core.user_proxy import UserProxy
-
                 self._agent_id = actor.agent_id
                 self._name = actor.config.name
                 self._role = actor.config.role
@@ -97,6 +92,11 @@ class ActorAddressImpl(ActorAddress):
                 self._squad_id = actor.config.squad_id
                 self._actor_type = type(actor)
                 self._user_message = callable(getattr(actor, "receiveMsg_UserMessage", None))
+                # Local import, and last: at module scope it would close the cycle
+                # agent.py -> actor_address_impl.py -> user_proxy.py -> agent.py, and
+                # importing after the captures keeps a failure here from discarding them.
+                from akgentic.core.user_proxy import UserProxy
+
                 self._is_user_proxy = isinstance(actor, UserProxy)
         except Exception:  # noqa: BLE001
             # Already-dead ref at construction (rare): keep the safe snapshot.

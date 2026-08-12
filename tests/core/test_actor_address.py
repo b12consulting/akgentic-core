@@ -349,11 +349,6 @@ class TestActorAddressImplResilientAfterGC:
         """
         import gc
 
-        from akgentic.core.actor_address_impl import ActorAddressImpl
-        from akgentic.core.actor_system_impl import ActorSystem
-        from akgentic.core.agent import Akgent
-        from akgentic.core.agent_config import BaseConfig
-
         squad = uuid.uuid4()
         system = ActorSystem()
         address = system.createActor(
@@ -459,6 +454,9 @@ class TestIsUserProxyOnLiveActors:
         system.shutdown()
         gc.collect()
 
+        # Pin the precondition: without this the assertions below would still pass
+        # against a live actor, and the test would prove nothing about GC-safety.
+        assert address.is_alive() is False
         assert address.is_user_proxy is True
         assert address.serialize()["is_user_proxy"] is True
 
@@ -490,5 +488,8 @@ def test_importing_akgentic_core_has_no_import_cycle() -> None:
         capture_output=True,
         text=True,
         check=False,
+        # A cycle can wedge the import rather than fail it; without a bound the
+        # child would block the suite instead of reporting a red.
+        timeout=60,
     )
     assert result.returncode == 0, result.stderr
