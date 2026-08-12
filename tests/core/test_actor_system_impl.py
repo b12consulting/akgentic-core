@@ -252,6 +252,7 @@ class TestListenerOriginSerialization:
             "team_id",
             "squad_id",
             "user_message",
+            "is_user_proxy",
         }
 
         system.shutdown()
@@ -328,6 +329,7 @@ class TestActorSystemEdgeCases:
                 "team_id": fake_id,
                 "squad_id": fake_id,
                 "user_message": True,
+                "is_user_proxy": False,
             }
         )
         found = system.get_actor(fake_address)

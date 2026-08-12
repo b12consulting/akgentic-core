@@ -45,6 +45,7 @@ class ActorAddress(ABC):
         role: Agent role from configuration.
         team_id: Team identifier from configuration.
         squad_id: Squad identifier from configuration.
+        is_user_proxy: Whether the addressed actor is a UserProxy (or subclass).
     """
 
     @property
@@ -94,6 +95,17 @@ class ActorAddress(ABC):
 
         Returns:
             UUID of the squad this agent belongs to, or None if not set.
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def is_user_proxy(self) -> bool:
+        """Whether the addressed actor is a UserProxy, by type rather than by role.
+
+        Returns:
+            True if the actor is a ``UserProxy`` instance or an instance of any
+            of its subclasses.
         """
         ...
 

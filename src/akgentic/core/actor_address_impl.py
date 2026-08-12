@@ -33,8 +33,9 @@ class ActorAddressImpl(ActorAddress):
     orchestrator history, queued telemetry, or subscriber snapshots.
 
     To make that lifecycle safe, **all** metadata (``agent_id``, ``name``,
-    ``role``, ``team_id``, ``squad_id``, the actor ``type`` and the
-    ``user_message`` flag) is captured into private vars at construction. Every
+    ``role``, ``team_id``, ``squad_id``, the actor ``type``, the
+    ``user_message`` flag and the ``is_user_proxy`` flag) is captured into
+    private vars at construction. Every
     accessor, ``serialize()`` and ``__repr__`` read the cache — reading metadata
     or checking liveness NEVER raises on a collected actor. The live
     ``_actor_ref`` is retained for message *delivery* only (``send`` /
@@ -63,8 +64,9 @@ class ActorAddressImpl(ActorAddress):
         Addresses are only ever built from a live ref (``myAddress``,
         ``createActor``, ``ActorSystem`` lookups), so the underlying actor is
         alive here. Capture everything the address will ever need — identity,
-        config metadata, the actor type and the user-message flag — so every
-        later read survives the actor's garbage collection.
+        config metadata, the actor type, the user-message flag and whether the
+        actor is a ``UserProxy`` — so every later read survives the actor's
+        garbage collection.
 
         The capture is wrapped: an already-dead ref at construction (rare) leaves
         a safe snapshot (``None``/``False``) rather than raising.
@@ -80,9 +82,14 @@ class ActorAddressImpl(ActorAddress):
         self._squad_id: uuid.UUID | None = None
         self._actor_type: type[Any] | None = None
         self._user_message: bool = False
+        self._is_user_proxy: bool = False
         try:
             actor = actor_ref._actor_weakref()
             if actor is not None:
+                # Local import: a module-scope one would close the cycle
+                # agent.py -> actor_address_impl.py -> user_proxy.py -> agent.py.
+                from akgentic.core.user_proxy import UserProxy
+
                 self._agent_id = actor.agent_id
                 self._name = actor.config.name
                 self._role = actor.config.role
@@ -90,6 +97,7 @@ class ActorAddressImpl(ActorAddress):
                 self._squad_id = actor.config.squad_id
                 self._actor_type = type(actor)
                 self._user_message = callable(getattr(actor, "receiveMsg_UserMessage", None))
+                self._is_user_proxy = isinstance(actor, UserProxy)
         except Exception:  # noqa: BLE001
             # Already-dead ref at construction (rare): keep the safe snapshot.
             pass
@@ -138,6 +146,16 @@ class ActorAddressImpl(ActorAddress):
             UUID captured from ``config.squad_id`` at construction, or None.
         """
         return self._squad_id
+
+    @property
+    def is_user_proxy(self) -> bool:
+        """Whether the actor is a UserProxy (cached at construction; GC-safe).
+
+        Returns:
+            True if ``isinstance(actor, UserProxy)`` held at construction — so
+            ``UserProxy`` subclasses count too.
+        """
+        return self._is_user_proxy
 
     def send(self, recipient: ActorAddress, message: Any) -> None:
         """Send a message via Pykka proxy.
@@ -196,6 +214,7 @@ class ActorAddressImpl(ActorAddress):
             "team_id": str(self._team_id) if self._team_id is not None else "",
             "squad_id": str(self._squad_id) if self._squad_id is not None else "",
             "user_message": self._user_message,
+            "is_user_proxy": self._is_user_proxy,
         }
 
     def __repr__(self) -> str:
@@ -289,6 +308,16 @@ class ActorAddressProxy(ActorAddress):
         """
         squad_id_str = self.actor_address_dict.get("squad_id")
         return uuid.UUID(squad_id_str) if squad_id_str else None
+
+    @property
+    def is_user_proxy(self) -> bool:
+        """Whether the addressed actor is a UserProxy, from the stored dictionary.
+
+        Returns:
+            Boolean from the dictionary; False when the key is absent, so events
+            serialised before the key existed still deserialise.
+        """
+        return self.actor_address_dict.get("is_user_proxy", False)
 
     def send(self, recipient: ActorAddress, message: Any) -> None:
         """Send a message via Pykka proxy.

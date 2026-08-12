@@ -33,6 +33,7 @@ class ActorAddressDict(TypedDict):
         team_id: Team UUID as string for team identification.
         squad_id: Squad UUID as string for squad identification.
         user_message: Whether agent accepts user messages.
+        is_user_proxy: Whether the actor is a UserProxy (or subclass).
     """
 
     __actor_address__: bool
@@ -43,6 +44,7 @@ class ActorAddressDict(TypedDict):
     team_id: str
     squad_id: str
     user_message: bool
+    is_user_proxy: bool
 
 
 class DeserializeContext(ABC):
