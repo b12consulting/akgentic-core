@@ -45,6 +45,7 @@ class ActorAddress(ABC):
         role: Agent role from configuration.
         team_id: Team identifier from configuration.
         squad_id: Squad identifier from configuration.
+        is_user_proxy: Whether the addressed actor is a UserProxy (or subclass).
     """
 
     @property
@@ -97,6 +98,17 @@ class ActorAddress(ABC):
         """
         ...
 
+    @property
+    @abstractmethod
+    def is_user_proxy(self) -> bool:
+        """Whether the addressed actor is a UserProxy, by type rather than by role.
+
+        Returns:
+            True if the actor is a ``UserProxy`` instance or an instance of any
+            of its subclasses.
+        """
+        ...
+
     @abstractmethod
     def send(self, recipient: ActorAddress, message: Any) -> None:
         """Send a message from this agent to the recipient.
@@ -116,15 +128,6 @@ class ActorAddress(ABC):
 
         Returns:
             True if the actor is alive and can receive messages, False otherwise.
-        """
-        ...
-
-    @abstractmethod
-    def handle_user_message(self) -> bool:
-        """Check if this agent accepts user messages.
-
-        Returns:
-            True if the agent can process UserMessage instances.
         """
         ...
 

@@ -219,7 +219,8 @@ flow automatically to the Orchestrator. Import them when building
 
 ```python
 from akgentic.core.messages.orchestrator import (
-    SentMessage, ReceivedMessage, ProcessedMessage, ErrorMessage,
+    SentMessage, ReceivedMessage, ProcessedMessage, NotificationMessage,
+    ErrorMessage, WarningMessage,
     StartMessage, StopMessage, StateChangedMessage, EventMessage,
 )
 ```
@@ -278,16 +279,20 @@ Pykka's `_handle_failure()` hook (not a try/except wrapper around dispatch):
 
 1. **Log** the error with full context
 2. **Emit `ProcessedMessage`** to the orchestrator (marks the current message as done)
-3. **Check for `WarningError`** — if so, silently acknowledge and return
-4. **Emit `ErrorMessage`** with `exception_type`, `exception_value`, `traceback`,
-   and `current_message` to the orchestrator
+3. **Check for `WarningError`** — if so, emit a `WarningMessage` with
+   `content_type` (the warning's class name), `content` (the warning text) and
+   `current_message`, then return
+4. **Emit `ErrorMessage`** with `content_type` (the exception's class name),
+   `content` (its string form), `traceback`, and `current_message` to the
+   orchestrator
 
 The actor **does not crash** — it continues processing subsequent messages.
 
 `WarningError` is a soft signal for non-critical failures (e.g., usage limits
 exceeded). Raise it from a message handler when the error should be logged
-and the current message marked as processed, but no `ErrorMessage` should be
-sent to the orchestrator. Import it from `akgentic.core`:
+and the current message marked as processed, and surfaced to the orchestrator
+as a `WarningMessage` rather than an `ErrorMessage`. Import it from
+`akgentic.core`:
 
 ```python
 from akgentic.core import WarningError
@@ -295,7 +300,7 @@ from akgentic.core import WarningError
 class MyAgent(Akgent[BaseConfig, BaseState]):
     def receiveMsg_TaskMessage(self, msg: TaskMessage, sender: ActorAddress) -> None:
         if self._over_budget():
-            raise WarningError("Usage limit exceeded")  # logged, no ErrorMessage
+            raise WarningError("Usage limit exceeded")  # WarningMessage, not ErrorMessage
 ```
 
 For proxy `ask()` calls, Pykka's reply mechanism handles errors automatically —
@@ -592,7 +597,7 @@ orch.subscribe(MySubscriber())
 
 `on_message()` receives all telemetry types: `StartMessage`, `StopMessage`,
 `SentMessage`, `ReceivedMessage`, `ProcessedMessage`, `ErrorMessage`,
-`StateChangedMessage`, `EventMessage`.
+`WarningMessage`, `StateChangedMessage`, `EventMessage`.
 
 ### Team Metadata
 

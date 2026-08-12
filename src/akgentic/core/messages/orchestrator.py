@@ -2,6 +2,8 @@
 
 Provides message types for tracking actor communication, state changes,
 and error conditions. Used by the orchestrator for system observability.
+Also home to the domain-event payloads carried by ``EventMessage.event``,
+which are not ``Message`` subclasses and live beside their carrier.
 
 Source: akgentic-framework/libs/akgentic/akgentic/core/messages/orchestrator.py
 """
@@ -9,6 +11,7 @@ Source: akgentic-framework/libs/akgentic/akgentic/core/messages/orchestrator.py
 from __future__ import annotations
 
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 from akgentic.core.actor_address import ActorAddress
@@ -82,22 +85,49 @@ class StopMessage(Message):
     pass
 
 
-class ErrorMessage(Message):
-    """Telemetry message for actor errors.
-
-    Records exceptions that occur during actor message processing,
-    including the error details and the message being processed.
+class NotificationMessage(Message):
+    """Base telemetry message for actor-level conditions surfaced to the orchestrator.
 
     Attributes:
-        exception_type: Fully qualified name of the exception class.
-        exception_value: String representation of the exception.
-        current_message: The message being processed when error occurred.
+        content_type: Optional discriminator for the kind of condition — the
+            raised class's name for both ErrorMessage and WarningMessage. None
+            when the producer has no kind to report. Defaults so events persisted
+            before this field existed stay deserializable.
+        content: Human-readable text of the condition, on the base so any consumer
+            reads `.content` uniformly across subclasses without an isinstance check.
+            Defaults to the empty string so events persisted before this field
+            existed stay deserializable.
+        current_message: The message being processed when the condition occurred.
     """
 
-    exception_type: str
-    exception_value: str
-    traceback: str | None = None
+    content_type: str | None = None
+    content: str = ""
     current_message: Message | None = None
+
+
+class ErrorMessage(NotificationMessage):
+    """Telemetry message for actor errors.
+
+    Records exceptions that occur during actor message processing. The inherited
+    `content_type` carries the exception's class name and `content` its string
+    form, so a generic consumer reads them without knowing the subclass.
+
+    Attributes:
+        traceback: Formatted traceback of the exception, when available.
+    """
+
+    traceback: str | None = None
+
+
+class WarningMessage(NotificationMessage):
+    """Telemetry message for a WarningError.
+
+    Records a condition the actor already handled (e.g. notified a human) and is
+    surfacing for observability only. Unlike ErrorMessage it carries no traceback,
+    because nothing failed. It declares no fields of its own: the inherited
+    `content_type` carries the raised warning's class name and `content` its text,
+    the same pair an ErrorMessage uses for the exception it reports.
+    """
 
 
 class StateChangedMessage(Message):
@@ -123,3 +153,22 @@ class EventMessage(Message):
     """
 
     event: Any
+
+
+@dataclass(frozen=True)
+class ClosedNotification:
+    """Domain event recording that a notification was dismissed by the user.
+
+    Carried by ``EventMessage(event=...)`` like any other domain-event
+    payload — it is deliberately not a ``Message`` subclass and needs no
+    orchestrator handler of its own.
+
+    Keep it in this module: ``serialize()`` persists its import path into every
+    stored event and replay resolves that string back to the class, with no
+    alias mechanism — moving it breaks replay of dismissals already written.
+
+    Attributes:
+        message_id: ``id`` of the ``NotificationMessage`` that was dismissed.
+    """
+
+    message_id: uuid.UUID

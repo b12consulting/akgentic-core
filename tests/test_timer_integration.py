@@ -26,7 +26,12 @@ from akgentic.core.agent import Akgent, WarningError
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message
-from akgentic.core.messages.orchestrator import ErrorMessage, ProcessedMessage, ReceivedMessage
+from akgentic.core.messages.orchestrator import (
+    ErrorMessage,
+    ProcessedMessage,
+    ReceivedMessage,
+    WarningMessage,
+)
 from akgentic.core.orchestrator import Orchestrator
 
 
@@ -276,6 +281,23 @@ class TestTimerBehaviourOnHandlerErrors:
             f"WarningError should not produce ErrorMessage, got {error_messages}"
         )
 
+        # A WarningMessage carries the warning's class name, its text, and the message
+        warning_messages = [m for m in new_messages if isinstance(m, WarningMessage)]
+        assert len(warning_messages) == 1
+        warning = warning_messages[0]
+        assert warning.content_type == "WarningError"
+        assert warning.content == "non-critical issue"
+        assert warning.current_message is not None
+        assert warning.current_message.id == trigger.id
+
+        # Emitted after _current_message was cleared, so it threads like an ErrorMessage
+        assert warning.parent_id is None
+
+        # ProcessedMessage is still emitted exactly once, and before the WarningMessage
+        processed_messages = [m for m in new_messages if isinstance(m, ProcessedMessage)]
+        assert len(processed_messages) == 1
+        assert new_messages.index(processed_messages[0]) < new_messages.index(warning)
+
         agent_ref.stop()
         orch_ref.stop()
 
@@ -321,8 +343,8 @@ class TestTimerBehaviourOnHandlerErrors:
         assert len(error_messages) == 1, (
             f"RuntimeError should produce exactly one ErrorMessage, got {len(error_messages)}"
         )
-        assert error_messages[0].exception_type == "RuntimeError"
-        assert "critical failure" in error_messages[0].exception_value
+        assert error_messages[0].content_type == "RuntimeError"
+        assert "critical failure" in error_messages[0].content
 
         agent_ref.stop()
         orch_ref.stop()

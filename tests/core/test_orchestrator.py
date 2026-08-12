@@ -15,6 +15,7 @@ from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message, UserMessage
 from akgentic.core.messages.orchestrator import (
+    ClosedNotification,
     EventMessage,
     SentMessage,
     StartMessage,
@@ -632,6 +633,37 @@ class TestEventMessagePersistence:
 
         # AND message was persisted
         assert msg in proxy.messages
+
+        system.shutdown()
+
+    def test_closed_notification_needs_no_handler_of_its_own(self) -> None:
+        """A ClosedNotification rides receiveMsg_EventMessage: one append, one fan-out."""
+        system = ActorSystem()
+        orch_addr = system.createActor(Orchestrator, restoring=True)
+        proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+        sub = RecordingSubscriber()
+        proxy.subscribe(sub)
+
+        # Baselines: startup telemetry already sits in self.messages
+        messages_before = len(proxy.messages)
+        fanned_out_before = len(sub.messages)
+
+        message_id = uuid.uuid4()
+        msg = EventMessage(event=ClosedNotification(message_id=message_id))
+        msg.init(orch_addr, None)
+        proxy.receiveMsg_EventMessage(msg, orch_addr)
+
+        assert len(proxy.messages) == messages_before + 1
+        assert proxy.messages[-1] is msg
+
+        # Compare by id, not identity: _snapshot_for_subscribers may hand over a copy
+        assert len(sub.messages) == fanned_out_before + 1
+        assert sub.messages[-1].id == msg.id
+        # .event is typed Any: assert the type before reading the field, or a
+        # dict-ified payload would reach the comparison instead of failing here
+        assert isinstance(sub.messages[-1].event, ClosedNotification)
+        assert sub.messages[-1].event.message_id == message_id
 
         system.shutdown()
 

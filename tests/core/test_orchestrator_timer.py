@@ -12,7 +12,12 @@ import pykka
 import pytest
 
 from akgentic.core.agent_config import BaseConfig
-from akgentic.core.messages.orchestrator import ErrorMessage, ProcessedMessage, ReceivedMessage
+from akgentic.core.messages.orchestrator import (
+    ErrorMessage,
+    ProcessedMessage,
+    ReceivedMessage,
+    WarningMessage,
+)
 from akgentic.core.orchestrator import TIMER_DELAY, EventSubscriber, Orchestrator, Timer
 
 
@@ -329,9 +334,12 @@ class TestOrchestratorTimerMessageHandlers:
 
     def _make_error_message(self) -> ErrorMessage:
         return ErrorMessage(
-            exception_type="ValueError",
-            exception_value="something went wrong",
+            content_type="ValueError",
+            content="something went wrong",
         )
+
+    def _make_warning_message(self) -> WarningMessage:
+        return WarningMessage(content="non-critical issue")
 
     def test_received_message_increments_task_count(self) -> None:
         """receiveMsg_ReceivedMessage calls timer.task_started() → task_count increases."""
@@ -393,7 +401,7 @@ class TestOrchestratorTimerMessageHandlers:
         orch_ref.stop()
 
     def test_error_message_does_not_affect_task_count(self) -> None:
-        """receiveMsg_ErrorMessage does NOT modify timer task_count (timer relies only on received/processed)."""
+        """An ErrorMessage does NOT modify timer task_count (timer relies only on received/processed)."""
         config = BaseConfig(name="test-orchestrator", role="Orchestrator")
         orch_ref = Orchestrator.start(config=config)
         orch = orch_ref.proxy()
@@ -412,7 +420,7 @@ class TestOrchestratorTimerMessageHandlers:
         sender_addr = dummy_proxy.myAddress.get()
 
         msg = self._make_error_message()
-        orch.receiveMsg_ErrorMessage(msg, sender_addr).get()
+        orch.receiveMsg_NotificationMessage(msg, sender_addr).get()
 
         # Error messages should NOT decrement task_count
         assert timer.task_count == 1
@@ -435,6 +443,122 @@ class TestOrchestratorTimerMessageHandlers:
 
         assert timer.task_count == initial_count
 
+        orch_ref.stop()
+
+    def test_warning_message_does_not_affect_task_count(self) -> None:
+        """A WarningMessage does NOT modify timer task_count."""
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config)
+        orch = orch_ref.proxy()
+
+        timer = orch.get_timer().get()
+        timer.task_count = 1
+        timer.cancel()
+
+        dummy_config = BaseConfig(name="dummy-agent4", role="Agent")
+
+        class _DummyOrch4(Orchestrator):
+            pass
+
+        dummy_ref = _DummyOrch4.start(config=dummy_config)
+        dummy_proxy = dummy_ref.proxy()
+        sender_addr = dummy_proxy.myAddress.get()
+
+        msg = self._make_warning_message()
+        orch.receiveMsg_NotificationMessage(msg, sender_addr).get()
+
+        # Warning messages should NOT decrement task_count
+        assert timer.task_count == 1
+
+        dummy_ref.stop()
+        orch_ref.stop()
+
+    def test_warning_message_is_appended_and_fanned_out(self) -> None:
+        """A WarningMessage is stored and fanned out to subscribers."""
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config)
+        orch = orch_ref.proxy()
+
+        subscriber = _RecordingStopSubscriber()
+        orch.subscribe(subscriber).get()
+
+        dummy_config = BaseConfig(name="dummy-agent5", role="Agent")
+
+        class _DummyOrch5(Orchestrator):
+            pass
+
+        dummy_ref = _DummyOrch5.start(config=dummy_config)
+        sender_addr = dummy_ref.proxy().myAddress.get()
+
+        msg = self._make_warning_message()
+        orch.receiveMsg_NotificationMessage(msg, sender_addr).get()
+
+        assert subscriber.messages == [msg]
+        assert msg in orch.messages.get()
+
+        dummy_ref.stop()
+        orch_ref.stop()
+
+    def test_warning_message_from_self_is_ignored(self) -> None:
+        """A WarningMessage sent by the orchestrator itself is neither stored nor fanned out."""
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config)
+        orch = orch_ref.proxy()
+
+        subscriber = _RecordingStopSubscriber()
+        orch.subscribe(subscriber).get()
+        messages_before = len(orch.messages.get())
+
+        my_address = orch.myAddress.get()
+        orch.receiveMsg_NotificationMessage(self._make_warning_message(), my_address).get()
+
+        assert len(orch.messages.get()) == messages_before
+        assert subscriber.messages == []
+
+        orch_ref.stop()
+
+    def test_notification_subclasses_dispatch_through_mro(self) -> None:
+        """ErrorMessage and WarningMessage both reach the one consolidated handler.
+
+        Delivered through real actor dispatch rather than a direct method call, so this
+        goes red if a subclass stops resolving to receiveMsg_NotificationMessage.
+        """
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config)
+        orch = orch_ref.proxy()
+
+        subscriber = _RecordingStopSubscriber()
+        orch.subscribe(subscriber).get()
+
+        dummy_config = BaseConfig(name="dummy-agent6", role="Agent")
+
+        class _DummyOrch6(Orchestrator):
+            pass
+
+        dummy_ref = _DummyOrch6.start(config=dummy_config)
+        sender_addr = dummy_ref.proxy().myAddress.get()
+
+        error = self._make_error_message()
+        error.init(sender_addr)
+        warning = self._make_warning_message()
+        warning.init(sender_addr)
+
+        orch_ref.tell(error)
+        orch_ref.tell(warning)
+
+        # The actor drains its mailbox in order, so this proxy call is served after both tells
+        stored = orch.messages.get()
+
+        assert error in stored
+        assert warning in stored
+
+        # Subscribers get an address-serialized copy, so compare identity, not the whole model.
+        # The concrete subclass must survive dispatch — it must not arrive as a bare
+        # NotificationMessage.
+        assert [type(m) for m in subscriber.messages] == [ErrorMessage, WarningMessage]
+        assert [m.id for m in subscriber.messages] == [error.id, warning.id]
+
+        dummy_ref.stop()
         orch_ref.stop()
 
 

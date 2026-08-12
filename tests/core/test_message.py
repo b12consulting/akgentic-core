@@ -4,7 +4,10 @@ Tests base Message class, UserMessage, ResultMessage, and orchestrator messages.
 """
 
 import uuid
+from dataclasses import FrozenInstanceError
 from datetime import UTC, datetime
+
+import pytest
 
 from akgentic.core.messages.message import (
     Message,
@@ -14,14 +17,20 @@ from akgentic.core.messages.message import (
     date_time_factory,
 )
 from akgentic.core.messages.orchestrator import (
+    ClosedNotification,
     ErrorMessage,
+    EventMessage,
+    NotificationMessage,
     ProcessedMessage,
     ReceivedMessage,
     SentMessage,
     StartMessage,
     StateChangedMessage,
     StopMessage,
+    WarningMessage,
 )
+from akgentic.core.utils.deserializer import deserialize_object
+from akgentic.core.utils.serializer import serialize
 
 
 class TestDateTimeFactory:
@@ -297,23 +306,84 @@ class TestStopMessage:
         assert isinstance(stop.id, uuid.UUID)
 
 
+class TestNotificationMessage:
+    """Tests for NotificationMessage, the shared base of notification telemetry."""
+
+    def test_instantiation_without_arguments(self) -> None:
+        """All three fields default: content_type None, content blank, current_message None."""
+        notification = NotificationMessage()
+        assert notification.content_type is None
+        assert notification.content == ""
+        assert notification.current_message is None
+
+    def test_content_and_current_message_can_be_set(self) -> None:
+        """content and current_message are settable."""
+        msg = Message()
+        notification = NotificationMessage(content="x", current_message=msg)
+        assert notification.content == "x"
+        assert notification.current_message is msg
+
+    def test_content_type_can_be_set(self) -> None:
+        """content_type is settable on the base, not just on ErrorMessage."""
+        notification = NotificationMessage(content_type="ValueError", content="boom")
+        assert notification.content_type == "ValueError"
+
+    def test_model_dump_key_set(self) -> None:
+        """Serialized key set is the Message fields plus the three declared here."""
+        assert set(NotificationMessage().model_dump().keys()) == {
+            "id",
+            "parent_id",
+            "team_id",
+            "timestamp",
+            "sender",
+            "recipient",
+            "display_type",
+            "content_type",
+            "content",
+            "current_message",
+            "__model__",
+        }
+
+    def test_is_a_message(self) -> None:
+        """NotificationMessage derives from Message."""
+        assert isinstance(NotificationMessage(), Message)
+
+    def test_is_not_an_error_message(self) -> None:
+        """A bare NotificationMessage is not an ErrorMessage."""
+        assert isinstance(NotificationMessage(content="x"), ErrorMessage) is False
+
+    def test_model_tag_and_round_trip(self) -> None:
+        """The __model__ tag names NotificationMessage; a round-trip preserves all three fields."""
+        msg = Message()
+        notification = NotificationMessage(content_type="Kind", content="x", current_message=msg)
+
+        payload = notification.model_dump()
+        assert payload["__model__"] == "akgentic.core.messages.orchestrator.NotificationMessage"
+
+        restored = NotificationMessage.model_validate(payload)
+        assert restored.content_type == "Kind"
+        assert restored.content == "x"
+        assert restored.current_message is not None
+        assert restored.current_message.id == msg.id
+
+
 class TestErrorMessage:
     """Tests for ErrorMessage orchestrator message."""
 
     def test_instantiation(self) -> None:
-        """Should instantiate with exception details."""
+        """Should instantiate with the inherited content_type/content pair."""
         error = ErrorMessage(
-            exception_type="ValueError",
-            exception_value="Invalid input",
+            content_type="ValueError",
+            content="Invalid input",
         )
-        assert error.exception_type == "ValueError"
-        assert error.exception_value == "Invalid input"
+        assert error.content_type == "ValueError"
+        assert error.content == "Invalid input"
 
     def test_current_message_defaults_to_none(self) -> None:
         """current_message should default to None."""
         error = ErrorMessage(
-            exception_type="Error",
-            exception_value="msg",
+            content_type="Error",
+            content="msg",
         )
         assert error.current_message is None
 
@@ -321,11 +391,220 @@ class TestErrorMessage:
         """current_message can be explicitly set."""
         msg = Message()
         error = ErrorMessage(
-            exception_type="Error",
-            exception_value="msg",
+            content_type="Error",
+            content="msg",
             current_message=msg,
         )
         assert error.current_message is msg
+
+    def test_inheritance_chain(self) -> None:
+        """ErrorMessage is both a NotificationMessage and a Message."""
+        error = ErrorMessage(content_type="Error", content="msg")
+        assert isinstance(error, NotificationMessage)
+        assert isinstance(error, Message)
+        assert issubclass(ErrorMessage, NotificationMessage)
+        assert issubclass(NotificationMessage, Message)
+
+    def test_model_dump_key_set(self) -> None:
+        """Serialized key set is the inherited fields plus traceback, its only own one."""
+        error = ErrorMessage(content_type="E", content="v")
+        assert set(error.model_dump().keys()) == {
+            "id",
+            "parent_id",
+            "team_id",
+            "timestamp",
+            "sender",
+            "recipient",
+            "display_type",
+            "content_type",
+            "content",
+            "current_message",
+            "traceback",
+            "__model__",
+        }
+
+    def test_exception_fields_are_gone(self) -> None:
+        """The old exception_type/exception_value declarations no longer exist.
+
+        The model inherits Pydantic's default extra="ignore", so passing them is
+        silently dropped rather than rejected — hence the attribute check.
+        """
+        assert "exception_type" not in ErrorMessage.model_fields
+        assert "exception_value" not in ErrorMessage.model_fields
+
+        error = ErrorMessage(
+            content_type="E",
+            content="v",
+            exception_type="ValueError",
+            exception_value="boom",
+        )
+        assert hasattr(error, "exception_type") is False
+        assert hasattr(error, "exception_value") is False
+        with pytest.raises(AttributeError):
+            _ = error.exception_value
+        assert set(error.model_dump()) & {"exception_type", "exception_value"} == set()
+
+    def test_model_tag_and_round_trip(self) -> None:
+        """The __model__ tag names ErrorMessage and a dump/validate round-trip preserves fields."""
+        msg = Message()
+        error = ErrorMessage(
+            content_type="ValueError",
+            content="boom",
+            traceback="tb",
+            current_message=msg,
+        )
+        payload = error.model_dump()
+        assert payload["__model__"] == "akgentic.core.messages.orchestrator.ErrorMessage"
+
+        restored = ErrorMessage.model_validate(payload)
+        assert isinstance(restored, ErrorMessage)
+        assert restored.content_type == "ValueError"
+        assert restored.content == "boom"
+        assert restored.traceback == "tb"
+        assert restored.current_message is not None
+        assert restored.current_message.id == msg.id
+
+    def test_validate_payload_without_content(self) -> None:
+        """A payload persisted before the pair existed deserializes, with both at default."""
+        payload = ErrorMessage(content_type="E", content="x").model_dump()
+        del payload["content_type"]
+        del payload["content"]
+
+        restored = ErrorMessage.model_validate(payload)
+        assert restored.content_type is None
+        assert restored.content == ""
+
+    def test_validate_payload_with_legacy_exception_keys(self) -> None:
+        """An event written before the rename still replays: old keys dropped, new at default."""
+        payload = ErrorMessage(content_type="E", content="x").model_dump()
+        del payload["content_type"]
+        del payload["content"]
+        payload["exception_type"] = "ValueError"
+        payload["exception_value"] = "boom"
+
+        restored = ErrorMessage.model_validate(payload)
+        assert restored.content_type is None
+        assert restored.content == ""
+        assert set(restored.model_dump()) & {"exception_type", "exception_value"} == set()
+
+
+class TestWarningMessage:
+    """Tests for WarningMessage, the telemetry a handled WarningError emits."""
+
+    def test_instantiation_without_arguments(self) -> None:
+        """Inherited fields default: content_type None, content blank, current_message None."""
+        warning = WarningMessage()
+        assert warning.content_type is None
+        assert warning.content == ""
+        assert warning.current_message is None
+
+    def test_content_and_current_message_can_be_set(self) -> None:
+        """The inherited content and current_message declarations are settable."""
+        msg = Message()
+        warning = WarningMessage(content="non-critical issue", current_message=msg)
+        assert warning.content == "non-critical issue"
+        assert warning.current_message is msg
+
+    def test_model_dump_key_set(self) -> None:
+        """Declares no fields of its own: only Message plus the three from NotificationMessage."""
+        assert set(WarningMessage().model_dump().keys()) == {
+            "id",
+            "parent_id",
+            "team_id",
+            "timestamp",
+            "sender",
+            "recipient",
+            "display_type",
+            "content_type",
+            "content",
+            "current_message",
+            "__model__",
+        }
+
+    def test_is_a_notification_and_a_message(self) -> None:
+        """WarningMessage derives from NotificationMessage and therefore from Message."""
+        assert issubclass(WarningMessage, NotificationMessage)
+        assert issubclass(WarningMessage, Message)
+
+    def test_is_a_sibling_of_error_message_not_a_subclass(self) -> None:
+        """A WarningMessage must never satisfy an isinstance check for ErrorMessage."""
+        assert issubclass(WarningMessage, ErrorMessage) is False
+        assert isinstance(WarningMessage(content="x"), ErrorMessage) is False
+
+    def test_model_tag_and_round_trip(self) -> None:
+        """The __model__ tag names WarningMessage; a round-trip preserves all three fields."""
+        msg = Message()
+        warning = WarningMessage(content_type="WarningError", content="x", current_message=msg)
+
+        payload = warning.model_dump()
+        assert payload["__model__"] == "akgentic.core.messages.orchestrator.WarningMessage"
+
+        restored = WarningMessage.model_validate(payload)
+        assert restored.content_type == "WarningError"
+        assert restored.content == "x"
+        assert restored.current_message is not None
+        assert restored.current_message.id == msg.id
+
+
+class TestClosedNotification:
+    """Tests for ClosedNotification, the payload recording a dismissed notification."""
+
+    def test_construction_exposes_message_id(self) -> None:
+        """The single field is readable back as given."""
+        message_id = uuid.uuid4()
+        closed = ClosedNotification(message_id=message_id)
+        assert closed.message_id == message_id
+
+    def test_is_frozen(self) -> None:
+        """Reassigning the field raises, so a stored dismissal cannot be mutated in place."""
+        closed = ClosedNotification(message_id=uuid.uuid4())
+        with pytest.raises(FrozenInstanceError):
+            closed.message_id = uuid.uuid4()  # type: ignore[misc]
+
+    def test_is_not_a_message_subclass(self) -> None:
+        """It is a payload, not telemetry: EventMessage is its carrier, not its base."""
+        assert issubclass(ClosedNotification, Message) is False
+
+    def test_serialize_emits_model_tag_and_uuid_string(self) -> None:
+        """serialize() tags the class path and renders message_id as a canonical UUID string."""
+        message_id = uuid.uuid4()
+
+        payload = serialize(ClosedNotification(message_id=message_id))
+
+        assert payload == {
+            "message_id": str(message_id),
+            "__model__": "akgentic.core.messages.orchestrator.ClosedNotification",
+        }
+
+    def test_deserialize_restores_message_id_as_uuid(self) -> None:
+        """deserialize_object() coerces the serialized string back to a real uuid.UUID.
+
+        The coercion depends on `uuid` staying a module-level import in
+        orchestrator.py: behind TYPE_CHECKING the TypeAdapter silently fails to
+        build and message_id comes back as the raw `str`, with no error raised.
+        """
+        message_id = uuid.uuid4()
+
+        restored = deserialize_object(serialize(ClosedNotification(message_id=message_id)))
+
+        assert isinstance(restored, ClosedNotification)
+        assert isinstance(restored.message_id, uuid.UUID)
+        assert restored.message_id == message_id
+
+    def test_round_trip_inside_event_message(self) -> None:
+        """A dump/validate cycle through the real EventMessage carrier restores the payload.
+
+        `EventMessage.event` is typed `Any`, so `.event` must be asserted to be a
+        ClosedNotification before its field is read — a plain dict would otherwise slip through.
+        """
+        message_id = uuid.uuid4()
+        msg = EventMessage(event=ClosedNotification(message_id=message_id))
+
+        restored = EventMessage.model_validate(msg.model_dump())
+
+        assert isinstance(restored.event, ClosedNotification)
+        assert isinstance(restored.event.message_id, uuid.UUID)
+        assert restored.event.message_id == message_id
 
 
 class TestStateChangedMessage:

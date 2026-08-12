@@ -52,7 +52,7 @@ class TestUserProxyCreation:
 
 
 class TestUserProxyOrchestratorIntegration:
-    """AC: StartMessage sent automatically; handle_user_message flag."""
+    """AC: StartMessage sent automatically."""
 
     def test_userproxy_sends_start_message_to_orchestrator(self) -> None:
         """UserProxy auto-registers with Orchestrator via StartMessage."""
@@ -69,12 +69,6 @@ class TestUserProxyOrchestratorIntegration:
 
         proxy_ref.stop()
         orch_ref.stop()
-
-    def test_userproxy_address_handle_user_message_returns_true(self) -> None:
-        """ActorAddress.handle_user_message() is True for UserProxy."""
-        proxy_ref = UserProxy.start(config=BaseConfig(name="human", role="UserProxy"))
-        assert ActorAddressImpl(proxy_ref).handle_user_message() is True
-        proxy_ref.stop()
 
 
 class TestProcessHumanInput:

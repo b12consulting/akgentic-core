@@ -33,6 +33,7 @@ from akgentic.core.messages.orchestrator import (
     StartMessage,
     StateChangedMessage,
     StopMessage,
+    WarningMessage,
 )
 from akgentic.core.utils.deserializer import DeserializeContext, deserialize_object
 
@@ -42,7 +43,11 @@ if TYPE_CHECKING:
 
 
 class WarningError(Exception):
-    """Custom exception type for non-critical warnings that should not trigger error telemetry."""
+    """Non-critical condition the handler already dealt with.
+
+    Surfaced to the orchestrator as a WarningMessage rather than an ErrorMessage,
+    so it is observable without being reported as a failure.
+    """
 
     pass
 
@@ -396,7 +401,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         Called by Pykka when an exception occurs during message processing
         and no reply_to is set. Logs the error, marks the current message
         as processed, and sends an ErrorMessage to the orchestrator.
-        WarningErrors are silently acknowledged without escalation.
+        A WarningError sends a WarningMessage instead of an ErrorMessage.
 
         Args:
             exception_type: The type of the raised exception (None if unavailable).
@@ -411,7 +416,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         else:
             logger.error(f"[{self.config.name}] ERROR processing message: {exception_value!s}")
 
-        # Capture current_message before clearing for use in ErrorMessage
+        # Capture current_message before clearing: both notifications below carry it
         failed_message = self._current_message
 
         if self._current_message is not None:
@@ -419,12 +424,19 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             self._current_message = None
 
         if isinstance(exception_value, WarningError):
+            self._notify_orchestrator(
+                WarningMessage(
+                    content_type=type(exception_value).__name__,
+                    content=str(exception_value),
+                    current_message=failed_message,
+                )
+            )
             return
 
         self._notify_orchestrator(
             ErrorMessage(
-                exception_type=exception_type.__name__ if exception_type else "Unknown",
-                exception_value=str(exception_value) if exception_value else "",
+                content_type=exception_type.__name__ if exception_type else "Unknown",
+                content=str(exception_value) if exception_value else "",
                 current_message=failed_message,
                 traceback="".join(tb_module.format_tb(traceback)) if traceback else None,
             )
@@ -591,8 +603,8 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             logger.error(f"Failed to update state: {e}")
             self._notify_orchestrator(
                 ErrorMessage(
-                    exception_type=type(e).__name__,
-                    exception_value=str(e),
+                    content_type=type(e).__name__,
+                    content=str(e),
                     current_message=self._current_message,
                 )
             )

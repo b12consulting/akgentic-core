@@ -1,7 +1,8 @@
 """Message primitives for actor communication.
 
 Provides base Message class and specialized message types for
-actor communication and orchestrator telemetry.
+actor communication and orchestrator telemetry, plus the domain-event
+payloads carried by ``EventMessage.event``.
 """
 
 from akgentic.core.messages.message import (
@@ -12,20 +13,25 @@ from akgentic.core.messages.message import (
     date_time_factory,
 )
 from akgentic.core.messages.orchestrator import (
+    ClosedNotification,
     ErrorMessage,
     EventMessage,
+    NotificationMessage,
     ProcessedMessage,
     ReceivedMessage,
     SentMessage,
     StartMessage,
     StateChangedMessage,
     StopMessage,
+    WarningMessage,
 )
 
 __all__ = [
+    "ClosedNotification",
     "ErrorMessage",
     "EventMessage",
     "Message",
+    "NotificationMessage",
     "ProcessedMessage",
     "ReceivedMessage",
     "ResultMessage",
@@ -35,5 +41,6 @@ __all__ = [
     "StopMessage",
     "StopRecursively",
     "UserMessage",
+    "WarningMessage",
     "date_time_factory",
 ]

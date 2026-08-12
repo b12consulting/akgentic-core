@@ -3,11 +3,19 @@
 Tests ActorAddress ABC, ActorAddressImpl, ActorAddressProxy, and ActorAddressStopped.
 """
 
+import subprocess
+import sys
 import uuid
+from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pytest
 
+from akgentic.core.actor_address_impl import ActorAddressImpl
+from akgentic.core.actor_system_impl import ActorSystem
+from akgentic.core.agent import Akgent
+from akgentic.core.agent_config import BaseConfig
+from akgentic.core.user_proxy import UserProxy
 from akgentic.core.utils.deserializer import ActorAddressDict
 
 
@@ -36,7 +44,7 @@ class TestActorAddressProxy:
             "role": "assistant",
             "team_id": "87654321-4321-8765-4321-876543218765",
             "squad_id": "11111111-2222-3333-4444-555555555555",
-            "user_message": True,
+            "is_user_proxy": False,
         }
 
     def test_properties_from_dict(self, sample_address_dict: ActorAddressDict) -> None:
@@ -49,8 +57,27 @@ class TestActorAddressProxy:
         assert proxy.role == "assistant"
         assert proxy.team_id == uuid.UUID("87654321-4321-8765-4321-876543218765")
         assert proxy.squad_id == uuid.UUID("11111111-2222-3333-4444-555555555555")
-        assert proxy.handle_user_message() is True
+        assert proxy.is_user_proxy is False
         assert proxy.is_alive() is True
+
+    def test_is_user_proxy_true_from_dict(self, sample_address_dict: ActorAddressDict) -> None:
+        """is_user_proxy should be True when the stored dict says so."""
+        from akgentic.core.actor_address_impl import ActorAddressProxy
+
+        sample_address_dict["is_user_proxy"] = True
+        assert ActorAddressProxy(sample_address_dict).is_user_proxy is True
+
+    def test_is_user_proxy_defaults_false_when_key_absent(
+        self, sample_address_dict: ActorAddressDict
+    ) -> None:
+        """A pre-migration dict without the key deserialises to False, not KeyError."""
+        from akgentic.core.actor_address_impl import ActorAddressProxy
+
+        legacy = dict(sample_address_dict)
+        del legacy["is_user_proxy"]
+
+        proxy = ActorAddressProxy(cast(ActorAddressDict, legacy))
+        assert proxy.is_user_proxy is False
 
     def test_send_raises_runtime_error(self, sample_address_dict: ActorAddressDict) -> None:
         """send should raise RuntimeError for proxy addresses."""
@@ -100,12 +127,32 @@ class TestActorAddressStopped:
             "role": "worker",
             "team_id": "87654321-4321-8765-4321-876543218765",
             "squad_id": "11111111-2222-3333-4444-555555555555",
-            "user_message": False,
+            "is_user_proxy": True,
         }
         stopped = ActorAddressStopped(address_dict)
         assert isinstance(stopped, ActorAddressProxy)
         assert stopped.is_alive() is False
         assert stopped.name == "stopped-agent"
+
+    def test_is_user_proxy_inherited_without_override(self) -> None:
+        """ActorAddressStopped reads is_user_proxy from the dict, like its parent."""
+        from akgentic.core.actor_address_impl import ActorAddressStopped
+
+        base: ActorAddressDict = {
+            "__actor_address__": True,
+            "__actor_type__": "akgentic.actor_address_impl.ActorAddressStopped",
+            "agent_id": "12345678-1234-5678-1234-567812345678",
+            "name": "stopped-agent",
+            "role": "worker",
+            "team_id": "87654321-4321-8765-4321-876543218765",
+            "squad_id": "11111111-2222-3333-4444-555555555555",
+            "is_user_proxy": True,
+        }
+        assert ActorAddressStopped(base).is_user_proxy is True
+
+        not_proxy = base.copy()
+        not_proxy["is_user_proxy"] = False
+        assert ActorAddressStopped(not_proxy).is_user_proxy is False
 
 
 class TestActorAddressImpl:
@@ -121,7 +168,6 @@ class TestActorAddressImpl:
         - role: _actor_weakref().config.role (with fallback)
         - team_id: _actor_weakref().team_id (public flat attribute, not via _config)
         - squad_id: _actor_weakref().config.squad_id (from user config)
-        - handle_user_message: checks for receiveMsg_UserMessage method
         """
         # Create config object (user config)
         config = MagicMock()
@@ -140,8 +186,6 @@ class TestActorAddressImpl:
         actor.agent_id = uuid.UUID("12345678-1234-5678-1234-567812345678")
         actor.config = config
         actor.team_id = uuid.UUID("87654321-4321-8765-4321-876543218765")
-        # Add receiveMsg_UserMessage method for handle_user_message check
-        actor.receiveMsg_UserMessage = MagicMock()
 
         actor_ref = MagicMock()
         # pykka 4.4.2+: _actor_weakref() returns the actor (callable, not attribute)
@@ -161,8 +205,6 @@ class TestActorAddressImpl:
         assert impl.role == actor.config.role
         assert impl.team_id == actor.team_id
         assert impl.squad_id == actor.config.squad_id
-        # pykka 4.4.2+: checks for receiveMsg_UserMessage method existence
-        assert impl.handle_user_message() is True
 
     def test_team_id_reads_flat_attribute(self, mock_actor_ref: MagicMock) -> None:
         """team_id should read team_id directly from actor, not via config."""
@@ -184,21 +226,6 @@ class TestActorAddressImpl:
         mock_actor_ref.is_alive.return_value = False
         assert impl.is_alive() is False
 
-    def test_handle_user_message_returns_false_when_no_receive_method(
-        self, mock_actor_ref: MagicMock
-    ) -> None:
-        """handle_user_message should return False when receiveMsg_UserMessage is absent."""
-        from akgentic.core.actor_address_impl import ActorAddressImpl
-
-        # Use spec to prevent MagicMock from auto-creating receiveMsg_UserMessage,
-        # while keeping every metadata attribute the constructor snapshots so the
-        # cache captures cleanly and only the user-message flag resolves to False.
-        limited_actor = MagicMock(spec=["agent_id", "config", "team_id"])
-        mock_actor_ref._actor_weakref = lambda: limited_actor
-
-        impl = ActorAddressImpl(mock_actor_ref)
-        assert impl.handle_user_message() is False
-
     def test_serialize_produces_correct_dict(self, mock_actor_ref: MagicMock) -> None:
         """serialize should produce correct ActorAddressDict with actual agent class."""
         from akgentic.core.actor_address_impl import ActorAddressImpl
@@ -215,7 +242,7 @@ class TestActorAddressImpl:
         assert serialized["role"] == actor.config.role
         assert serialized["team_id"] == str(actor.team_id)
         assert serialized["squad_id"] == str(actor.config.squad_id)
-        assert serialized["user_message"] is True
+        assert serialized["is_user_proxy"] is False
 
     def test_dead_ref_at_construction_leaves_safe_snapshot(
         self, mock_actor_ref: MagicMock
@@ -239,10 +266,11 @@ class TestActorAddressImpl:
         assert impl.role is None
         assert impl.team_id is None
         assert impl.squad_id is None
-        assert impl.handle_user_message() is False
+        assert impl.is_user_proxy is False
         serialized = impl.serialize()
         assert serialized["__actor_type__"] == ""
         assert serialized["agent_id"] == ""
+        assert serialized["is_user_proxy"] is False
 
     def test_equality_and_hashing(self, mock_actor_ref: MagicMock) -> None:
         """Equality and hash should be based on agent_id."""
@@ -286,7 +314,7 @@ class TestActorAddressImplResilientAfterGC:
     """
 
     @staticmethod
-    def _build_dead_address() -> "ActorAddressImpl":  # type: ignore[name-defined]  # noqa: F821
+    def _build_dead_address() -> ActorAddressImpl:
         """Create an actor, capture its address, then stop + GC the actor.
 
         Returns an ``ActorAddressImpl`` whose underlying actor has been collected
@@ -294,11 +322,6 @@ class TestActorAddressImplResilientAfterGC:
         teardown is verified by the caller via the returned address only.
         """
         import gc
-
-        from akgentic.core.actor_address_impl import ActorAddressImpl
-        from akgentic.core.actor_system_impl import ActorSystem
-        from akgentic.core.agent import Akgent
-        from akgentic.core.agent_config import BaseConfig
 
         squad = uuid.uuid4()
         system = ActorSystem()
@@ -323,8 +346,7 @@ class TestActorAddressImplResilientAfterGC:
         assert isinstance(address.agent_id, uuid.UUID)
         assert isinstance(address.team_id, uuid.UUID)
         assert isinstance(address.squad_id, uuid.UUID)
-        # Base Akgent has no receiveMsg_UserMessage handler.
-        assert address.handle_user_message() is False
+        assert address.is_user_proxy is False
 
     def test_serialize_survives_actor_gc(self) -> None:
         """serialize() returns the full dict after stop + GC (the §3.1 serialize case)."""
@@ -337,7 +359,7 @@ class TestActorAddressImplResilientAfterGC:
         assert serialized["agent_id"] != ""
         assert serialized["team_id"] != ""
         assert serialized["squad_id"] != ""
-        assert serialized["user_message"] is False
+        assert serialized["is_user_proxy"] is False
 
     def test_is_alive_false_after_gc(self) -> None:
         """is_alive() returns False (not raises) after stop + GC."""
@@ -351,3 +373,95 @@ class TestActorAddressImplResilientAfterGC:
         assert address == address
         assert hash(address) == hash(address.agent_id)
         assert len({address, address}) == 1
+
+
+class _CustomUserProxy(UserProxy):
+    """A UserProxy subclass, standing in for out-of-package proxies like HumanProxy.
+
+    Defined here rather than imported so ``akgentic-core``'s tests stay free of
+    any dependency on a sibling package.
+    """
+
+
+class TestIsUserProxyOnLiveActors:
+    """``is_user_proxy`` is derived from the actor's type, not from its role string."""
+
+    @staticmethod
+    def _address_for(agent_class: type[Akgent[Any, Any]], role: str) -> ActorAddressImpl:
+        """Start an actor of *agent_class*, snapshot its address, then shut the system down.
+
+        The shutdown is safe for these assertions: every value read here is
+        cached at construction, so the address outlives its actor by design.
+        """
+        system = ActorSystem()
+        address = system.createActor(
+            agent_class, config=BaseConfig(name="probe", role=role, squad_id=uuid.uuid4())
+        )
+        assert isinstance(address, ActorAddressImpl)
+        system.shutdown()
+        return address
+
+    def test_true_for_user_proxy(self) -> None:
+        """A live UserProxy is detected regardless of the role string it was given."""
+        assert self._address_for(UserProxy, role="not-a-hint").is_user_proxy is True
+
+    def test_true_for_user_proxy_subclass(self) -> None:
+        """Subclasses of UserProxy are detected too — the check is isinstance, not type()."""
+        assert self._address_for(_CustomUserProxy, role="worker").is_user_proxy is True
+
+    def test_false_for_plain_akgent(self) -> None:
+        """An agent with no UserProxy ancestry is False even when its role says otherwise."""
+        assert self._address_for(Akgent, role="UserProxy").is_user_proxy is False
+
+    def test_survives_actor_gc(self) -> None:
+        """After stop + GC the construction-time snapshot is returned, with no raise."""
+        import gc
+
+        system = ActorSystem()
+        address = system.createActor(UserProxy, config=BaseConfig(name="gc-proxy", role="worker"))
+        assert isinstance(address, ActorAddressImpl)
+        assert address.is_user_proxy is True
+
+        system.proxy_ask(address, UserProxy).stop()
+        system.shutdown()
+        gc.collect()
+
+        # Pin the precondition: without this the assertions below would still pass
+        # against a live actor, and the test would prove nothing about GC-safety.
+        assert address.is_alive() is False
+        assert address.is_user_proxy is True
+        assert address.serialize()["is_user_proxy"] is True
+
+    @pytest.mark.parametrize(("agent_class", "expected"), [(UserProxy, True), (Akgent, False)])
+    def test_serialize_round_trip(
+        self, agent_class: type[Akgent[Any, Any]], expected: bool
+    ) -> None:
+        """serialize() carries the flag, and a proxy rebuilt from it reads the same value."""
+        from akgentic.core.actor_address_impl import ActorAddressProxy
+
+        address = self._address_for(agent_class, role="worker")
+        serialized = address.serialize()
+
+        assert address.is_user_proxy is expected
+        assert serialized["is_user_proxy"] == address.is_user_proxy
+        assert ActorAddressProxy(serialized).is_user_proxy is expected
+
+
+def test_importing_akgentic_core_has_no_import_cycle() -> None:
+    """``import akgentic.core`` succeeds in a fresh interpreter.
+
+    ``ActorAddressImpl`` imports ``UserProxy`` inside ``__init__`` on purpose: at
+    module scope it would close the cycle agent -> actor_address_impl ->
+    user_proxy -> agent. A subprocess is used rather than importlib.reload so the
+    check runs against a genuinely cold module table without disturbing this one.
+    """
+    result = subprocess.run(
+        [sys.executable, "-c", "import akgentic.core"],
+        capture_output=True,
+        text=True,
+        check=False,
+        # A cycle can wedge the import rather than fail it; without a bound the
+        # child would block the suite instead of reporting a red.
+        timeout=60,
+    )
+    assert result.returncode == 0, result.stderr
