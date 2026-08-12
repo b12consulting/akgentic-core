@@ -1,7 +1,8 @@
 """Message primitives for actor communication.
 
 Provides base Message class and specialized message types for
-actor communication and orchestrator telemetry.
+actor communication and orchestrator telemetry, plus the domain-event
+payloads carried by ``EventMessage.event``.
 """
 
 from akgentic.core.messages.message import (

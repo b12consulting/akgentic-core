@@ -2,6 +2,8 @@
 
 Provides message types for tracking actor communication, state changes,
 and error conditions. Used by the orchestrator for system observability.
+Also home to the domain-event payloads carried by ``EventMessage.event``,
+which are not ``Message`` subclasses and live beside their carrier.
 
 Source: akgentic-framework/libs/akgentic/akgentic/core/messages/orchestrator.py
 """
@@ -160,6 +162,10 @@ class ClosedNotification:
     Carried by ``EventMessage(event=...)`` like any other domain-event
     payload — it is deliberately not a ``Message`` subclass and needs no
     orchestrator handler of its own.
+
+    Keep it in this module: ``serialize()`` persists its import path into every
+    stored event and replay resolves that string back to the class, with no
+    alias mechanism — moving it breaks replay of dismissals already written.
 
     Attributes:
         message_id: ``id`` of the ``NotificationMessage`` that was dismissed.

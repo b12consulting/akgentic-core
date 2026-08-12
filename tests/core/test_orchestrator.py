@@ -660,6 +660,9 @@ class TestEventMessagePersistence:
         # Compare by id, not identity: _snapshot_for_subscribers may hand over a copy
         assert len(sub.messages) == fanned_out_before + 1
         assert sub.messages[-1].id == msg.id
+        # .event is typed Any: assert the type before reading the field, or a
+        # dict-ified payload would reach the comparison instead of failing here
+        assert isinstance(sub.messages[-1].event, ClosedNotification)
         assert sub.messages[-1].event.message_id == message_id
 
         system.shutdown()
