@@ -281,8 +281,9 @@ Pykka's `_handle_failure()` hook (not a try/except wrapper around dispatch):
 2. **Emit `ProcessedMessage`** to the orchestrator (marks the current message as done)
 3. **Check for `WarningError`** — if so, emit a `WarningMessage` carrying the
    warning text and `current_message`, then return
-4. **Emit `ErrorMessage`** with `exception_type`, `exception_value`, `traceback`,
-   and `current_message` to the orchestrator
+4. **Emit `ErrorMessage`** with `content_type` (the exception's class name),
+   `content` (its string form), `traceback`, and `current_message` to the
+   orchestrator
 
 The actor **does not crash** — it continues processing subsequent messages.
 

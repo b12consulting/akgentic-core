@@ -431,8 +431,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
 
         self._notify_orchestrator(
             ErrorMessage(
-                exception_type=exception_type.__name__ if exception_type else "Unknown",
-                exception_value=str(exception_value) if exception_value else "",
+                content_type=exception_type.__name__ if exception_type else "Unknown",
                 content=str(exception_value) if exception_value else "",
                 current_message=failed_message,
                 traceback="".join(tb_module.format_tb(traceback)) if traceback else None,
@@ -600,8 +599,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             logger.error(f"Failed to update state: {e}")
             self._notify_orchestrator(
                 ErrorMessage(
-                    exception_type=type(e).__name__,
-                    exception_value=str(e),
+                    content_type=type(e).__name__,
                     content=str(e),
                     current_message=self._current_message,
                 )

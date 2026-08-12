@@ -342,9 +342,8 @@ class TestTimerBehaviourOnHandlerErrors:
         assert len(error_messages) == 1, (
             f"RuntimeError should produce exactly one ErrorMessage, got {len(error_messages)}"
         )
-        assert error_messages[0].exception_type == "RuntimeError"
-        assert "critical failure" in error_messages[0].exception_value
-        assert error_messages[0].content == error_messages[0].exception_value
+        assert error_messages[0].content_type == "RuntimeError"
+        assert "critical failure" in error_messages[0].content
 
         agent_ref.stop()
         orch_ref.stop()

@@ -86,6 +86,10 @@ class NotificationMessage(Message):
     """Base telemetry message for actor-level conditions surfaced to the orchestrator.
 
     Attributes:
+        content_type: Optional discriminator for the kind of condition — the
+            exception's class name for an ErrorMessage. None when the producer
+            has no kind to report. Defaults so events persisted before this
+            field existed stay deserializable.
         content: Human-readable text of the condition, on the base so any consumer
             reads `.content` uniformly across subclasses without an isinstance check.
             Defaults to the empty string so events persisted before this field
@@ -93,6 +97,7 @@ class NotificationMessage(Message):
         current_message: The message being processed when the condition occurred.
     """
 
+    content_type: str | None = None
     content: str = ""
     current_message: Message | None = None
 
@@ -100,18 +105,14 @@ class NotificationMessage(Message):
 class ErrorMessage(NotificationMessage):
     """Telemetry message for actor errors.
 
-    Records exceptions that occur during actor message processing,
-    including the error details and the message being processed.
+    Records exceptions that occur during actor message processing. The inherited
+    `content_type` carries the exception's class name and `content` its string
+    form, so a generic consumer reads them without knowing the subclass.
 
     Attributes:
-        exception_type: Fully qualified name of the exception class.
-        exception_value: String representation of the exception. The inherited
-            `content` mirrors this text.
         traceback: Formatted traceback of the exception, when available.
     """
 
-    exception_type: str
-    exception_value: str
     traceback: str | None = None
 
 

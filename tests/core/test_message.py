@@ -6,6 +6,8 @@ Tests base Message class, UserMessage, ResultMessage, and orchestrator messages.
 import uuid
 from datetime import UTC, datetime
 
+import pytest
+
 from akgentic.core.messages.message import (
     Message,
     ResultMessage,
@@ -303,8 +305,9 @@ class TestNotificationMessage:
     """Tests for NotificationMessage, the shared base of notification telemetry."""
 
     def test_instantiation_without_arguments(self) -> None:
-        """Both fields default: content to the empty string, current_message to None."""
+        """All three fields default: content_type None, content blank, current_message None."""
         notification = NotificationMessage()
+        assert notification.content_type is None
         assert notification.content == ""
         assert notification.current_message is None
 
@@ -314,6 +317,27 @@ class TestNotificationMessage:
         notification = NotificationMessage(content="x", current_message=msg)
         assert notification.content == "x"
         assert notification.current_message is msg
+
+    def test_content_type_can_be_set(self) -> None:
+        """content_type is settable on the base, not just on ErrorMessage."""
+        notification = NotificationMessage(content_type="ValueError", content="boom")
+        assert notification.content_type == "ValueError"
+
+    def test_model_dump_key_set(self) -> None:
+        """Serialized key set is the Message fields plus the three declared here."""
+        assert set(NotificationMessage().model_dump().keys()) == {
+            "id",
+            "parent_id",
+            "team_id",
+            "timestamp",
+            "sender",
+            "recipient",
+            "display_type",
+            "content_type",
+            "content",
+            "current_message",
+            "__model__",
+        }
 
     def test_is_a_message(self) -> None:
         """NotificationMessage derives from Message."""
@@ -341,20 +365,18 @@ class TestErrorMessage:
     """Tests for ErrorMessage orchestrator message."""
 
     def test_instantiation(self) -> None:
-        """Should instantiate with exception details."""
+        """Should instantiate with the inherited content_type/content pair."""
         error = ErrorMessage(
-            exception_type="ValueError",
-            exception_value="Invalid input",
+            content_type="ValueError",
             content="Invalid input",
         )
-        assert error.exception_type == "ValueError"
-        assert error.exception_value == "Invalid input"
+        assert error.content_type == "ValueError"
+        assert error.content == "Invalid input"
 
     def test_current_message_defaults_to_none(self) -> None:
         """current_message should default to None."""
         error = ErrorMessage(
-            exception_type="Error",
-            exception_value="msg",
+            content_type="Error",
             content="msg",
         )
         assert error.current_message is None
@@ -363,8 +385,7 @@ class TestErrorMessage:
         """current_message can be explicitly set."""
         msg = Message()
         error = ErrorMessage(
-            exception_type="Error",
-            exception_value="msg",
+            content_type="Error",
             content="msg",
             current_message=msg,
         )
@@ -372,15 +393,15 @@ class TestErrorMessage:
 
     def test_inheritance_chain(self) -> None:
         """ErrorMessage is both a NotificationMessage and a Message."""
-        error = ErrorMessage(exception_type="Error", exception_value="msg", content="msg")
+        error = ErrorMessage(content_type="Error", content="msg")
         assert isinstance(error, NotificationMessage)
         assert isinstance(error, Message)
         assert issubclass(ErrorMessage, NotificationMessage)
         assert issubclass(NotificationMessage, Message)
 
     def test_model_dump_key_set(self) -> None:
-        """Serialized key set is the inherited Message fields plus content and its own."""
-        error = ErrorMessage(content="v", exception_type="E", exception_value="v")
+        """Serialized key set is the inherited fields plus traceback, its only own one."""
+        error = ErrorMessage(content_type="E", content="v")
         assert set(error.model_dump().keys()) == {
             "id",
             "parent_id",
@@ -389,20 +410,32 @@ class TestErrorMessage:
             "sender",
             "recipient",
             "display_type",
+            "content_type",
             "content",
             "current_message",
-            "exception_type",
-            "exception_value",
             "traceback",
             "__model__",
         }
+
+    def test_exception_fields_are_gone(self) -> None:
+        """The old exception_type/exception_value declarations no longer exist.
+
+        The model inherits Pydantic's default extra="ignore", so passing them is
+        silently dropped rather than rejected — hence the attribute check.
+        """
+        assert "exception_type" not in ErrorMessage.model_fields
+        assert "exception_value" not in ErrorMessage.model_fields
+
+        error = ErrorMessage(content_type="E", content="v", exception_type="ValueError")
+        assert hasattr(error, "exception_type") is False
+        with pytest.raises(AttributeError):
+            _ = error.exception_value
 
     def test_model_tag_and_round_trip(self) -> None:
         """The __model__ tag names ErrorMessage and a dump/validate round-trip preserves fields."""
         msg = Message()
         error = ErrorMessage(
-            exception_type="ValueError",
-            exception_value="boom",
+            content_type="ValueError",
             content="boom",
             traceback="tb",
             current_message=msg,
@@ -412,29 +445,42 @@ class TestErrorMessage:
 
         restored = ErrorMessage.model_validate(payload)
         assert isinstance(restored, ErrorMessage)
+        assert restored.content_type == "ValueError"
         assert restored.content == "boom"
-        assert restored.exception_type == "ValueError"
-        assert restored.exception_value == "boom"
         assert restored.traceback == "tb"
         assert restored.current_message is not None
         assert restored.current_message.id == msg.id
 
     def test_validate_payload_without_content(self) -> None:
-        """A payload persisted before content existed still deserializes, with content blank."""
-        payload = ErrorMessage(content="x", exception_type="E", exception_value="x").model_dump()
+        """A payload persisted before the pair existed deserializes, with both at default."""
+        payload = ErrorMessage(content_type="E", content="x").model_dump()
+        del payload["content_type"]
         del payload["content"]
 
         restored = ErrorMessage.model_validate(payload)
+        assert restored.content_type is None
         assert restored.content == ""
-        assert restored.exception_value == "x"
+
+    def test_validate_payload_with_legacy_exception_keys(self) -> None:
+        """An event written before the rename still replays: old keys dropped, new at default."""
+        payload = ErrorMessage(content_type="E", content="x").model_dump()
+        del payload["content_type"]
+        del payload["content"]
+        payload["exception_type"] = "ValueError"
+        payload["exception_value"] = "boom"
+
+        restored = ErrorMessage.model_validate(payload)
+        assert restored.content_type is None
+        assert restored.content == ""
 
 
 class TestWarningMessage:
     """Tests for WarningMessage, the telemetry a handled WarningError emits."""
 
     def test_instantiation_without_arguments(self) -> None:
-        """Both inherited fields default: content blank, current_message None."""
+        """Inherited fields default: content_type None, content blank, current_message None."""
         warning = WarningMessage()
+        assert warning.content_type is None
         assert warning.content == ""
         assert warning.current_message is None
 
@@ -446,7 +492,7 @@ class TestWarningMessage:
         assert warning.current_message is msg
 
     def test_model_dump_key_set(self) -> None:
-        """Declares no fields of its own: only Message plus the two from NotificationMessage."""
+        """Declares no fields of its own: only Message plus the three from NotificationMessage."""
         assert set(WarningMessage().model_dump().keys()) == {
             "id",
             "parent_id",
@@ -455,6 +501,7 @@ class TestWarningMessage:
             "sender",
             "recipient",
             "display_type",
+            "content_type",
             "content",
             "current_message",
             "__model__",

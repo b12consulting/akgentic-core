@@ -334,8 +334,7 @@ class TestOrchestratorTimerMessageHandlers:
 
     def _make_error_message(self) -> ErrorMessage:
         return ErrorMessage(
-            exception_type="ValueError",
-            exception_value="something went wrong",
+            content_type="ValueError",
             content="something went wrong",
         )
 

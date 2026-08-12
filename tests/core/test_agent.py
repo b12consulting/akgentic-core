@@ -415,8 +415,8 @@ class TestStateManagement:
         finally:
             ref.stop()
 
-    def test_update_state_failure_mirrors_content_onto_error_message(self, agent_setup) -> None:
-        """A failing update_state emits an ErrorMessage whose content equals exception_value."""
+    def test_update_state_failure_sets_content_type_and_content(self, agent_setup) -> None:
+        """A failing update_state emits one ErrorMessage carrying the exception's name and text."""
         from akgentic.core.messages.orchestrator import ErrorMessage
 
         agent_id, config, team_id = agent_setup
@@ -444,8 +444,7 @@ class TestStateManagement:
                 if isinstance(arg, ErrorMessage)
             ]
             assert len(errors) == 1
-            assert errors[0].exception_type == "ModuleNotFoundError"
-            assert errors[0].content == errors[0].exception_value
+            assert errors[0].content_type == "ModuleNotFoundError"
             assert "nonexistent_module_xyz" in errors[0].content
         finally:
             ref.stop()
