@@ -21,15 +21,14 @@ from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message
 from akgentic.core.messages.orchestrator import (
-    ErrorMessage,
     EventMessage,
+    NotificationMessage,
     ProcessedMessage,
     ReceivedMessage,
     SentMessage,
     StartMessage,
     StateChangedMessage,
     StopMessage,
-    WarningMessage,
 )
 from akgentic.core.utils.serializer import SerializableBaseModel
 
@@ -497,24 +496,17 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         self.messages.append(message)
         self._notify_subscribers_message("on_message", message)
 
-    def receiveMsg_ErrorMessage(self, message: ErrorMessage, sender: ActorAddress) -> None:
-        """Handle error events.
+    def receiveMsg_NotificationMessage(
+        self, message: NotificationMessage, sender: ActorAddress
+    ) -> None:
+        """Handle notification events.
+
+        MRO-based dispatch routes every NotificationMessage subclass here —
+        ErrorMessage, WarningMessage, and any future one — so there is no
+        per-subclass handler to keep in sync.
 
         Args:
-            message: ErrorMessage containing error details
-            sender: ActorAddress of sending agent
-        """
-        # Skip orchestrator's own telemetry to avoid recursion
-        if sender == self.myAddress:
-            return
-        self.messages.append(message)
-        self._notify_subscribers_message("on_message", message)
-
-    def receiveMsg_WarningMessage(self, message: WarningMessage, sender: ActorAddress) -> None:
-        """Handle warning events.
-
-        Args:
-            message: WarningMessage containing warning details
+            message: NotificationMessage containing the condition details
             sender: ActorAddress of sending agent
         """
         # Skip orchestrator's own telemetry to avoid recursion
