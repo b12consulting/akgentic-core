@@ -22,6 +22,7 @@ from akgentic.core.messages.orchestrator import (
     StartMessage,
     StateChangedMessage,
     StopMessage,
+    WarningMessage,
 )
 
 
@@ -426,6 +427,61 @@ class TestErrorMessage:
         restored = ErrorMessage.model_validate(payload)
         assert restored.content == ""
         assert restored.exception_value == "x"
+
+
+class TestWarningMessage:
+    """Tests for WarningMessage, the telemetry a handled WarningError emits."""
+
+    def test_instantiation_without_arguments(self) -> None:
+        """Both inherited fields default: content blank, current_message None."""
+        warning = WarningMessage()
+        assert warning.content == ""
+        assert warning.current_message is None
+
+    def test_both_fields_can_be_set(self) -> None:
+        """The inherited content and current_message declarations are settable."""
+        msg = Message()
+        warning = WarningMessage(content="non-critical issue", current_message=msg)
+        assert warning.content == "non-critical issue"
+        assert warning.current_message is msg
+
+    def test_model_dump_key_set(self) -> None:
+        """Declares no fields of its own: only Message plus the two from NotificationMessage."""
+        assert set(WarningMessage().model_dump().keys()) == {
+            "id",
+            "parent_id",
+            "team_id",
+            "timestamp",
+            "sender",
+            "recipient",
+            "display_type",
+            "content",
+            "current_message",
+            "__model__",
+        }
+
+    def test_is_a_notification_and_a_message(self) -> None:
+        """WarningMessage derives from NotificationMessage and therefore from Message."""
+        assert issubclass(WarningMessage, NotificationMessage)
+        assert issubclass(WarningMessage, Message)
+
+    def test_is_a_sibling_of_error_message_not_a_subclass(self) -> None:
+        """A WarningMessage must never satisfy an isinstance check for ErrorMessage."""
+        assert issubclass(WarningMessage, ErrorMessage) is False
+        assert isinstance(WarningMessage(content="x"), ErrorMessage) is False
+
+    def test_model_tag_and_round_trip(self) -> None:
+        """The __model__ tag names WarningMessage and a round-trip preserves both fields."""
+        msg = Message()
+        warning = WarningMessage(content="x", current_message=msg)
+
+        payload = warning.model_dump()
+        assert payload["__model__"] == "akgentic.core.messages.orchestrator.WarningMessage"
+
+        restored = WarningMessage.model_validate(payload)
+        assert restored.content == "x"
+        assert restored.current_message is not None
+        assert restored.current_message.id == msg.id
 
 
 class TestStateChangedMessage:

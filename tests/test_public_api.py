@@ -52,6 +52,7 @@ class TestAkgenticNamespace:
             "ErrorMessage",
             "StateChangedMessage",
             "EventMessage",
+            "WarningMessage",
             "date_time_factory",
         }
         assert not message_types.intersection(set(akgentic.core.__all__))
@@ -97,6 +98,7 @@ class TestMessagesNamespace:
             StopMessage,
             StopRecursively,
             UserMessage,
+            WarningMessage,
             date_time_factory,
         )
 
@@ -113,6 +115,7 @@ class TestMessagesNamespace:
         assert ErrorMessage is not None
         assert StateChangedMessage is not None
         assert EventMessage is not None
+        assert WarningMessage is not None
         assert date_time_factory is not None
 
     def test_messages_all_defined(self) -> None:
@@ -133,6 +136,7 @@ class TestMessagesNamespace:
             "StateChangedMessage",
             "StopMessage",
             "EventMessage",
+            "WarningMessage",
         }
         assert expected.issubset(set(msgs.__all__))
 

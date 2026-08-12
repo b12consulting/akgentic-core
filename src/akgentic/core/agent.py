@@ -33,6 +33,7 @@ from akgentic.core.messages.orchestrator import (
     StartMessage,
     StateChangedMessage,
     StopMessage,
+    WarningMessage,
 )
 from akgentic.core.utils.deserializer import DeserializeContext, deserialize_object
 
@@ -396,7 +397,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         Called by Pykka when an exception occurs during message processing
         and no reply_to is set. Logs the error, marks the current message
         as processed, and sends an ErrorMessage to the orchestrator.
-        WarningErrors are silently acknowledged without escalation.
+        A WarningError sends a WarningMessage instead of an ErrorMessage.
 
         Args:
             exception_type: The type of the raised exception (None if unavailable).
@@ -419,6 +420,9 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             self._current_message = None
 
         if isinstance(exception_value, WarningError):
+            self._notify_orchestrator(
+                WarningMessage(content=str(exception_value), current_message=failed_message)
+            )
             return
 
         self._notify_orchestrator(

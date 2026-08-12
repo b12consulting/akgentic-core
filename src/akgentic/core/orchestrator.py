@@ -29,6 +29,7 @@ from akgentic.core.messages.orchestrator import (
     StartMessage,
     StateChangedMessage,
     StopMessage,
+    WarningMessage,
 )
 from akgentic.core.utils.serializer import SerializableBaseModel
 
@@ -163,6 +164,7 @@ class EventSubscriber(Protocol):
             - ReceivedMessage
             - ProcessedMessage
             - ErrorMessage
+            - WarningMessage
             - StateChangedMessage
             - EventMessage
 
@@ -500,6 +502,19 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
         Args:
             message: ErrorMessage containing error details
+            sender: ActorAddress of sending agent
+        """
+        # Skip orchestrator's own telemetry to avoid recursion
+        if sender == self.myAddress:
+            return
+        self.messages.append(message)
+        self._notify_subscribers_message("on_message", message)
+
+    def receiveMsg_WarningMessage(self, message: WarningMessage, sender: ActorAddress) -> None:
+        """Handle warning events.
+
+        Args:
+            message: WarningMessage containing warning details
             sender: ActorAddress of sending agent
         """
         # Skip orchestrator's own telemetry to avoid recursion

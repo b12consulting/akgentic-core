@@ -21,6 +21,7 @@ from akgentic.core.messages.orchestrator import (
     StartMessage,
     StateChangedMessage,
     StopMessage,
+    WarningMessage,
 )
 
 __all__ = [
@@ -37,5 +38,6 @@ __all__ = [
     "StopMessage",
     "StopRecursively",
     "UserMessage",
+    "WarningMessage",
     "date_time_factory",
 ]

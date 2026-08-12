@@ -12,7 +12,12 @@ import pykka
 import pytest
 
 from akgentic.core.agent_config import BaseConfig
-from akgentic.core.messages.orchestrator import ErrorMessage, ProcessedMessage, ReceivedMessage
+from akgentic.core.messages.orchestrator import (
+    ErrorMessage,
+    ProcessedMessage,
+    ReceivedMessage,
+    WarningMessage,
+)
 from akgentic.core.orchestrator import TIMER_DELAY, EventSubscriber, Orchestrator, Timer
 
 
@@ -334,6 +339,9 @@ class TestOrchestratorTimerMessageHandlers:
             content="something went wrong",
         )
 
+    def _make_warning_message(self) -> WarningMessage:
+        return WarningMessage(content="non-critical issue")
+
     def test_received_message_increments_task_count(self) -> None:
         """receiveMsg_ReceivedMessage calls timer.task_started() → task_count increases."""
         config = BaseConfig(name="test-orchestrator", role="Orchestrator")
@@ -435,6 +443,78 @@ class TestOrchestratorTimerMessageHandlers:
         orch.receiveMsg_ReceivedMessage(msg, my_address).get()
 
         assert timer.task_count == initial_count
+
+        orch_ref.stop()
+
+    def test_warning_message_does_not_affect_task_count(self) -> None:
+        """receiveMsg_WarningMessage does NOT modify timer task_count."""
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config)
+        orch = orch_ref.proxy()
+
+        timer = orch.get_timer().get()
+        timer.task_count = 1
+        timer.cancel()
+
+        dummy_config = BaseConfig(name="dummy-agent4", role="Agent")
+
+        class _DummyOrch4(Orchestrator):
+            pass
+
+        dummy_ref = _DummyOrch4.start(config=dummy_config)
+        dummy_proxy = dummy_ref.proxy()
+        sender_addr = dummy_proxy.myAddress.get()
+
+        msg = self._make_warning_message()
+        orch.receiveMsg_WarningMessage(msg, sender_addr).get()
+
+        # Warning messages should NOT decrement task_count
+        assert timer.task_count == 1
+
+        dummy_ref.stop()
+        orch_ref.stop()
+
+    def test_warning_message_is_appended_and_fanned_out(self) -> None:
+        """receiveMsg_WarningMessage stores the message and notifies subscribers."""
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config)
+        orch = orch_ref.proxy()
+
+        subscriber = _RecordingStopSubscriber()
+        orch.subscribe(subscriber).get()
+
+        dummy_config = BaseConfig(name="dummy-agent5", role="Agent")
+
+        class _DummyOrch5(Orchestrator):
+            pass
+
+        dummy_ref = _DummyOrch5.start(config=dummy_config)
+        sender_addr = dummy_ref.proxy().myAddress.get()
+
+        msg = self._make_warning_message()
+        orch.receiveMsg_WarningMessage(msg, sender_addr).get()
+
+        assert subscriber.messages == [msg]
+        assert msg in orch.messages.get()
+
+        dummy_ref.stop()
+        orch_ref.stop()
+
+    def test_warning_message_from_self_is_ignored(self) -> None:
+        """A WarningMessage sent by the orchestrator itself is neither stored nor fanned out."""
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config)
+        orch = orch_ref.proxy()
+
+        subscriber = _RecordingStopSubscriber()
+        orch.subscribe(subscriber).get()
+        messages_before = len(orch.messages.get())
+
+        my_address = orch.myAddress.get()
+        orch.receiveMsg_WarningMessage(self._make_warning_message(), my_address).get()
+
+        assert len(orch.messages.get()) == messages_before
+        assert subscriber.messages == []
 
         orch_ref.stop()
 
