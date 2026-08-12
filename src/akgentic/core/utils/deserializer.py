@@ -32,7 +32,6 @@ class ActorAddressDict(TypedDict):
         role: Agent role from configuration.
         team_id: Team UUID as string for team identification.
         squad_id: Squad UUID as string for squad identification.
-        user_message: Whether agent accepts user messages.
         is_user_proxy: Whether the actor is a UserProxy (or subclass).
     """
 
@@ -43,7 +42,6 @@ class ActorAddressDict(TypedDict):
     role: str
     team_id: str
     squad_id: str
-    user_message: bool
     is_user_proxy: bool
 
 

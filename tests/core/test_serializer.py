@@ -310,7 +310,6 @@ class TestDeserializeObject:
             "role": "assistant",
             "team_id": str(uuid.uuid4()),
             "squad_id": str(uuid.uuid4()),
-            "user_message": False,
             "is_user_proxy": False,
         }
         result = deserialize_object(addr_dict)
@@ -371,7 +370,6 @@ class TestDeserializeContext:
                 "role": "assistant",
                 "team_id": "12345678-4321-8765-4321-876543218765",
                 "squad_id": "11111111-2222-3333-4444-555555555555",
-                "user_message": False,
                 "is_user_proxy": False,
             }
         )
@@ -725,7 +723,6 @@ def _make_proxy(name: str, role: str = "Role") -> "ActorAddress":
             "role": role,
             "team_id": str(uuid.uuid4()),
             "squad_id": "",
-            "user_message": False,
             "is_user_proxy": False,
         }
     )

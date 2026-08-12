@@ -33,8 +33,8 @@ class ActorAddressImpl(ActorAddress):
     orchestrator history, queued telemetry, or subscriber snapshots.
 
     To make that lifecycle safe, **all** metadata (``agent_id``, ``name``,
-    ``role``, ``team_id``, ``squad_id``, the actor ``type``, the ``user_message``
-    flag and the ``is_user_proxy`` flag) is captured into private vars at
+    ``role``, ``team_id``, ``squad_id``, the actor ``type`` and the
+    ``is_user_proxy`` flag) is captured into private vars at
     construction. Every accessor, ``serialize()`` and ``__repr__`` read the cache
     — reading metadata or checking liveness NEVER raises on a collected actor.
     The live ``_actor_ref`` is retained for message *delivery* only (``send`` /
@@ -63,9 +63,8 @@ class ActorAddressImpl(ActorAddress):
         Addresses are only ever built from a live ref (``myAddress``,
         ``createActor``, ``ActorSystem`` lookups), so the underlying actor is
         alive here. Capture everything the address will ever need — identity,
-        config metadata, the actor type, the user-message flag and whether the
-        actor is a ``UserProxy`` — so every later read survives the actor's
-        garbage collection.
+        config metadata, the actor type and whether the actor is a ``UserProxy``
+        — so every later read survives the actor's garbage collection.
 
         The capture is wrapped: an already-dead ref at construction (rare) leaves
         a safe snapshot (``None``/``False``) rather than raising.
@@ -80,7 +79,6 @@ class ActorAddressImpl(ActorAddress):
         self._team_id: uuid.UUID | None = None
         self._squad_id: uuid.UUID | None = None
         self._actor_type: type[Any] | None = None
-        self._user_message: bool = False
         self._is_user_proxy: bool = False
         try:
             actor = actor_ref._actor_weakref()
@@ -91,7 +89,6 @@ class ActorAddressImpl(ActorAddress):
                 self._team_id = actor.team_id
                 self._squad_id = actor.config.squad_id
                 self._actor_type = type(actor)
-                self._user_message = callable(getattr(actor, "receiveMsg_UserMessage", None))
                 # Local import, and last: at module scope it would close the cycle
                 # agent.py -> actor_address_impl.py -> user_proxy.py -> agent.py, and
                 # importing after the captures keeps a failure here from discarding them.
@@ -183,15 +180,6 @@ class ActorAddressImpl(ActorAddress):
         except Exception:  # noqa: BLE001 — a torn-down/collected ref is not alive
             return False
 
-    def handle_user_message(self) -> bool:
-        """Check if the agent accepts user messages (cached; GC-safe).
-
-        Returns:
-            True if the actor had a ``receiveMsg_UserMessage`` method at
-            construction.
-        """
-        return self._user_message
-
     def serialize(self) -> ActorAddressDict:
         """Serialize to dictionary for transport (composed from the cache).
 
@@ -213,7 +201,6 @@ class ActorAddressImpl(ActorAddress):
             "role": self._role or "",
             "team_id": str(self._team_id) if self._team_id is not None else "",
             "squad_id": str(self._squad_id) if self._squad_id is not None else "",
-            "user_message": self._user_message,
             "is_user_proxy": self._is_user_proxy,
         }
 
@@ -340,14 +327,6 @@ class ActorAddressProxy(ActorAddress):
             True (assumed alive for proxy addresses).
         """
         return True
-
-    def handle_user_message(self) -> bool:
-        """Check if this agent accepts user messages.
-
-        Returns:
-            Boolean from the stored dictionary, defaults to False if not present.
-        """
-        return self.actor_address_dict.get("user_message", False)
 
     def serialize(self) -> ActorAddressDict:
         """Return the stored dictionary.

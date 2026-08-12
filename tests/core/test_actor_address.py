@@ -44,7 +44,6 @@ class TestActorAddressProxy:
             "role": "assistant",
             "team_id": "87654321-4321-8765-4321-876543218765",
             "squad_id": "11111111-2222-3333-4444-555555555555",
-            "user_message": True,
             "is_user_proxy": False,
         }
 
@@ -58,7 +57,6 @@ class TestActorAddressProxy:
         assert proxy.role == "assistant"
         assert proxy.team_id == uuid.UUID("87654321-4321-8765-4321-876543218765")
         assert proxy.squad_id == uuid.UUID("11111111-2222-3333-4444-555555555555")
-        assert proxy.handle_user_message() is True
         assert proxy.is_user_proxy is False
         assert proxy.is_alive() is True
 
@@ -129,7 +127,6 @@ class TestActorAddressStopped:
             "role": "worker",
             "team_id": "87654321-4321-8765-4321-876543218765",
             "squad_id": "11111111-2222-3333-4444-555555555555",
-            "user_message": False,
             "is_user_proxy": True,
         }
         stopped = ActorAddressStopped(address_dict)
@@ -149,7 +146,6 @@ class TestActorAddressStopped:
             "role": "worker",
             "team_id": "87654321-4321-8765-4321-876543218765",
             "squad_id": "11111111-2222-3333-4444-555555555555",
-            "user_message": False,
             "is_user_proxy": True,
         }
         assert ActorAddressStopped(base).is_user_proxy is True
@@ -172,7 +168,6 @@ class TestActorAddressImpl:
         - role: _actor_weakref().config.role (with fallback)
         - team_id: _actor_weakref().team_id (public flat attribute, not via _config)
         - squad_id: _actor_weakref().config.squad_id (from user config)
-        - handle_user_message: checks for receiveMsg_UserMessage method
         """
         # Create config object (user config)
         config = MagicMock()
@@ -191,8 +186,6 @@ class TestActorAddressImpl:
         actor.agent_id = uuid.UUID("12345678-1234-5678-1234-567812345678")
         actor.config = config
         actor.team_id = uuid.UUID("87654321-4321-8765-4321-876543218765")
-        # Add receiveMsg_UserMessage method for handle_user_message check
-        actor.receiveMsg_UserMessage = MagicMock()
 
         actor_ref = MagicMock()
         # pykka 4.4.2+: _actor_weakref() returns the actor (callable, not attribute)
@@ -212,8 +205,6 @@ class TestActorAddressImpl:
         assert impl.role == actor.config.role
         assert impl.team_id == actor.team_id
         assert impl.squad_id == actor.config.squad_id
-        # pykka 4.4.2+: checks for receiveMsg_UserMessage method existence
-        assert impl.handle_user_message() is True
 
     def test_team_id_reads_flat_attribute(self, mock_actor_ref: MagicMock) -> None:
         """team_id should read team_id directly from actor, not via config."""
@@ -235,21 +226,6 @@ class TestActorAddressImpl:
         mock_actor_ref.is_alive.return_value = False
         assert impl.is_alive() is False
 
-    def test_handle_user_message_returns_false_when_no_receive_method(
-        self, mock_actor_ref: MagicMock
-    ) -> None:
-        """handle_user_message should return False when receiveMsg_UserMessage is absent."""
-        from akgentic.core.actor_address_impl import ActorAddressImpl
-
-        # Use spec to prevent MagicMock from auto-creating receiveMsg_UserMessage,
-        # while keeping every metadata attribute the constructor snapshots so the
-        # cache captures cleanly and only the user-message flag resolves to False.
-        limited_actor = MagicMock(spec=["agent_id", "config", "team_id"])
-        mock_actor_ref._actor_weakref = lambda: limited_actor
-
-        impl = ActorAddressImpl(mock_actor_ref)
-        assert impl.handle_user_message() is False
-
     def test_serialize_produces_correct_dict(self, mock_actor_ref: MagicMock) -> None:
         """serialize should produce correct ActorAddressDict with actual agent class."""
         from akgentic.core.actor_address_impl import ActorAddressImpl
@@ -266,7 +242,6 @@ class TestActorAddressImpl:
         assert serialized["role"] == actor.config.role
         assert serialized["team_id"] == str(actor.team_id)
         assert serialized["squad_id"] == str(actor.config.squad_id)
-        assert serialized["user_message"] is True
         assert serialized["is_user_proxy"] is False
 
     def test_dead_ref_at_construction_leaves_safe_snapshot(
@@ -291,7 +266,6 @@ class TestActorAddressImpl:
         assert impl.role is None
         assert impl.team_id is None
         assert impl.squad_id is None
-        assert impl.handle_user_message() is False
         assert impl.is_user_proxy is False
         serialized = impl.serialize()
         assert serialized["__actor_type__"] == ""
@@ -372,8 +346,6 @@ class TestActorAddressImplResilientAfterGC:
         assert isinstance(address.agent_id, uuid.UUID)
         assert isinstance(address.team_id, uuid.UUID)
         assert isinstance(address.squad_id, uuid.UUID)
-        # Base Akgent has no receiveMsg_UserMessage handler.
-        assert address.handle_user_message() is False
 
     def test_serialize_survives_actor_gc(self) -> None:
         """serialize() returns the full dict after stop + GC (the §3.1 serialize case)."""
@@ -386,7 +358,6 @@ class TestActorAddressImplResilientAfterGC:
         assert serialized["agent_id"] != ""
         assert serialized["team_id"] != ""
         assert serialized["squad_id"] != ""
-        assert serialized["user_message"] is False
         assert serialized["is_user_proxy"] is False
 
     def test_is_alive_false_after_gc(self) -> None:

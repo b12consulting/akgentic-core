@@ -369,7 +369,7 @@ def test_actor_address_metadata_survives_gc() -> None:
     the construction-time snapshot with no RuntimeError (ADR-013).
 
     This generalises the earlier agent_id/role-only guarantee: name, team_id,
-    squad_id, handle_user_message() and serialize() are now equally GC-safe, and
+    squad_id, is_user_proxy and serialize() are now equally GC-safe, and
     is_alive() returns False instead of raising.
     """
     system = ActorSystem()

@@ -132,15 +132,6 @@ class ActorAddress(ABC):
         ...
 
     @abstractmethod
-    def handle_user_message(self) -> bool:
-        """Check if this agent accepts user messages.
-
-        Returns:
-            True if the agent can process UserMessage instances.
-        """
-        ...
-
-    @abstractmethod
     def serialize(self) -> ActorAddressDict:
         """Serialize this address to a dictionary for transport.
 
