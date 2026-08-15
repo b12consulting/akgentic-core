@@ -208,6 +208,17 @@ def _occupy_worker(system: ActorSystem, worker_addr: ActorAddress) -> None:
     assert _in_handler.wait(timeout=5.0), "worker never entered its handler"
 
 
+def _error_messages(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """The ERROR-and-above records only — what "logs no error" actually means.
+
+    ``caplog.records`` accumulates across the whole test, including the team
+    setup that runs OUTSIDE the ``at_level`` block, so asserting the capture is
+    entirely empty would turn red on any unrelated WARNING logged during setup —
+    a failure about something these tests never claimed.
+    """
+    return [record.message for record in caplog.records if record.levelno >= logging.ERROR]
+
+
 class TestStopRequestDispatchOrdering:
     """``on_stop_request`` is dispatched before any teardown work happens."""
 
@@ -302,7 +313,7 @@ class TestSubscribersWithoutTheHook:
             assert event.wait(timeout=_WATCHDOG_S), "stop never completed"
 
         assert subscriber.hooks == ["set_restoring", "on_stop"]
-        assert [record.message for record in caplog.records] == []
+        assert _error_messages(caplog) == []
         assert subscriber.messages, "subscriber never received any telemetry"
 
     def test_message_only_subscriber_logs_no_error(self, caplog: pytest.LogCaptureFixture) -> None:
@@ -318,7 +329,7 @@ class TestSubscribersWithoutTheHook:
             event: threading.Event = orch_proxy.stop(_GRACE_S)
             assert event.wait(timeout=_WATCHDOG_S), "stop never completed"
 
-        assert [record.message for record in caplog.records] == []
+        assert _error_messages(caplog) == []
         assert subscriber.messages, "subscriber never received any telemetry"
 
 

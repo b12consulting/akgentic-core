@@ -148,11 +148,12 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     The Orchestrator uses a subscriber pattern to enable extensibility. Subscribers
     implement custom event handling — event persistence, stream fan-out, metrics,
     idle-stop policy — without this package depending on any of them. It holds no
-    inactivity clock of its own and never initiates a stop: detecting idleness and
-    acting on it are a subscriber's business end to end. It does announce the start
-    of a teardown it has been asked to perform: ``stop()`` opens with
-    ``on_stop_request`` so subscribers release what they hold for the team while
-    the mailbox still drains, and ``on_stop`` marks the end.
+    inactivity clock of its own and never initiates an *idle* stop: detecting
+    idleness and acting on it are a subscriber's business end to end. It does
+    announce the start of a teardown it has been asked to perform: ``stop()``
+    opens with ``on_stop_request`` so subscribers release what they hold for the
+    team while the mailbox still drains, and ``on_stop`` marks the end. Announcing
+    a stop is not initiating one.
 
     Attributes:
         messages: Complete message history (all telemetry events)
