@@ -477,12 +477,11 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             self._current_message = message
             self._notify_orchestrator(ReceivedMessage(message_id=message.id))
             result = self._receiveMessage(message, message.sender)
-            # Checkpoint while _current_message is still set, so the emitted
-            # StateChangedMessage stays correlated to the message that caused it,
-            # and before ProcessedMessage, so the snapshot is durable before the
-            # orchestrator sees the turn as complete.
-            self.state.notify_if_changed()
             self._notify_orchestrator(ProcessedMessage(message_id=message.id))
+            # Must stay above the _current_message reset: the emitted
+            # StateChangedMessage takes its parent_id from _current_message, so a
+            # checkpoint below this line loses the link to the causing message.
+            self.state.notify_if_changed()
             self._current_message = None
             return result
 

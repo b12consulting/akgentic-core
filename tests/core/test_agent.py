@@ -875,10 +875,18 @@ def observed_agent(agent_setup: tuple[uuid.UUID, BaseConfig, uuid.UUID]) -> Iter
 
 
 class TestTurnBoundaryCheckpoint:
-    """A turn that changed the state publishes it, before it reports completion."""
+    """A turn that changed the state publishes it, attributed to its message."""
 
-    def test_mutating_handler_checkpoints_before_processed(self, observed_agent: Any) -> None:
-        """A handler that mutates and never notifies still publishes once (AC #2)."""
+    def test_mutating_handler_checkpoints_with_the_causing_message_id(
+        self, observed_agent: Any
+    ) -> None:
+        """A handler that mutates and never notifies still publishes once (AC #2).
+
+        The checkpoint sits after ``ProcessedMessage`` — acknowledging the turn
+        does not wait on a serialization whose cost scales with state size — so
+        the relative order of the two notifications is deliberately not pinned.
+        What is pinned is the correlation below.
+        """
         ref, mock_orch_ref = observed_agent
 
         msg = MutateMessage()
@@ -886,16 +894,15 @@ class TestTurnBoundaryCheckpoint:
 
         types = _types(mock_orch_ref)
         assert types.count(StateChangedMessage) == 1
-        # Ordering, not mere presence: the snapshot must be durable before the
-        # orchestrator sees the turn as complete.
-        assert types.index(StateChangedMessage) < types.index(ProcessedMessage)
+        assert types.count(ProcessedMessage) == 1
 
         changed = [m for m in _telemetry(mock_orch_ref) if isinstance(m, StateChangedMessage)][0]
         assert cast(_CountingState, changed.state).value == 1
-        # The checkpoint runs while _current_message is still set, so the
-        # notification is attributable to the message that caused it. Without
-        # this, clearing _current_message before the checkpoint would drop the
-        # correlation with every other assertion here still green.
+        # The load-bearing constraint on the checkpoint's position: it runs while
+        # _current_message is still set, so the notification is attributable to
+        # the message that caused it. Move the checkpoint below the
+        # `self._current_message = None` reset and parent_id goes None here while
+        # every other assertion in this block stays green.
         assert changed.parent_id == msg.id
 
     def test_clean_turn_emits_no_state_change(self, observed_agent: Any) -> None:
@@ -1109,8 +1116,9 @@ class TestCheckpointGuardIsConfinedToTheFailurePath:
 
         types = _types(mock_orch_ref)
         assert types.count(StateChangedMessage) == 0
-        # The turn never reports completion: the checkpoint precedes it.
-        assert types.count(ProcessedMessage) == 0
+        # The checkpoint follows the turn acknowledgement, so ProcessedMessage is
+        # already out when the serialization blows up — exactly one, still.
+        assert types.count(ProcessedMessage) == 1
         # No guard on this site, so no WARNING either — the raise is the report.
         assert _checkpoint_warnings(caplog) == []
 

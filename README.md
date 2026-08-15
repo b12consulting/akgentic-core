@@ -517,7 +517,10 @@ attached — the `state.observer(self)` above, still required and still the one
 call without which nothing is ever published — no further call is needed for
 state to reach the Orchestrator: the agent checkpoints `self.state` at four
 boundaries — the end of each message turn, when a handler raises, when the agent
-is stopped, and at `on_stop()`. The checkpoint
+is stopped, and at `on_stop()`. At the end of a turn the checkpoint follows the
+turn's completion notification, so acknowledging the turn never waits on a
+serialization whose cost scales with the size of the state; the published
+snapshot still carries the id of the message that caused it. The checkpoint
 compares the current serialization against the one last published and notifies
 only on a difference. A state that cannot be serialized now surfaces its error
 at the boundary that hit it, rather than being swallowed — except while a
