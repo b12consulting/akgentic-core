@@ -109,13 +109,21 @@ class Event(SerializableBaseModel):
 class EventSubscriber(Protocol):
     """Protocol for subscribing to orchestrator events.
 
-    Implementations can provide custom handling for workflow events such as
-    Redis publishing, WebSocket streaming, or database persistence.
+    Implementations provide custom handling for workflow events — persistence,
+    streaming, cache eviction, idle-stop policy — without coupling this package
+    to any of them.
 
-    Phase 3 implementations:
-        - RedisEventSubscriber: Publishes events to Redis streams
-        - WebSocketEventSubscriber: Streams events to WebSocket clients
-        - PostgresEventSubscriber: Persists events to PostgreSQL
+    Every method has a no-op default, so a subscriber implements only the hooks
+    it cares about. The three lifecycle hooks carry the dispatching
+    orchestrator's ``team_id``, so one instance can be shared across teams.
+
+    Implementations in this workspace:
+        - ``PersistenceSubscriber`` (akgentic-team): events to an EventStore,
+          with StateChangedMessage diverted to a latest-per-agent snapshot
+        - ``TimerStopSubscriber`` (akgentic-team): acts on ``on_stop_request``
+        - ``EventStreamSubscriber`` (akgentic-infra): events to the per-team stream
+        - ``TelemetrySubscriber`` (akgentic-infra): metrics
+        - ``RuntimeCacheEvictionSubscriber`` (akgentic-infra): per-team cache teardown
     """
 
     def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:  # noqa: FBT001
@@ -185,8 +193,10 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         - Team roster (computed from message history)
 
     The Orchestrator uses a subscriber pattern to enable extensibility. Subscribers
-    can implement custom event handling for features like Redis publishing, WebSocket
-    streaming, or database persistence.
+    implement custom event handling — event persistence, stream fan-out, metrics,
+    idle-stop policy — without this package depending on any of them. It owns an
+    inactivity ``Timer`` but never stops itself: on timeout it dispatches
+    ``on_stop_request`` and leaves the decision to its subscribers.
 
     Attributes:
         messages: Complete message history (all telemetry events)
@@ -198,13 +208,13 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             (see get_metadata / set_metadata)
 
     Example:
-        >>> system = ActorSystem.start().proxy()
-        >>> orchestrator_ref = system.create_agent(
+        >>> system = ActorSystem()
+        >>> orchestrator_addr = system.createActor(
         ...     Orchestrator,
-        ...     config=BaseConfig(name="orchestrator", role="Orchestrator")
+        ...     config=BaseConfig(name="orchestrator", role="Orchestrator"),
         ... )
-        >>> # Agents automatically send telemetry to orchestrator
-        >>> messages = orchestrator_ref.get_messages().get()
+        >>> # Agents automatically send telemetry to the orchestrator
+        >>> messages = system.proxy_ask(orchestrator_addr, Orchestrator).get_messages()
 
     Load-bearing assumption — Pykka mailbox drain on self-stop:
         When an ``Orchestrator`` (or any ``Akgent``) calls ``self.stop()`` from
@@ -314,12 +324,16 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         pass
 
     def _timeout_handler(self) -> None:
-        """Handle inactivity timeout by stopping the orchestrator.
+        """Signal inactivity to the subscribers; stop nothing here.
 
-        Logs the timeout event with the team ID from config, then sends
-        a ``StopRecursively`` message to self to trigger graceful shutdown.
-        Any exception during the stop is caught and logged to prevent the
-        timer thread from crashing silently.
+        Runs on the ``Timer`` thread when the countdown expires. Logs the
+        timeout, then dispatches ``on_stop_request(team_id)`` to every
+        subscriber and returns — the orchestrator never stops itself on this
+        signal. Whether the team actually shuts down is the subscriber's
+        decision (``TimerStopSubscriber`` in ``akgentic-team`` is the canonical
+        one; it offloads ``stop_team`` to a daemon thread, because calling it
+        inline would deadlock on a ``proxy_ask`` into this busy orchestrator).
+        A team whose subscribers all ignore the signal simply keeps running.
         """
         team_id = self.team_id
         logger.info(f"Orchestrator timeout after {self._timer.delay}s inactivity (team={team_id})")

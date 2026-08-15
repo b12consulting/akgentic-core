@@ -161,7 +161,9 @@ src/akgentic/core/
     user_proxy.py           # UserProxy — human-in-the-loop bridge
     messages/
         message.py          # Message, UserMessage, ResultMessage, StopRecursively
-        orchestrator.py     # Telemetry messages (SentMessage, ErrorMessage, …)
+        orchestrator.py     # Telemetry messages (SentMessage, NotificationMessage, …)
+    diagnostics/
+        memory.py           # Memory sampling, object census, referrer reports (internal)
     utils/
         serializer.py       # SerializableBaseModel (internal)
         deserializer.py     # ActorAddressDict, DeserializeContext (internal)
@@ -351,12 +353,27 @@ with system.private() as ctx:
 hold a direct Python object reference to another agent.
 
 ```python
-addr.agent_id   # UUID — unique agent identity
-addr.name       # str  — e.g. "@Summarizer"
-addr.role       # str  — e.g. "SummaryAgent"
-addr.team_id    # UUID — always set; defines team membership
-addr.is_alive() # bool — whether the actor is still running
-addr.serialize()# → ActorAddressDict — survives serialization/persistence
+addr.agent_id      # UUID — unique agent identity
+addr.name          # str  — e.g. "@Summarizer"
+addr.role          # str  — e.g. "SummaryAgent"
+addr.team_id       # UUID — always set; defines team membership
+addr.squad_id      # UUID | None — optional sub-grouping
+addr.is_user_proxy # bool — is the actor a UserProxy (or subclass)?
+addr.is_alive()    # bool — whether the actor is still running
+addr.serialize()   # → ActorAddressDict — survives serialization/persistence
+```
+
+Every field above is captured **once, when the address is constructed**, and read back from that
+snapshot — an address never dereferences its actor again. That is what lets it outlive the actor:
+metadata still reads correctly after the actor has stopped or been garbage-collected, and `send()`
+is the only operation that needs it alive.
+
+`is_user_proxy` answers "is this the human-in-the-loop member?" from the actor's **type**
+(`isinstance(actor, UserProxy)`), not from a config string, so it holds for any `UserProxy`
+subclass whatever its `role` or `name`:
+
+```python
+human = next((m for m in self.get_team() if m.is_user_proxy), None)
 ```
 
 Three implementations cover the full actor lifecycle:
@@ -516,8 +533,11 @@ observer and notifies.
 attached — the `state.observer(self)` above, still required and still the one
 call without which nothing is ever published — no further call is needed for
 state to reach the Orchestrator: the agent checkpoints `self.state` at four
-boundaries — the end of each message turn, when a handler raises, when the agent
-is stopped, and at `on_stop()`. At the end of a turn the checkpoint follows the
+boundaries — the end of each message turn, when a handler raises, at the top of
+`stop()` (before any child is torn down, since a child that hangs there means the
+actor never reaches `on_stop()`), and in `on_stop()` itself, which is the only
+one of the two reached when something stops the actor without going through
+`stop()`. At the end of a turn the checkpoint follows the
 turn's completion notification, so acknowledging the turn never waits on a
 serialization whose cost scales with the size of the state; the published
 snapshot still carries the id of the message that caused it. The checkpoint
@@ -620,6 +640,8 @@ Subscribe to the telemetry stream for persistence, streaming, or external
 integrations:
 
 ```python
+import uuid
+
 from akgentic.core import EventSubscriber
 from akgentic.core.messages import Message
 
@@ -627,11 +649,23 @@ class MySubscriber(EventSubscriber):
     def on_message(self, msg: Message) -> None:
         print(f"[telemetry] {type(msg).__name__}")
 
-    def on_stop(self) -> None:
-        pass
+    def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:
+        """Called around a restore replay — skip side effects while True."""
+
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
+        """The inactivity timer fired. The orchestrator does not stop itself:
+        a subscriber decides whether and how to shut the team down."""
+
+    def on_stop(self, team_id: uuid.UUID) -> None:
+        """The orchestrator is stopping — release anything held for this team."""
 
 orch.subscribe(MySubscriber())
 ```
+
+Every lifecycle method carries the `team_id` of the orchestrator dispatching it, so one subscriber
+instance shared across teams can tell which team it is hearing from. All four have no-op defaults —
+implement only what you need — but a method you *do* define must match this signature, since
+`EventSubscriber` is a `Protocol` and a mismatch fails at dispatch time rather than at import.
 
 `on_message()` receives all telemetry types: `StartMessage`, `StopMessage`,
 `SentMessage`, `ReceivedMessage`, `ProcessedMessage`, `ErrorMessage`,
