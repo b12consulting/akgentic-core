@@ -515,10 +515,15 @@ observer and notifies.
 **State is published automatically at turn boundaries.** Once the observer is
 attached — the `state.observer(self)` above, still required and still the one
 call without which nothing is ever published — no further call is needed for
-state to reach the Orchestrator: the agent checkpoints `self.state` at the end
-of each message turn, when a handler raises, and at `on_stop()`. The checkpoint
+state to reach the Orchestrator: the agent checkpoints `self.state` at four
+boundaries — the end of each message turn, when a handler raises, when the agent
+is stopped, and at `on_stop()`. The checkpoint
 compares the current serialization against the one last published and notifies
-only on a difference. `notify_state_change()` keeps its meaning for callers — it
+only on a difference. A state that cannot be serialized now surfaces its error
+at the boundary that hit it, rather than being swallowed — except while a
+failure is already being reported, where it is downgraded to a warning so the
+original error still reaches the Orchestrator.
+`notify_state_change()` keeps its meaning for callers — it
 notifies the observer, exactly as before — but it is now an optional **"publish
 now"** for mid-turn visibility rather than the mechanism that makes state
 durable; the two are idempotent, since an explicit call also moves the baseline
