@@ -239,8 +239,9 @@ class _RecordingStopSubscriber:
     ``on_stop_request`` is vestigial: the hook is no longer part of the
     ``EventSubscriber`` protocol and the orchestrator never dispatches it. It is
     kept here deliberately as the witness that such a subscriber still registers
-    and works (structural typing), and ``stop_request_count`` is asserted to stay
-    at ``0`` in ``tests/core/test_orchestrator_no_idle_stop.py``.
+    and receives the surviving hooks (structural typing). That the hook itself
+    never fires is asserted by a sibling double in
+    ``tests/core/test_orchestrator_no_idle_stop.py``.
     """
 
     def __init__(self) -> None:
