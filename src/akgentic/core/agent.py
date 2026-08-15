@@ -408,6 +408,21 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             exception_value: The exception instance (None if unavailable).
             traceback: The traceback object (None if unavailable).
         """
+        # The only guarded checkpoint. This one runs while an exception is already
+        # being reported: an unguarded raise here would pre-empt the ErrorMessage
+        # below and take the original traceback with it, so the failure the agent
+        # actually hit would never reach the orchestrator. Every other call site
+        # is unguarded on purpose — a state that cannot serialize is broken, and
+        # the boundary it breaks at is where that must surface.
+        try:
+            self.state.notify_if_changed()
+        except Exception:
+            logger.warning(
+                "[%s] state checkpoint failed; state not persisted this turn",
+                self.config.name,
+                exc_info=True,
+            )
+
         if exception_type is not None and exception_value is not None:
             logger.error(
                 f"[{self.config.name}] ERROR processing message: {exception_value!s}",
@@ -463,6 +478,10 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             self._notify_orchestrator(ReceivedMessage(message_id=message.id))
             result = self._receiveMessage(message, message.sender)
             self._notify_orchestrator(ProcessedMessage(message_id=message.id))
+            # Must stay above the _current_message reset: the emitted
+            # StateChangedMessage takes its parent_id from _current_message, so a
+            # checkpoint below this line loses the link to the causing message.
+            self.state.notify_if_changed()
             self._current_message = None
             return result
 
@@ -550,7 +569,12 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         "team is stopped before the next instruction" guarantee for
         non-orchestrator agents. The Orchestrator overrides this with a
         non-blocking variant (ADR-012 §2).
+
+        The state is published before the child teardown, because a child that
+        raises or hangs means ``super().stop()`` — and therefore ``on_stop()`` —
+        is never reached, and the state would die with the actor.
         """
+        self.state.notify_if_changed()
         logger.info(f"### [{self.config.name}] Stopping recursively ...")
         self.stop_children(blocking=True)
         super().stop()
@@ -560,7 +584,15 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
 
         Notifies the orchestrator of the stop event. The actor no longer owns an
         event loop (ADR-009 §Decision.5) — loop teardown moved into ReactAgent.close().
+
+        Checkpoints the state first, so a mutation made outside any message turn
+        (e.g. through a direct proxy call) is still persisted before the agent goes.
+        This site survives alongside the one in ``stop()`` because it is the only
+        one reached on stop paths that bypass ``Akgent.stop()`` entirely (a direct
+        ``ActorRef.stop()``); when both run, the digest comparison makes the
+        second call a no-op.
         """
+        self.state.notify_if_changed()
         self._notify_orchestrator(StopMessage())
         logger.info(f"[{self.config.name}] Stopped.")
 

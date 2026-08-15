@@ -512,16 +512,54 @@ Pydantic round-trip: merges `updates` into `model_dump()`, deserializes via
 `AkgentDeserializeContext`, then calls `init_state()` which preserves the
 observer and notifies.
 
-> **Note — direct field mutation does not auto-notify.** `update_state()` is
-> the only path that notifies the Orchestrator automatically. If you mutate a
-> field on `self.state` directly instead (e.g. `self.state.count += 1`),
-> Pydantic attribute assignment does not trigger any hook — you must call
-> `self.state.notify_state_change()` yourself afterward, or the Orchestrator's
-> `state_dict` and any `EventSubscriber`s never learn about the change:
+**State is published automatically at turn boundaries.** Once the observer is
+attached — the `state.observer(self)` above, still required and still the one
+call without which nothing is ever published — no further call is needed for
+state to reach the Orchestrator: the agent checkpoints `self.state` at four
+boundaries — the end of each message turn, when a handler raises, when the agent
+is stopped, and at `on_stop()`. At the end of a turn the checkpoint follows the
+turn's completion notification, so acknowledging the turn never waits on a
+serialization whose cost scales with the size of the state; the published
+snapshot still carries the id of the message that caused it. The checkpoint
+compares the current serialization against the one last published and notifies
+only on a difference. A state that cannot be serialized now surfaces its error
+at the boundary that hit it, rather than being swallowed — except while a
+failure is already being reported, where it is downgraded to a warning so the
+original error still reaches the Orchestrator.
+`notify_state_change()` keeps its meaning for callers — it
+notifies the observer, exactly as before — but it is now an optional **"publish
+now"** for mid-turn visibility rather than the mechanism that makes state
+durable; the two are idempotent, since an explicit call also moves the baseline
+forward and the turn's checkpoint then stays silent.
+
+**Why it exists.** An agent's state is persisted as a *latest-per-agent
+snapshot*, not as an event log — `akgentic-team` is the layer that stores it. A
+notification that never fires is therefore a permanent loss rather than a late
+write, and it surfaces only at restore, in another process, with no error.
+
+**Cost.** A state with no observer pays nothing — the checkpoint returns before
+serializing. An observed state costs one `model_dump_json()` per message when
+nothing changed, and three serializations on a turn that did. Beware **volatile
+fields**: a value derived from something like `datetime.now()` differs on every
+comparison, so every turn looks dirty and buys one snapshot write per message.
+That is a modelling smell, not a defect of the checkpoint — such data belongs
+off `BaseState`, for the same reason given under **Team Metadata** below.
+
+**Known limit.** State mutated *after* the handler returns — a background
+thread, a task outliving the turn — is picked up at the next message boundary or
+at `on_stop()` rather than immediately; call `notify_state_change()` explicitly
+if that window matters for live display.
+
+> **Note — direct field mutation publishes at the turn boundary, not at the
+> moment of mutation.** If you mutate a field on `self.state` directly (e.g.
+> `self.state.count += 1`), Pydantic attribute assignment triggers no hook, so
+> nothing is published *at that instant* — the change waits for the turn's
+> checkpoint. It is not lost; it is just not visible yet. Call
+> `notify_state_change()` when you want it published immediately:
 >
 > ```python
 > self.state.count += effective
-> self.state.notify_state_change()   # required after direct mutation
+> self.state.notify_state_change()   # optional — publish now instead of at the turn boundary
 > ```
 
 ## Orchestrator & Multi-Agent Coordination

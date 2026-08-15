@@ -10,19 +10,32 @@ Tests cover:
 - Telemetry integration (orchestrator notifications)
 """
 
+import logging
 import uuid
+from collections.abc import Iterator
 from typing import Any, cast
 from unittest.mock import MagicMock
 
 import pykka
 import pytest
+from pydantic import PrivateAttr
 
 from akgentic.core.actor_address import ActorAddress
 from akgentic.core.actor_address_impl import ActorAddressImpl
-from akgentic.core.agent import Akgent, ProxyWrapper
+from akgentic.core.agent import Akgent, ProxyWrapper, WarningError
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message, StopRecursively
+from akgentic.core.messages.orchestrator import (
+    ErrorMessage,
+    EventMessage,
+    ProcessedMessage,
+    ReceivedMessage,
+    StateChangedMessage,
+    StopMessage,
+    WarningMessage,
+)
+from akgentic.core.orchestrator import Orchestrator
 
 
 class SampleMessage(Message):
@@ -689,3 +702,513 @@ class TestOrchestratorIntegration:
             recipient_ref.stop()
         finally:
             ref.stop()
+
+
+##
+## Turn-boundary state checkpoints (epic 25, stories 25-2 and 25-4)
+##
+
+
+class _CountingState(BaseState):
+    """State that counts its serializations and can be armed to fail one.
+
+    ``_dump_calls`` is the load-bearing probe for "no serialization happened":
+    an unobserved state must cost nothing per turn, and silence alone cannot
+    prove that. ``_explode`` simulates a state that cannot be serialized.
+    """
+
+    value: int = 0
+    _dump_calls: int = PrivateAttr(default=0)
+    _explode: bool = PrivateAttr(default=False)
+
+    def model_dump_json(self, *args: Any, **kwargs: Any) -> str:
+        self._dump_calls += 1
+        if self._explode:
+            raise RuntimeError("cannot serialize")
+        return super().model_dump_json(*args, **kwargs)
+
+
+class MutateMessage(Message):
+    """Turn whose handler mutates state and never notifies."""
+
+
+class CleanMessage(Message):
+    """Turn whose handler changes nothing."""
+
+
+class NotifyingMutateMessage(Message):
+    """Turn whose handler mutates state and notifies explicitly."""
+
+
+class RaisingMutateMessage(Message):
+    """Turn whose handler mutates state and then raises."""
+
+
+class WarningMutateMessage(Message):
+    """Turn whose handler mutates state and then raises a WarningError."""
+
+
+class RawControl:
+    """Plain non-Message control object — an internal path, not a team turn."""
+
+
+class ObservedAgent(Akgent[BaseConfig, _CountingState]):
+    """Agent that observes its own state, as akgentic-agent's BaseAgent does.
+
+    Base ``Akgent`` never attaches an observer to its own state, so without this
+    every checkpoint assertion would pass through ``notify_if_changed()``'s
+    no-observer early return and prove nothing.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.state = _CountingState().observer(self)
+
+    def receiveMsg_MutateMessage(self, msg: MutateMessage, sender: Any) -> str:
+        self.state.value += 1
+        return "mutated"
+
+    def receiveMsg_CleanMessage(self, msg: CleanMessage, sender: Any) -> str:
+        return "clean"
+
+    def receiveMsg_NotifyingMutateMessage(self, msg: NotifyingMutateMessage, sender: Any) -> str:
+        self.state.value += 1
+        # The state-side call: it stamps the baseline, so the checkpoint that
+        # follows sees an equal digest and stays silent.
+        self.state.notify_state_change()
+        return "notified"
+
+    def receiveMsg_RaisingMutateMessage(self, msg: RaisingMutateMessage, sender: Any) -> None:
+        self.state.value += 1
+        raise ValueError("boom")
+
+    def receiveMsg_WarningMutateMessage(self, msg: WarningMutateMessage, sender: Any) -> None:
+        self.state.value += 1
+        raise WarningError("careful")
+
+    def receiveMsg_RawControl(self, msg: RawControl, sender: Any) -> str:
+        self.state.value += 1
+        return "raw"
+
+    def touch_state(self) -> None:
+        """Mutate state outside any message turn (direct proxy call)."""
+        self.state.value += 1
+
+
+class FailingTeardownAgent(ObservedAgent):
+    """Agent whose child teardown blows up, so ``super().stop()`` is never reached.
+
+    Sub-classes ``ObservedAgent`` for its ``touch_state()`` and, crucially, its
+    ``_CountingState().observer(self)`` attach — without an observer every
+    checkpoint assertion below would pass vacuously.
+    """
+
+    def stop_children(self, blocking: bool = True) -> None:
+        raise RuntimeError("teardown exploded")
+
+
+class UnobservedAgent(Akgent[BaseConfig, _CountingState]):
+    """Agent holding a _CountingState with NO observer attached."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.state = _CountingState()
+
+    def receiveMsg_MutateMessage(self, msg: MutateMessage, sender: Any) -> str:
+        self.state.value += 1
+        return "mutated"
+
+
+def _mock_orchestrator() -> tuple[MagicMock, ActorAddressImpl]:
+    """Build a mock orchestrator whose ``tell`` records telemetry in call order."""
+    mock_orch_ref = MagicMock()
+    mock_orch_ref.is_alive.return_value = True
+    return mock_orch_ref, ActorAddressImpl(mock_orch_ref)
+
+
+def _telemetry(mock_orch_ref: MagicMock) -> list[Message]:
+    """Every Message told to the orchestrator, in call order."""
+    return [
+        arg
+        for call in mock_orch_ref.tell.call_args_list
+        for arg in call[0]
+        if isinstance(arg, Message)
+    ]
+
+
+def _types(mock_orch_ref: MagicMock) -> list[type]:
+    """Telemetry reduced to its message types, in call order."""
+    return [type(message) for message in _telemetry(mock_orch_ref)]
+
+
+def _checkpoint_warnings(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    """WARNING records emitted by the agent module."""
+    return [
+        record
+        for record in caplog.records
+        if record.levelno == logging.WARNING and record.name == "akgentic.core.agent"
+    ]
+
+
+@pytest.fixture
+def observed_agent(agent_setup: tuple[uuid.UUID, BaseConfig, uuid.UUID]) -> Iterator[Any]:
+    """Started ObservedAgent + its mock orchestrator, counted from a clean slate.
+
+    Attaching the observer notifies at construction (deliberate — it seeds the
+    restore replay), so the mock is reset right after start(); without that every
+    "exactly one" assertion below would be off by one.
+    """
+    agent_id, config, team_id = agent_setup
+    mock_orch_ref, mock_orch = _mock_orchestrator()
+    ref = ObservedAgent.start(
+        agent_id=agent_id,
+        config=config,
+        team_id=team_id,
+        orchestrator=mock_orch,
+    )
+    mock_orch_ref.reset_mock()
+    yield ref, mock_orch_ref
+    try:
+        ref.stop()
+    except Exception:
+        pass
+
+
+class TestTurnBoundaryCheckpoint:
+    """A turn that changed the state publishes it, attributed to its message."""
+
+    def test_mutating_handler_checkpoints_with_the_causing_message_id(
+        self, observed_agent: Any
+    ) -> None:
+        """A handler that mutates and never notifies still publishes once (AC #2).
+
+        The checkpoint sits after ``ProcessedMessage`` — acknowledging the turn
+        does not wait on a serialization whose cost scales with state size — so
+        the relative order of the two notifications is deliberately not pinned.
+        What is pinned is the correlation below.
+        """
+        ref, mock_orch_ref = observed_agent
+
+        msg = MutateMessage()
+        assert ref.proxy().on_receive(msg).get(timeout=5) == "mutated"
+
+        types = _types(mock_orch_ref)
+        assert types.count(StateChangedMessage) == 1
+        assert types.count(ProcessedMessage) == 1
+
+        changed = [m for m in _telemetry(mock_orch_ref) if isinstance(m, StateChangedMessage)][0]
+        assert cast(_CountingState, changed.state).value == 1
+        # The load-bearing constraint on the checkpoint's position: it runs while
+        # _current_message is still set, so the notification is attributable to
+        # the message that caused it. Move the checkpoint below the
+        # `self._current_message = None` reset and parent_id goes None here while
+        # every other assertion in this block stays green.
+        assert changed.parent_id == msg.id
+
+    def test_clean_turn_emits_no_state_change(self, observed_agent: Any) -> None:
+        """A handler that changes nothing publishes nothing (AC #3)."""
+        ref, mock_orch_ref = observed_agent
+
+        assert ref.proxy().on_receive(CleanMessage()).get(timeout=5) == "clean"
+
+        types = _types(mock_orch_ref)
+        assert types.count(StateChangedMessage) == 0
+        assert types.count(ReceivedMessage) == 1
+        assert types.count(ProcessedMessage) == 1
+
+    def test_raw_object_branch_never_checkpoints(self, observed_agent: Any) -> None:
+        """A non-Message object is an internal control path, not a turn (AC #4)."""
+        ref, mock_orch_ref = observed_agent
+
+        assert ref.proxy().on_receive(RawControl()).get(timeout=5) == "raw"
+
+        # The handler really did mutate — the silence below is the branch, not a no-op.
+        assert ref.proxy().state.get().value == 1
+        assert _types(mock_orch_ref).count(StateChangedMessage) == 0
+
+    def test_explicit_notify_does_not_double_publish(self, observed_agent: Any) -> None:
+        """A diligent handler still publishes exactly once (AC #5, NFR4)."""
+        ref, mock_orch_ref = observed_agent
+
+        assert ref.proxy().on_receive(NotifyingMutateMessage()).get(timeout=5) == "notified"
+
+        assert _types(mock_orch_ref).count(StateChangedMessage) == 1
+
+
+class TestFailurePathCheckpoint:
+    """A handler that mutated and then raised has already changed the world."""
+
+    def test_raising_handler_checkpoints_before_error(self, observed_agent: Any) -> None:
+        """State survives a failing turn, ahead of the failure report (AC #6)."""
+        ref, mock_orch_ref = observed_agent
+
+        msg = RaisingMutateMessage()
+        # tell(), not proxy().on_receive().get(): Pykka routes to _handle_failure
+        # only when the failing message carries no reply_to.
+        ref.tell(msg)
+        ref.proxy().agent_id.get(timeout=5)  # barrier: mailbox drained past msg
+
+        types = _types(mock_orch_ref)
+        assert types.count(StateChangedMessage) == 1
+        assert types.index(StateChangedMessage) < types.index(ProcessedMessage)
+        assert types.index(StateChangedMessage) < types.index(ErrorMessage)
+
+        errors = [m for m in _telemetry(mock_orch_ref) if isinstance(m, ErrorMessage)]
+        assert len(errors) == 1
+        assert errors[0].content_type == "ValueError"
+        assert errors[0].content == "boom"
+        assert errors[0].traceback is not None
+        assert errors[0].current_message is not None
+        assert errors[0].current_message.id == msg.id
+
+    def test_warning_error_path_checkpoints_and_stays_unchanged(self, observed_agent: Any) -> None:
+        """A WarningError turn persists state and still reports a warning (AC #6)."""
+        ref, mock_orch_ref = observed_agent
+
+        msg = WarningMutateMessage()
+        ref.tell(msg)
+        ref.proxy().agent_id.get(timeout=5)
+
+        types = _types(mock_orch_ref)
+        assert types.count(StateChangedMessage) == 1
+        assert types.count(ErrorMessage) == 0
+        assert types.index(StateChangedMessage) < types.index(WarningMessage)
+
+        warnings = [m for m in _telemetry(mock_orch_ref) if isinstance(m, WarningMessage)]
+        assert len(warnings) == 1
+        assert warnings[0].content_type == "WarningError"
+        assert warnings[0].content == "careful"
+        assert warnings[0].current_message is not None
+        assert warnings[0].current_message.id == msg.id
+
+
+class TestStopPathCheckpoint:
+    """State mutated outside any turn is still persisted when the agent goes."""
+
+    def test_state_touched_outside_a_turn_is_checkpointed_on_stop(
+        self, observed_agent: Any
+    ) -> None:
+        """A proxy-call mutation publishes at on_stop, before StopMessage (AC #7)."""
+        ref, mock_orch_ref = observed_agent
+
+        # Pykka handles proxy calls internally: this never reaches on_receive,
+        # so no turn-boundary checkpoint fires for it.
+        ref.proxy().touch_state().get(timeout=5)
+        assert _types(mock_orch_ref).count(StateChangedMessage) == 0
+
+        # Blocking stop: on_stop runs during Pykka's shutdown, after the run loop
+        # exits, so a proxy stop().get() can return before the checkpoint happened.
+        ref.stop(block=True)
+
+        types = _types(mock_orch_ref)
+        assert types.count(StateChangedMessage) == 1
+        assert types.index(StateChangedMessage) < types.index(StopMessage)
+
+
+class TestAkgentStopCheckpoint:
+    """``Akgent.stop()`` publishes before the teardown that can eat the state.
+
+    Complement to ``TestStopPathCheckpoint`` above, which covers
+    ``ActorRef.stop(block=True)`` — a stop path that never enters
+    ``Akgent.stop()`` at all and is therefore served by the ``on_stop()`` site.
+    """
+
+    def test_state_survives_a_child_teardown_that_raises(
+        self, agent_setup: tuple[uuid.UUID, BaseConfig, uuid.UUID]
+    ) -> None:
+        """A raising stop_children() cannot swallow the turn's state (AC #2, FR13).
+
+        The mutation happens outside any message turn on purpose: a handler
+        mutation is already published by on_receive()'s checkpoint, which would
+        leave the count at 1 whether or not stop() checkpoints at all.
+        """
+        agent_id, config, team_id = agent_setup
+        mock_orch_ref, mock_orch = _mock_orchestrator()
+
+        ref = FailingTeardownAgent.start(
+            agent_id=agent_id,
+            config=config,
+            team_id=team_id,
+            orchestrator=mock_orch,
+        )
+        try:
+            mock_orch_ref.reset_mock()
+
+            ref.proxy().touch_state().get(timeout=5)
+            assert _types(mock_orch_ref).count(StateChangedMessage) == 0
+
+            # No barrier needed: the checkpoint and the raise both happen in the
+            # actor thread before the future resolves.
+            with pytest.raises(RuntimeError, match="teardown exploded"):
+                ref.proxy().stop().get(timeout=5)
+
+            types = _types(mock_orch_ref)
+            assert types.count(StateChangedMessage) == 1
+            # on_stop() never runs on this path — super().stop() is never reached —
+            # so the checkpoint in stop() is the only thing that saved the state.
+            assert types.count(StopMessage) == 0
+
+            changed = [m for m in _telemetry(mock_orch_ref) if isinstance(m, StateChangedMessage)]
+            assert cast(_CountingState, changed[0].state).value == 1
+        finally:
+            ref.stop()
+
+    def test_stop_and_on_stop_do_not_double_publish(self, observed_agent: Any) -> None:
+        """A clean stop publishes the outside-a-turn mutation exactly once (AC #3)."""
+        ref, mock_orch_ref = observed_agent
+
+        ref.proxy().touch_state().get(timeout=5)
+        assert _types(mock_orch_ref).count(StateChangedMessage) == 0
+
+        ref.proxy().stop().get(timeout=5)
+        # super().stop() only *posts* _ActorStop, so on_stop() and its StopMessage
+        # land after the proxy future resolves.
+        ref.actor_stopped.wait(timeout=5)
+
+        types = _types(mock_orch_ref)
+        # One, not two: the on_stop() checkpoint sees an equal digest.
+        assert types.count(StateChangedMessage) == 1
+        assert types.index(StateChangedMessage) < types.index(StopMessage)
+
+    def test_unchanged_state_stops_silently(self, observed_agent: Any) -> None:
+        """Neither stop() nor on_stop() publishes an unchanged state (AC #4)."""
+        ref, mock_orch_ref = observed_agent
+
+        ref.proxy().stop().get(timeout=5)
+        ref.actor_stopped.wait(timeout=5)
+
+        types = _types(mock_orch_ref)
+        assert types.count(StateChangedMessage) == 0
+        assert types.count(StopMessage) == 1
+
+
+class TestCheckpointGuardIsConfinedToTheFailurePath:
+    """One guard, in one place: a failing checkpoint is loud everywhere else."""
+
+    def test_checkpoint_wrapper_is_gone(self) -> None:
+        """The never-fails wrapper no longer exists on the class (AC #1, FR11).
+
+        A class-surface assertion, not a documentation one: the method was
+        called from three sites, and its removal is what makes a serialization
+        failure reach the caller instead of a log line nobody reads.
+        """
+        assert not hasattr(Akgent, "_checkpoint_state")
+
+    def test_serialization_failure_propagates_out_of_the_turn(
+        self, observed_agent: Any, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A failing checkpoint now breaks the turn it belongs to (AC #6, FR11).
+
+        This deliberately reverses what story 25-2 pinned (swallow, warn, deliver
+        the handler's return value anyway): a state that cannot be serialized is
+        broken, and the turn boundary is where that must surface.
+        """
+        ref, mock_orch_ref = observed_agent
+
+        # Arm AFTER start: observer() stamps a baseline via model_dump_json(), so a
+        # state that always raises would blow up in __init__, not in the turn.
+        ref.proxy().state.get()._explode = True
+        caplog.set_level(logging.WARNING)
+        caplog.clear()
+
+        with pytest.raises(RuntimeError, match="cannot serialize"):
+            ref.proxy().on_receive(MutateMessage()).get(timeout=5)
+
+        types = _types(mock_orch_ref)
+        assert types.count(StateChangedMessage) == 0
+        # The checkpoint follows the turn acknowledgement, so ProcessedMessage is
+        # already out when the serialization blows up — exactly one, still.
+        assert types.count(ProcessedMessage) == 1
+        # No guard on this site, so no WARNING either — the raise is the report.
+        assert _checkpoint_warnings(caplog) == []
+
+    def test_serialization_failure_leaves_the_error_report_intact(
+        self, observed_agent: Any, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A failing checkpoint never masks or reorders the failure (AC #9, NFR5)."""
+        ref, mock_orch_ref = observed_agent
+
+        ref.proxy().state.get()._explode = True
+        caplog.set_level(logging.WARNING)
+        caplog.clear()
+
+        msg = RaisingMutateMessage()
+        ref.tell(msg)
+        ref.proxy().agent_id.get(timeout=5)
+
+        # Same ErrorMessage as the control run in TestFailurePathCheckpoint.
+        errors = [m for m in _telemetry(mock_orch_ref) if isinstance(m, ErrorMessage)]
+        assert len(errors) == 1
+        assert errors[0].content_type == "ValueError"
+        assert errors[0].content == "boom"
+        assert errors[0].traceback is not None
+        assert errors[0].current_message is not None
+        assert errors[0].current_message.id == msg.id
+
+        assert _types(mock_orch_ref).count(StateChangedMessage) == 0
+        assert len(_checkpoint_warnings(caplog)) == 1
+
+
+class TestUnobservedStateCostsNothing:
+    """No observer, no serialization — the checkpoint is free (AC #10, NFR1)."""
+
+    def test_agent_without_observer_never_serializes_its_state(
+        self, agent_setup: tuple[uuid.UUID, BaseConfig, uuid.UUID]
+    ) -> None:
+        """A base Akgent emits nothing and serializes nothing on a mutating turn."""
+        agent_id, config, team_id = agent_setup
+        mock_orch_ref, mock_orch = _mock_orchestrator()
+
+        ref = UnobservedAgent.start(
+            agent_id=agent_id,
+            config=config,
+            team_id=team_id,
+            orchestrator=mock_orch,
+        )
+        try:
+            mock_orch_ref.reset_mock()
+            assert ref.proxy().on_receive(MutateMessage()).get(timeout=5) == "mutated"
+
+            state = ref.proxy().state.get()
+            assert state.value == 1
+            assert state._dump_calls == 0
+            assert _types(mock_orch_ref).count(StateChangedMessage) == 0
+        finally:
+            ref.stop()
+
+    def test_orchestrator_never_serializes_its_state_on_a_message(self) -> None:
+        """A live Orchestrator holds an unobserved state and pays nothing per message."""
+        orch_ref = Orchestrator.start(config=BaseConfig(name="orch", role="Orchestrator"))
+        try:
+            state = _CountingState()
+            orch_ref.proxy().init_state(state).get(timeout=5)
+            state._dump_calls = 0
+
+            orch_ref.proxy().on_receive(EventMessage(event="ping")).get(timeout=5)
+
+            assert state._dump_calls == 0
+        finally:
+            orch_ref.stop()
+
+
+class TestInitStateStaysUnconditional:
+    """Restore always speaks, even when nothing looks different."""
+
+    def test_init_state_notifies_even_for_an_identical_state(self, observed_agent: Any) -> None:
+        """init_state() gets no dirty check (AC #11, FR9).
+
+        The incoming state carries its own stamped baseline, exactly as a state
+        that has already been published does — so converting init_state() to
+        notify_if_changed() would suppress this notification and turn the test
+        red. That notification is what seeds the cursor-0 replay for a restored
+        running team.
+        """
+        ref, mock_orch_ref = observed_agent
+
+        identical = _CountingState(value=0)
+        identical.notify_state_change()  # stamp the baseline; no observer yet, so silent
+        assert identical.model_dump_json() == ref.proxy().state.get().model_dump_json()
+
+        ref.proxy().init_state(identical).get(timeout=5)
+
+        assert _types(mock_orch_ref).count(StateChangedMessage) == 1
