@@ -23,19 +23,27 @@ class WorkerState(BaseState):
 
 
 class RecordingObserver:
-    """Observer that appends every state it is notified about.
+    """Observer that records a snapshot of every state it is notified about.
 
     Tests assert on ``len(observer.states)`` so that "notified once" is
     distinguishable from "notified twice" - several acceptance criteria turn
     on exactly that difference.
+
+    Each notification is stored as a ``serializable_copy()``, matching what
+    the production observer does (``Akgent.notify_state_change`` copies before
+    putting the state on a ``StateChangedMessage``). Storing the live object
+    instead would make every recorded entry an alias of the same instance, so
+    a later assertion on recorded *content* would silently read the newest
+    value - the trap ``test_notification_captures_state_snapshot`` pins for
+    the other observer in this module.
     """
 
     def __init__(self) -> None:
         self.states: list[BaseState] = []
 
     def notify_state_change(self, state: BaseState) -> None:
-        """Record the notified state."""
-        self.states.append(state)
+        """Record a snapshot of the notified state."""
+        self.states.append(state.serializable_copy())
 
 
 class Nested(BaseModel):
@@ -359,13 +367,16 @@ class TestBaselineStamping:
         """The baseline is stamped unconditionally, even with no observer attached.
 
         A state mutated while detached and attached later must not arrive
-        carrying a stale baseline.
+        carrying a stale baseline, so the stamp has to read the state as it is
+        at the moment of the call - hence the mutation before it.
         """
         state = WorkerState(dummy_field="detached")
+        state.dummy_field = "mutated before the stamp"
 
         state.notify_state_change()
 
         assert state._last_serialized == state.model_dump_json()
+        assert "mutated before the stamp" in str(state._last_serialized)
 
     def test_notify_state_change_still_notifies_and_stamps(self) -> None:
         """Notification behaviour is unchanged; the baseline is stamped as well."""
@@ -435,8 +446,18 @@ class TestNotifyIfChanged:
 
         assert state._dump_calls == 0
 
-    def test_checkpoint_with_observer_does_serialize(self) -> None:
-        """Positive control for the counter used by the test above."""
+    def test_checkpoint_with_observer_serializes_exactly_twice(self) -> None:
+        """Positive control for the counter, and the single-stamp-point guard.
+
+        A dirty checkpoint serializes exactly twice: once to compare, once to
+        re-stamp inside notify_state_change(). The second pass is bought
+        knowingly - passing the already-computed JSON down to skip it would
+        give the explicit and the automatic path two different stamp sites,
+        which is the drift that keeps manual and automatic styles consistent.
+        A bare ``> 0`` would stay green through that refactor; ``== 2`` does
+        not, and it is also what makes the ``== 0`` assertion above mean
+        "skipped" rather than "instrumentation broken".
+        """
         state = CountingState()
         observer = RecordingObserver()
         state.observer(observer)
@@ -446,7 +467,28 @@ class TestNotifyIfChanged:
         state.value = "changed"
         state.notify_if_changed()
 
-        assert state._dump_calls > 0
+        assert state._dump_calls == 2
+        assert len(observer.states) == 1
+
+    def test_checkpoint_publishes_when_the_baseline_is_unset(self) -> None:
+        """An unknown baseline must publish, never stay silent.
+
+        observer() stamps on attach, so a state cannot reach this shape
+        through the public attach path today - it takes assigning the observer
+        directly. The fail-safe direction still has to be pinned: an
+        "optimisation" that treated a None baseline as "nothing to compare, so
+        nothing to send" would pass every other test here and drop the very
+        first snapshot. PersistenceSubscriber upserts a latest-per-agent row
+        rather than appending an event, so a first snapshot that is never sent
+        is never recoverable.
+        """
+        state = WorkerState(dummy_field="never published")
+        observer = RecordingObserver()
+        state._observer = observer
+        assert state._last_serialized is None
+
+        state.notify_if_changed()
+
         assert len(observer.states) == 1
 
 
@@ -456,10 +498,15 @@ class TestDeepMutationDetection:
     Each mutation shape is an independent claim about the design, so the three
     live as separate tests rather than one parametrized case: a partial
     implementation must not be able to pass by satisfying only one of them.
+
+    Each also checkpoints a second time and asserts silence: a deep mutation
+    must move the baseline, not just fire once. A stamp taken from a stale
+    snapshot would notify on every later checkpoint forever - an upsert per
+    turn, for the rest of the team's life.
     """
 
     def test_list_append_is_detected(self) -> None:
-        """state.items.append(x) notifies."""
+        """state.items.append(x) notifies, once."""
         state = DeepState()
         observer = RecordingObserver()
         state.observer(observer)
@@ -470,8 +517,12 @@ class TestDeepMutationDetection:
 
         assert len(observer.states) == 1
 
+        state.notify_if_changed()
+
+        assert len(observer.states) == 1
+
     def test_dict_assignment_is_detected(self) -> None:
-        """state.by_id[k] = v notifies."""
+        """state.by_id[k] = v notifies, once."""
         state = DeepState()
         observer = RecordingObserver()
         state.observer(observer)
@@ -482,14 +533,22 @@ class TestDeepMutationDetection:
 
         assert len(observer.states) == 1
 
+        state.notify_if_changed()
+
+        assert len(observer.states) == 1
+
     def test_nested_model_field_rebinding_is_detected(self) -> None:
-        """state.nested.field = v notifies."""
+        """state.nested.field = v notifies, once."""
         state = DeepState()
         observer = RecordingObserver()
         state.observer(observer)
         observer.states.clear()
 
         state.nested.field = "updated"
+        state.notify_if_changed()
+
+        assert len(observer.states) == 1
+
         state.notify_if_changed()
 
         assert len(observer.states) == 1
