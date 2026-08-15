@@ -157,7 +157,7 @@ src/akgentic/core/
     agent_card.py           # AgentCard — capability profiles
     agent_config.py         # BaseConfig, AgentConfig alias
     agent_state.py          # BaseState with observer pattern
-    orchestrator.py         # Orchestrator, EventSubscriber, Timer
+    orchestrator.py         # Orchestrator, EventSubscriber
     user_proxy.py           # UserProxy — human-in-the-loop bridge
     messages/
         message.py          # Message, UserMessage, ResultMessage, StopRecursively
@@ -167,6 +167,7 @@ src/akgentic/core/
     utils/
         serializer.py       # SerializableBaseModel (internal)
         deserializer.py     # ActorAddressDict, DeserializeContext (internal)
+        timer.py            # Timer — inactivity countdown primitive
 examples/                   # 6 progressive examples with companion docs
 tests/
 ```
@@ -652,10 +653,6 @@ class MySubscriber(EventSubscriber):
     def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:
         """Called around a restore replay — skip side effects while True."""
 
-    def on_stop_request(self, team_id: uuid.UUID) -> None:
-        """The inactivity timer fired. The orchestrator does not stop itself:
-        a subscriber decides whether and how to shut the team down."""
-
     def on_stop(self, team_id: uuid.UUID) -> None:
         """The orchestrator is stopping — release anything held for this team."""
 
@@ -663,7 +660,7 @@ orch.subscribe(MySubscriber())
 ```
 
 Every lifecycle method carries the `team_id` of the orchestrator dispatching it, so one subscriber
-instance shared across teams can tell which team it is hearing from. All four have no-op defaults —
+instance shared across teams can tell which team it is hearing from. All three have no-op defaults —
 implement only what you need — but a method you *do* define must match this signature, since
 `EventSubscriber` is a `Protocol` and a mismatch fails at dispatch time rather than at import.
 

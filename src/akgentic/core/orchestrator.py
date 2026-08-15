@@ -51,13 +51,12 @@ class EventSubscriber(Protocol):
     to any of them.
 
     Every method has a no-op default, so a subscriber implements only the hooks
-    it cares about. The three lifecycle hooks carry the dispatching
+    it cares about. The two lifecycle hooks carry the dispatching
     orchestrator's ``team_id``, so one instance can be shared across teams.
 
     Implementations in this workspace:
         - ``PersistenceSubscriber`` (akgentic-team): events to an EventStore,
           with StateChangedMessage diverted to a latest-per-agent snapshot
-        - ``TimerStopSubscriber`` (akgentic-team): acts on ``on_stop_request``
         - ``EventStreamSubscriber`` (akgentic-infra): events to the per-team stream
         - ``TelemetrySubscriber`` (akgentic-infra): metrics
         - ``RuntimeCacheEvictionSubscriber`` (akgentic-infra): per-team cache teardown
@@ -117,9 +116,9 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
     The Orchestrator uses a subscriber pattern to enable extensibility. Subscribers
     implement custom event handling — event persistence, stream fan-out, metrics,
-    idle-stop policy — without this package depending on any of them. It owns an
-    inactivity ``Timer`` but never stops itself: on timeout it dispatches
-    ``on_stop_request`` and leaves the decision to its subscribers.
+    idle-stop policy — without this package depending on any of them. It holds no
+    inactivity clock of its own and never initiates a stop: detecting idleness and
+    acting on it are a subscriber's business end to end.
 
     Attributes:
         messages: Complete message history (all telemetry events)

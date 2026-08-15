@@ -12,10 +12,10 @@ class Timer:
     """Helper class for inactivity timeout management.
 
     Tracks active tasks and triggers a timeout callback after a configurable
-    delay when the orchestrator becomes idle (task_count reaches 0).
+    delay when the caller becomes idle (task_count reaches 0).
 
     The timer automatically cancels itself when tasks are active and restarts
-    when the orchestrator becomes idle again.
+    when the caller becomes idle again.
 
     Args:
         delay: Seconds of inactivity before timeout_callback is invoked.
@@ -60,7 +60,7 @@ class Timer:
             self.cancel()
 
     def task_completed(self) -> None:
-        """Decrement task count and restart timer when orchestrator becomes idle."""
+        """Decrement task count and restart timer when the caller becomes idle."""
         self.task_count -= 1
         if self.task_count <= 0:
             self.task_count = 0  # Prevent negative count
