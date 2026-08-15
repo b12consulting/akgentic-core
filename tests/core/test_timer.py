@@ -100,6 +100,31 @@ class TestTimerStartAndCancel:
         time.sleep(0.7)
         callback.assert_not_called()
 
+    def test_start_drives_the_countdown_to_the_callback(self) -> None:
+        """start() itself expires into the callback — not just a threading.Timer built by hand.
+
+        The sibling fast tests install ``timer._timer`` directly, so none of them
+        proves that ``start()`` wires delay and callback together. This one goes
+        through the public API and waits on the real countdown.
+        """
+        fired = threading.Event()
+        timer = Timer(delay=1, timeout_callback=fired.set)
+        timer.start()
+
+        try:
+            assert fired.wait(timeout=10.0), "countdown never fired"
+        finally:
+            timer.cancel()
+
+    def test_cancel_after_start_suppresses_the_countdown(self) -> None:
+        """cancel() on a countdown started via start() stops it from ever firing."""
+        fired = threading.Event()
+        timer = Timer(delay=1, timeout_callback=fired.set)
+        timer.start()
+        timer.cancel()
+
+        assert not fired.wait(timeout=2.0)
+
 
 class TestTimerTaskStarted:
     """Tests for Timer.task_started() method."""
