@@ -512,15 +512,17 @@ Pydantic round-trip: merges `updates` into `model_dump()`, deserializes via
 `AkgentDeserializeContext`, then calls `init_state()` which preserves the
 observer and notifies.
 
-**State is published automatically at turn boundaries.** Nothing needs to be
-called for state to reach the Orchestrator — the agent checkpoints `self.state`
-at the end of each message turn, when a handler raises, and at `on_stop()`. The
-checkpoint compares the current serialization against the one last published and
-notifies only on a difference. `notify_state_change()` still works exactly as
-before, but it is now an optional **"publish now"** for mid-turn visibility
-rather than the mechanism that makes state durable; the two are idempotent,
-since an explicit call moves the baseline forward and the turn's checkpoint then
-stays silent.
+**State is published automatically at turn boundaries.** Once the observer is
+attached — the `state.observer(self)` above, still required and still the one
+call without which nothing is ever published — no further call is needed for
+state to reach the Orchestrator: the agent checkpoints `self.state` at the end
+of each message turn, when a handler raises, and at `on_stop()`. The checkpoint
+compares the current serialization against the one last published and notifies
+only on a difference. `notify_state_change()` keeps its meaning for callers — it
+notifies the observer, exactly as before — but it is now an optional **"publish
+now"** for mid-turn visibility rather than the mechanism that makes state
+durable; the two are idempotent, since an explicit call also moves the baseline
+forward and the turn's checkpoint then stays silent.
 
 **Why it exists.** An agent's state is persisted as a *latest-per-agent
 snapshot*, not as an event log — `akgentic-team` is the layer that stores it. A
