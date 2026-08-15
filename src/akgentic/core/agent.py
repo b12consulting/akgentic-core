@@ -408,6 +408,8 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             exception_value: The exception instance (None if unavailable).
             traceback: The traceback object (None if unavailable).
         """
+        self._checkpoint_state()
+
         if exception_type is not None and exception_value is not None:
             logger.error(
                 f"[{self.config.name}] ERROR processing message: {exception_value!s}",
@@ -462,6 +464,11 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             self._current_message = message
             self._notify_orchestrator(ReceivedMessage(message_id=message.id))
             result = self._receiveMessage(message, message.sender)
+            # Checkpoint while _current_message is still set, so the emitted
+            # StateChangedMessage stays correlated to the message that caused it,
+            # and before ProcessedMessage, so the snapshot is durable before the
+            # orchestrator sees the turn as complete.
+            self._checkpoint_state()
             self._notify_orchestrator(ProcessedMessage(message_id=message.id))
             self._current_message = None
             return result
@@ -560,7 +567,11 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
 
         Notifies the orchestrator of the stop event. The actor no longer owns an
         event loop (ADR-009 §Decision.5) — loop teardown moved into ReactAgent.close().
+
+        Checkpoints the state first, so a mutation made outside any message turn
+        (e.g. through a direct proxy call) is still persisted before the agent goes.
         """
+        self._checkpoint_state()
         self._notify_orchestrator(StopMessage())
         logger.info(f"[{self.config.name}] Stopped.")
 
@@ -573,6 +584,28 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
     ##
     ## State
     ##
+    def _checkpoint_state(self) -> None:
+        """Publish the state if it changed since the last notification.
+
+        Runs at the lifecycle boundaries the agent owns (end of a message turn,
+        failure handling, stop), so a handler that mutates ``self.state`` and
+        forgets to notify still gets persisted.
+
+        Deliberately swallows every exception: a checkpoint must never break the
+        turn that triggered it. Swallowing still leaves the state unpersisted for
+        that turn — but *announced*, with the agent's name and a traceback, which
+        is the whole difference from the silent loss this replaces. A state that
+        cannot serialize could not have been persisted by the manual path either.
+        """
+        try:
+            self.state.notify_if_changed()
+        except Exception:
+            logger.warning(
+                "[%s] state checkpoint failed; state not persisted this turn",
+                self.config.name,
+                exc_info=True,
+            )
+
     def notify_state_change(self, state: BaseState) -> None:
         """Notify orchestrator of state change.
 
