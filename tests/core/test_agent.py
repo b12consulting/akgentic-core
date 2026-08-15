@@ -880,6 +880,11 @@ class TestTurnBoundaryCheckpoint:
 
         changed = [m for m in _telemetry(mock_orch_ref) if isinstance(m, StateChangedMessage)][0]
         assert cast(_CountingState, changed.state).value == 1
+        # The checkpoint runs while _current_message is still set, so the
+        # notification is attributable to the message that caused it. Without
+        # this, clearing _current_message before the checkpoint would drop the
+        # correlation with every other assertion here still green.
+        assert changed.parent_id == msg.id
 
     def test_clean_turn_emits_no_state_change(self, observed_agent: Any) -> None:
         """A handler that changes nothing publishes nothing (AC #3)."""
