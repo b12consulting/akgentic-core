@@ -49,6 +49,8 @@ class BaseState(SerializableBaseModel):
 
     Attributes:
         _observer: Private observer reference (not serialized).
+        _last_serialized: JSON of the state as last published to the observer,
+            used by notify_if_changed() to detect changes (not serialized).
 
     Example:
         >>> class WorkerState(BaseState):
@@ -62,6 +64,7 @@ class BaseState(SerializableBaseModel):
     """
 
     _observer: AkgentStateObserver | None = PrivateAttr(default=None)
+    _last_serialized: str | None = PrivateAttr(default=None)
 
     def observer(self, observer: AkgentStateObserver | None) -> Self:
         """Attach an observer and trigger initial notification.
@@ -90,10 +93,38 @@ class BaseState(SerializableBaseModel):
         Called automatically when observer is attached, and should be
         called explicitly after modifying state fields.
 
-        If no observer is attached, this method does nothing.
+        The change-detection baseline used by notify_if_changed() is refreshed
+        on every call, unconditionally — including when no observer is
+        attached, so that a state mutated while detached and attached later
+        does not carry a stale baseline.
+
+        If no observer is attached, no notification is delivered.
         """
+        self._last_serialized = self.model_dump_json()
         if self._observer is not None:
             self._observer.notify_state_change(self)
+
+    def notify_if_changed(self) -> None:
+        """Notify the observer only if the state changed since the last notification.
+
+        This is the checkpoint an agent runs at a turn boundary: it compares
+        the current serialization against the one last published and notifies
+        only on a difference, so unchanged turns cost no notification.
+
+        Detection is a serialization comparison rather than a dirty flag, so
+        mutations inside fields — ``items.append(x)``, ``by_id[k] = v``,
+        ``nested.field = v`` — are caught just like a rebound field.
+
+        With no observer attached the method returns immediately, without
+        serializing, so an unobserved state pays nothing per call.
+
+        Agent code may also call this mid-handler for an intermediate
+        checkpoint; it is a supported public call, not an internal hook.
+        """
+        if self._observer is None:
+            return
+        if self.model_dump_json() != self._last_serialized:
+            self.notify_state_change()
 
     def serializable_copy(self) -> BaseState:
         """Create a copy of the state without the observer for serialization.
