@@ -1,8 +1,9 @@
 """Tests for the ratified behaviour change: an idle Orchestrator runs indefinitely.
 
 The orchestrator no longer owns an inactivity clock. It never stops itself on
-idleness and never signals idleness to anyone — idle-stop is an opt-in
-deployment policy owned end to end by a subscriber, one layer up.
+idleness and never signals idleness to anyone — the only stop it announces is
+one it has been asked to perform. Idle-stop is an opt-in deployment policy owned
+end to end by a subscriber, one layer up.
 """
 
 import os
@@ -39,10 +40,9 @@ def cleanup_actors() -> Generator[None, None, None]:
 class _RecordingSubscriber:
     """Records every hook the orchestrator could conceivably dispatch.
 
-    ``on_stop_request`` is no longer part of the ``EventSubscriber`` protocol.
-    It is defined here on purpose: a subscriber that still carries the old hook
-    must keep registering and working (structural typing), while never being
-    called on it.
+    ``on_stop_request`` is counted here to prove what does NOT raise it: it is
+    the begin-signal of an ``Orchestrator.stop()``, so neither idleness nor a
+    raw Pykka ``actor_ref.stop()`` may ever produce one.
     """
 
     def __init__(self) -> None:
@@ -55,7 +55,7 @@ class _RecordingSubscriber:
         pass
 
     def on_stop_request(self, team_id: uuid.UUID) -> None:
-        """Vestigial hook — asserted never to fire."""
+        """Teardown begin-signal — asserted never to fire on these paths."""
         self.stop_request_count += 1
 
     def on_stop(self, team_id: uuid.UUID) -> None:
@@ -105,12 +105,14 @@ class TestIdleOrchestratorDoesNothing:
 
             orch_ref.stop()
 
-    def test_vestigial_on_stop_request_is_never_called(self) -> None:
-        """Over a full lifecycle, the removed hook never fires; the others do.
+    def test_idleness_and_a_raw_actor_stop_never_raise_on_stop_request(self) -> None:
+        """Over a full lifecycle, neither idleness nor a raw actor stop raises the hook.
 
         Register, drive both task-boundary handlers through, idle past the
-        former delay, then stop: ``on_message`` and ``on_stop`` fire normally
-        while ``on_stop_request`` stays at zero.
+        former delay, then stop through Pykka directly: ``on_message`` and
+        ``on_stop`` fire normally while ``on_stop_request`` stays at zero.
+        ``actor_ref.stop()`` enqueues ``_ActorStop`` and never enters
+        ``Orchestrator.stop()``, which is the only dispatcher of the hook.
         """
         with patch.dict(os.environ, {"ORCHESTRATOR_TIMEOUT_DELAY": IDLE_ENV_DELAY}):
             config = BaseConfig(name="test-orchestrator", role="Orchestrator")

@@ -51,7 +51,7 @@ class EventSubscriber(Protocol):
     to any of them.
 
     Every method has a no-op default, so a subscriber implements only the hooks
-    it cares about. The two lifecycle hooks carry the dispatching
+    it cares about. The three lifecycle hooks carry the dispatching
     orchestrator's ``team_id``, so one instance can be shared across teams.
 
     Implementations in this workspace:
@@ -80,6 +80,30 @@ class EventSubscriber(Protocol):
             team_id: ``team_id`` of the orchestrator triggering the notification,
                 enabling per-team routing on shared subscriber instances.
             restoring: ``True`` when replay starts, ``False`` when it ends.
+        """
+        ...
+
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
+        """Called when an orchestrator BEGINS tearing itself down.
+
+        Teardown has begun — release what you hold for this team, now rather
+        than at the end. The subscriber REACTS to a stop already under way; it
+        does not ask for one. Between this hook and ``on_stop`` the mailbox is
+        still draining and telemetry still flows, so anything keyed off that
+        stream (a countdown, a lease, a buffer) must be shut down here to stay
+        shut down.
+
+        Release, do not block: this runs on the orchestrator's actor thread,
+        inside ``stop()``, before any child is told to stop. A slow subscriber
+        holds the whole teardown open — offload anything slow to a thread.
+
+        Note that a stop driven straight through Pykka (``actor_ref.stop()``,
+        ``ActorRegistry.stop_all()``) never enters ``Orchestrator.stop()`` and so
+        never raises this hook; ``on_stop`` still fires on those paths.
+
+        Args:
+            team_id: ``team_id`` of the orchestrator triggering the notification,
+                enabling per-team routing on shared subscriber instances.
         """
         ...
 
@@ -125,7 +149,10 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     implement custom event handling — event persistence, stream fan-out, metrics,
     idle-stop policy — without this package depending on any of them. It holds no
     inactivity clock of its own and never initiates a stop: detecting idleness and
-    acting on it are a subscriber's business end to end.
+    acting on it are a subscriber's business end to end. It does announce the start
+    of a teardown it has been asked to perform: ``stop()`` opens with
+    ``on_stop_request`` so subscribers release what they hold for the team while
+    the mailbox still drains, and ``on_stop`` marks the end.
 
     Attributes:
         messages: Complete message history (all telemetry events)
@@ -300,7 +327,8 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         team_id: uuid.UUID,
         **kwargs: Any,
     ) -> None:
-        """Dispatch a lifecycle notification (``set_restoring``, ``on_stop``).
+        """Dispatch a lifecycle notification (``set_restoring``, ``on_stop_request``,
+        ``on_stop``).
 
         Every lifecycle hook carries ``team_id`` as its first positional
         argument so shared subscribers (one instance attached to N teams on a
@@ -308,6 +336,12 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         forwarded to the subscriber method (e.g. ``restoring=True`` for
         ``set_restoring``). Per-subscriber exceptions are caught and logged so
         a single faulty subscriber cannot block the rest of the dispatch chain.
+
+        A subscriber that does not carry the method at all is skipped silently,
+        so the Protocol's no-op default holds at runtime too — not only for a
+        subscriber inheriting ``EventSubscriber``, but for a structurally-typed
+        one, which has no such attribute to find. A hook that exists and raises
+        is still caught and logged.
 
         Args:
             event_method: Name of the lifecycle subscriber method to call.
@@ -318,7 +352,10 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         """
         for subscriber in self.subscribers:
             try:
-                getattr(subscriber, event_method)(team_id, **kwargs)
+                method = getattr(subscriber, event_method, None)
+                if method is None:
+                    continue
+                method(team_id, **kwargs)
             except Exception as e:  # noqa: BLE001
                 logger.error(
                     f"Subscriber {subscriber.__class__.__name__} failed {event_method}: {e}"
@@ -694,7 +731,12 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
         Calling ``stop()`` and ignoring the event is a valid fire-and-forget
         teardown. Idempotent: calling ``stop()`` again while already stopping
-        returns the same event and does not re-tell the children.
+        returns the same event and does not re-tell the children — and does not
+        re-announce the teardown either.
+
+        The first thing ``stop()`` does is tell subscribers that teardown has
+        begun (``on_stop_request``), before any child is touched; ``on_stop``
+        still marks the end.
 
         Args:
             grace_timeout: Seconds to allow for graceful quiescence before the
@@ -709,10 +751,15 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             mailbox drained, subscribers' ``on_stop`` fired, actor deregistered.
         """
         if self._stopping:
-            # Idempotent — same event, no re-tell of children.
+            # Idempotent — same event, no re-tell of children, no second
+            # announcement to subscribers that have already released.
             assert self._stop_event is not None
             return self._stop_event
 
+        # Teardown has begun. Tell subscribers before anything is torn down: the
+        # drain that follows still delivers ProcessedMessages, and a subscriber
+        # learning of the stop only at the end (on_stop) would learn too late.
+        self._notify_subscribers_lifecycle("on_stop_request", self.team_id)
         self._stopping = True
         self._stop_event = threading.Event()
         self._stop_non_tool_children()  # PHASE 1: tell non-tool children; defer tools (§2a)

@@ -236,12 +236,10 @@ class TestOrchestratorMessageHandlers:
 class _RecordingStopSubscriber:
     """Subscriber that records on_stop / on_message invocations.
 
-    ``on_stop_request`` is vestigial: the hook is no longer part of the
-    ``EventSubscriber`` protocol and the orchestrator never dispatches it. It is
-    kept here deliberately as the witness that such a subscriber still registers
-    and receives the surviving hooks (structural typing). That the hook itself
-    never fires is asserted by a sibling double in
-    ``tests/core/test_orchestrator_no_idle_stop.py``.
+    ``on_stop_request`` is the begin-signal of an ``Orchestrator.stop()``, the
+    symmetric partner of ``on_stop``. It is counted here so a test can see that
+    these handler paths raise neither hook; the dispatch itself is pinned by
+    ``tests/core/test_orchestrator_stop_request.py``.
     """
 
     def __init__(self) -> None:
@@ -264,8 +262,8 @@ class _RecordingStopSubscriber:
 
 
 class TestEventSubscriberProtocol:
-    """The ``EventSubscriber`` protocol no longer carries ``on_stop_request``."""
+    """The ``EventSubscriber`` protocol carries the teardown begin-signal."""
 
-    def test_protocol_has_no_on_stop_request(self) -> None:
-        """Idle-stop policy is a subscriber's own affair; the protocol declares no hook."""
-        assert not hasattr(EventSubscriber, "on_stop_request")
+    def test_protocol_declares_on_stop_request(self) -> None:
+        """The hook a subscriber needs to release on time is part of the contract."""
+        assert hasattr(EventSubscriber, "on_stop_request")

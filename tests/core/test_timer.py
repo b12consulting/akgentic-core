@@ -258,3 +258,119 @@ class TestTimerConcurrentTaskTracking:
             assert timer.task_count == 0
         finally:
             timer.cancel()
+
+
+class TestTimerClose:
+    """Tests for Timer.close() — the terminal counterpart of cancel().
+
+    ``cancel()`` is a resumable pause: the very next ``task_completed()`` at
+    count zero calls ``start()`` again and the countdown is back. ``close()``
+    is one-way: ``start()`` becomes a no-op, so nothing can re-arm it. The two
+    tests at the top of this class assert that contrast side by side — it is
+    the entire reason ``close()`` exists.
+    """
+
+    def test_cancel_leaves_the_timer_able_to_rearm(self) -> None:
+        """After cancel(), a task_started()/task_completed() pair re-arms the countdown.
+
+        This is the behaviour ``task_started()`` depends on, and the behaviour
+        that makes ``cancel()`` insufficient for a teardown: a late
+        ``task_completed()`` from a draining mailbox brings the countdown back.
+        """
+        fired = threading.Event()
+        timer = Timer(delay=1, timeout_callback=fired.set)
+        timer.start()
+        timer.cancel()
+
+        timer.task_started()
+        timer.task_completed()
+
+        try:
+            assert timer._timer is not None
+            assert fired.wait(timeout=10.0), "cancelled timer failed to re-arm"
+        finally:
+            timer.cancel()
+
+    def test_close_leaves_the_timer_unable_to_rearm(self) -> None:
+        """After close(), the identical pair does NOT re-arm — the mirror of the test above."""
+        fired = threading.Event()
+        timer = Timer(delay=1, timeout_callback=fired.set)
+        timer.start()
+        timer.close()
+
+        timer.task_started()
+        timer.task_completed()
+
+        assert timer._timer is None
+        assert not fired.wait(timeout=2.5), "closed timer re-armed and fired"
+
+    def test_close_on_unstarted_timer_is_safe(self) -> None:
+        """close() on a timer that was never started does not raise."""
+        timer = Timer(delay=60, timeout_callback=MagicMock())
+        timer.close()
+        assert timer._timer is None
+
+    def test_close_is_idempotent(self) -> None:
+        """Calling close() twice does not raise and does not resurrect the countdown."""
+        timer = Timer(delay=60, timeout_callback=MagicMock())
+        timer.start()
+        timer.close()
+        timer.close()
+
+        assert timer._timer is None
+
+    def test_close_after_cancel_is_safe(self) -> None:
+        """cancel() then close() does not raise and leaves the timer closed."""
+        timer = Timer(delay=60, timeout_callback=MagicMock())
+        timer.start()
+        timer.cancel()
+        timer.close()
+
+        timer.start()
+        assert timer._timer is None
+
+    def test_cancel_after_close_is_safe(self) -> None:
+        """close() then cancel() does not raise and does not reopen the timer."""
+        timer = Timer(delay=60, timeout_callback=MagicMock())
+        timer.start()
+        timer.close()
+        timer.cancel()
+
+        timer.start()
+        assert timer._timer is None
+
+    def test_close_cancels_a_running_countdown(self) -> None:
+        """start() → close() stops the countdown from ever reaching the callback."""
+        fired = threading.Event()
+        timer = Timer(delay=1, timeout_callback=fired.set)
+        timer.start()
+        timer.close()
+
+        assert not fired.wait(timeout=2.5)
+
+    def test_start_after_close_creates_no_countdown(self) -> None:
+        """A direct start() on a closed timer creates nothing and never fires."""
+        fired = threading.Event()
+        timer = Timer(delay=1, timeout_callback=fired.set)
+        timer.close()
+
+        timer.start()
+
+        assert timer._timer is None
+        assert not fired.wait(timeout=2.5)
+
+    def test_close_does_not_stop_the_task_counter(self) -> None:
+        """A closed timer keeps counting tasks — it simply never re-arms.
+
+        Raising on a late ``task_completed()`` from a draining mailbox is
+        exactly what must not happen, so the counter stays live.
+        """
+        timer = Timer(delay=60, timeout_callback=MagicMock())
+        timer.close()
+
+        timer.task_started()
+        assert timer.task_count == 1
+
+        timer.task_completed()
+        assert timer.task_count == 0
+        assert timer._timer is None

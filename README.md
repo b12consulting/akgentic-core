@@ -653,6 +653,13 @@ class MySubscriber(EventSubscriber):
     def set_restoring(self, team_id: uuid.UUID, restoring: bool) -> None:
         """Called around a restore replay — skip side effects while True."""
 
+    def on_stop_request(self, team_id: uuid.UUID) -> None:
+        """Teardown has begun — release what you hold, before the drain starts.
+
+        Runs on the orchestrator's thread at the start of its stop, so release
+        and return; offload anything slow to a thread.
+        """
+
     def on_stop(self, team_id: uuid.UUID) -> None:
         """The orchestrator is stopping — release anything held for this team."""
 
@@ -660,7 +667,7 @@ orch.subscribe(MySubscriber())
 ```
 
 Every lifecycle method carries the `team_id` of the orchestrator dispatching it, so one subscriber
-instance shared across teams can tell which team it is hearing from. All three have no-op defaults —
+instance shared across teams can tell which team it is hearing from. All four have no-op defaults —
 implement only what you need — but a method you *do* define must match this signature, since
 `EventSubscriber` is a `Protocol` and a mismatch fails at dispatch time rather than at import.
 
