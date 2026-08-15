@@ -57,6 +57,13 @@ class EventSubscriber(Protocol):
     Implementations in this workspace:
         - ``PersistenceSubscriber`` (akgentic-team): events to an EventStore,
           with StateChangedMessage diverted to a latest-per-agent snapshot
+        - ``IdleStopSubscriber`` (akgentic-team): owns idle-stop end to end —
+          it runs its own countdown off this stream (``ReceivedMessage`` starts a
+          task, ``ProcessedMessage`` completes one), pauses while ``set_restoring``
+          is in effect so a replay cannot drive the clock, and stops the team
+          itself. The countdown mechanism lives there, not here: this class holds
+          no inactivity clock, and a deployment wiring no such subscriber never
+          idle-stops.
         - ``EventStreamSubscriber`` (akgentic-infra): events to the per-team stream
         - ``TelemetrySubscriber`` (akgentic-infra): metrics
         - ``RuntimeCacheEvictionSubscriber`` (akgentic-infra): per-team cache teardown
