@@ -1319,6 +1319,13 @@ class TestInitStateStampsTheBaseline:
         The Orchestrator is exactly this agent — a base ``Akgent`` whose state
         was never observed. Hard-coding ``self`` as the observer would put a
         ``model_dump_json()`` on every one of its checkpoints.
+
+        The baseline is still stamped, and that assertion is load-bearing: it is
+        the only one here that a "skip the publish entirely when detached"
+        shortcut would fail. Silence and a ``None`` observer are equally true of
+        a plain ``self.state = state``, so without the stamp this test would
+        wave that shortcut through — and a state attached to an observer later
+        would then arrive carrying a stale baseline.
         """
         agent_id, config, team_id = agent_setup
         mock_orch_ref, mock_orch = _mock_orchestrator()
@@ -1337,6 +1344,7 @@ class TestInitStateStampsTheBaseline:
             installed = ref.proxy().state.get()
             assert installed.value == 3
             assert installed._observer is None
+            assert installed._last_serialized == installed.model_dump_json()
             assert _types(mock_orch_ref).count(StateChangedMessage) == 0
         finally:
             ref.stop()
