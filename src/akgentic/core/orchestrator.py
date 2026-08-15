@@ -6,7 +6,6 @@ message flows, and state changes using in-memory storage.
 """
 
 import logging
-import os
 import threading
 import uuid
 from typing import Any, Protocol, override
@@ -30,11 +29,8 @@ from akgentic.core.messages.orchestrator import (
     StopMessage,
 )
 from akgentic.core.utils.serializer import SerializableBaseModel
-from akgentic.core.utils.timer import Timer
 
 logger = logging.getLogger(__name__)
-
-TIMER_DELAY = 3600  # 1 hour default inactivity timeout
 
 # Default grace period (seconds) for a non-blocking orchestrator stop before the
 # backstop timer forces teardown (ADR-012 §2/§4). It is the single stop timeout:
@@ -78,20 +74,6 @@ class EventSubscriber(Protocol):
             team_id: ``team_id`` of the orchestrator triggering the notification,
                 enabling per-team routing on shared subscriber instances.
             restoring: ``True`` when replay starts, ``False`` when it ends.
-        """
-        ...
-
-    def on_stop_request(self, team_id: uuid.UUID) -> None:
-        """Called when an orchestrator makes a stop request (e.g. inactivity timer fires).
-
-        Default implementation is a no-op — subscribers (e.g. ``TimerStopSubscriber``
-        in ``akgentic-team``) override this to decide how to actually stop the
-        team. The orchestrator itself does NOT stop on this signal; shutdown is
-        the subscriber's responsibility.
-
-        Args:
-            team_id: ``team_id`` of the orchestrator triggering the notification,
-                enabling per-team routing on shared subscriber instances.
         """
         ...
 
@@ -187,10 +169,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     def on_start(self) -> None:
         """Initialize the Orchestrator with empty in-memory state.
 
-        The inactivity timer delay is configurable via the
-        ``ORCHESTRATOR_TIMEOUT_DELAY`` environment variable (seconds).
-        Defaults to 3600 seconds (1 hour) when the variable is not set.
-
         Args:
             config: Base configuration for the agent
             **kwargs: Additional keyword arguments passed to parent Akgent class
@@ -235,11 +213,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         # Event subscribers for Phase 3 extensibility
         self.subscribers: list[EventSubscriber] = []
 
-        # Inactivity timer — configurable via env var, defaults to TIMER_DELAY
-        timer_delay = int(os.environ.get("ORCHESTRATOR_TIMEOUT_DELAY", str(TIMER_DELAY)))
-        self._timer = Timer(delay=timer_delay, timeout_callback=self._timeout_handler)
-        self._timer.start()
-
         # Notify orchestrator of its own startup
         start_message = StartMessage(config=self.config)
         start_message.init(self.myAddress, self.team_id)
@@ -247,7 +220,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
     @override
     def on_stop(self) -> None:
-        self._timer.cancel()
         self._cancel_stop_backstop()
         self._notify_subscribers_lifecycle("on_stop", self.team_id)
         super().on_stop()
@@ -263,30 +235,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     def _notify_orchestrator(self, message: Message) -> None:
         """Override to directly append orchestrator's own messages without telemetry cascade."""
         pass
-
-    def _timeout_handler(self) -> None:
-        """Signal inactivity to the subscribers; stop nothing here.
-
-        Runs on the ``Timer`` thread when the countdown expires. Logs the
-        timeout, then dispatches ``on_stop_request(team_id)`` to every
-        subscriber and returns — the orchestrator never stops itself on this
-        signal. Whether the team actually shuts down is the subscriber's
-        decision (``TimerStopSubscriber`` in ``akgentic-team`` is the canonical
-        one; it offloads ``stop_team`` to a daemon thread, because calling it
-        inline would deadlock on a ``proxy_ask`` into this busy orchestrator).
-        A team whose subscribers all ignore the signal simply keeps running.
-        """
-        team_id = self.team_id
-        logger.info(f"Orchestrator timeout after {self._timer.delay}s inactivity (team={team_id})")
-        self._notify_subscribers_lifecycle("on_stop_request", team_id)
-
-    def get_timer(self) -> Timer:
-        """Return the inactivity Timer instance (for testing and introspection).
-
-        Returns:
-            The Timer managing inactivity-based shutdown.
-        """
-        return self._timer
 
     def subscribe(self, subscriber: EventSubscriber) -> None:
         """Add an event subscriber to receive orchestrator events.
@@ -346,7 +294,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         team_id: uuid.UUID,
         **kwargs: Any,
     ) -> None:
-        """Dispatch a lifecycle notification (``set_restoring``, ``on_stop_request``, ``on_stop``).
+        """Dispatch a lifecycle notification (``set_restoring``, ``on_stop``).
 
         Every lifecycle hook carries ``team_id`` as its first positional
         argument so shared subscribers (one instance attached to N teams on a
@@ -433,7 +381,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         # Skip orchestrator's own telemetry to avoid recursion
         if sender == self.myAddress:
             return
-        self._timer.task_started()
         self.messages.append(message)
         self._notify_subscribers_message("on_message", message)
 
@@ -447,7 +394,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         # Skip orchestrator's own telemetry to avoid recursion
         if sender == self.myAddress:
             return
-        self._timer.task_completed()
         self.messages.append(message)
         self._notify_subscribers_message("on_message", message)
 
@@ -761,7 +707,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             assert self._stop_event is not None
             return self._stop_event
 
-        self._timer.cancel()  # no inactivity auto-stop mid-teardown
         self._stopping = True
         self._stop_event = threading.Event()
         self._stop_non_tool_children()  # PHASE 1: tell non-tool children; defer tools (§2a)
