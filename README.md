@@ -3,9 +3,11 @@
 [![CI](https://github.com/b12consulting/akgentic-core/actions/workflows/ci.yml/badge.svg)](https://github.com/b12consulting/akgentic-core/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/gpiroux/5fae2fa4f4f3cd3fc5cc08f5d2a7da44/raw/coverage.json)](https://github.com/b12consulting/akgentic-core/actions/workflows/ci.yml)
 
-Zero-dependency actor framework for the [Akgentic](https://github.com/b12consulting/akgentic-quick-start)
-multi-agent platform. Define agents, exchange typed messages, and compose
-concurrent workflows — all in-memory with no external services required.
+Zero-dependency actor framework for the
+[Akgentic](https://github.com/b12consulting/akgentic-framework) multi-agent
+platform (open-source bundle). Define agents, exchange typed messages, and
+compose concurrent workflows — all in-memory with no external services
+required.
 
 ## Table of Contents
 
@@ -71,29 +73,43 @@ The package delivers:
 
 ## Installation
 
-### Workspace Installation (Recommended)
-
-This package is designed for use within the Akgentic monorepo workspace:
+Published on PyPI. Python 3.12 or newer.
 
 ```bash
-git clone git@github.com:b12consulting/akgentic-quick-start.git
-cd akgentic-quick-start
-git submodule update --init --recursive
-
-uv venv
-source .venv/bin/activate
-uv sync --all-packages --all-extras
-```
-
-All dependencies resolve automatically via workspace configuration.
-
-### Standalone Installation
-
-```bash
-pip install akgentic-core
-# or with uv
 uv add akgentic-core
+# or
+pip install akgentic-core
 ```
+
+That is the whole install. `pydantic` and `pykka` come with it as ordinary
+dependencies — no workspace checkout, no submodules.
+
+### As part of the framework bundle
+
+`akgentic-framework` is the meta-distribution that pins every akgentic package
+at versions built and tested together. Install `akgentic-core` through it when
+you want the release-wide pin rather than a single package:
+
+```bash
+pip install "akgentic-framework[core]"   # this package alone, release-pinned
+pip install "akgentic-framework[all]"    # the whole framework
+```
+
+### Working on the package itself
+
+To develop `akgentic-core` rather than use it, clone the open-source bundle
+[akgentic-framework](https://github.com/b12consulting/akgentic-framework), which
+carries every package together as submodules:
+
+```bash
+git clone git@github.com:b12consulting/akgentic-framework.git
+cd akgentic-framework
+git submodule update --init
+# uncomment the two "SOURCE MODE" blocks in pyproject.toml
+uv sync
+```
+
+Source mode resolves `akgentic-*` to the local checkouts, editable.
 
 ## Quick Start
 
@@ -875,23 +891,21 @@ uv sync --all-extras
 
 ### Commands
 
-All commands run from the **monorepo root** (`akgentic-quick-start/`):
-
 ```bash
 # Run tests
-pytest packages/akgentic-core/tests/
+uv run pytest tests/
 
 # Run tests with coverage
-pytest packages/akgentic-core/tests/ --cov=akgentic.core --cov-fail-under=80
+uv run pytest tests/ --cov=akgentic.core --cov-fail-under=80
 
 # Lint
-ruff check packages/akgentic-core/src/
+uv run ruff check src/ tests/
 
 # Format
-ruff format packages/akgentic-core/src/
+uv run ruff format src/ tests/
 
 # Type check
-mypy packages/akgentic-core/src/
+uv run mypy src/
 ```
 
 ## License
