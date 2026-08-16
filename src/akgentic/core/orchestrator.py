@@ -6,10 +6,8 @@ message flows, and state changes using in-memory storage.
 """
 
 import logging
-import os
 import threading
 import uuid
-from collections.abc import Callable
 from typing import Any, Protocol, override
 
 from pydantic import Field
@@ -34,72 +32,11 @@ from akgentic.core.utils.serializer import SerializableBaseModel
 
 logger = logging.getLogger(__name__)
 
-TIMER_DELAY = 3600  # 1 hour default inactivity timeout
-
 # Default grace period (seconds) for a non-blocking orchestrator stop before the
 # backstop timer forces teardown (ADR-012 §2/§4). It is the single stop timeout:
 # callers wait on the returned event with NO timeout, and the backstop guarantees
 # the event is set within ~STOP_TIMEOUT seconds.
 STOP_TIMEOUT = 30.0
-
-
-class Timer:
-    """Helper class for inactivity timeout management.
-
-    Tracks active tasks and triggers a timeout callback after a configurable
-    delay when the orchestrator becomes idle (task_count reaches 0).
-
-    The timer automatically cancels itself when tasks are active and restarts
-    when the orchestrator becomes idle again.
-
-    Args:
-        delay: Seconds of inactivity before timeout_callback is invoked.
-        timeout_callback: Zero-argument callable invoked on timeout.
-
-    Example:
-        >>> def on_timeout():
-        ...     print("Timed out!")
-        >>> timer = Timer(delay=60, timeout_callback=on_timeout)
-        >>> timer.start()
-        >>> timer.task_started()   # pauses countdown
-        >>> timer.task_completed() # restarts countdown
-        >>> timer.cancel()         # prevents callback from firing
-    """
-
-    def __init__(self, delay: int, timeout_callback: Callable[[], None]) -> None:
-        self.delay = delay
-        self.timeout_callback = timeout_callback
-        self.task_count: int = 0
-        self._timer: threading.Timer | None = None
-
-    def start(self) -> None:
-        """Start or restart the countdown timer.
-
-        Cancels any existing timer before starting a new one.
-        """
-        self.cancel()
-        self._timer = threading.Timer(self.delay, self.timeout_callback)
-        self._timer.daemon = True
-        self._timer.start()
-
-    def cancel(self) -> None:
-        """Cancel the current timer, preventing the callback from firing."""
-        if self._timer is not None:
-            self._timer.cancel()
-            self._timer = None
-
-    def task_started(self) -> None:
-        """Increment task count and cancel timer while tasks are active."""
-        self.task_count += 1
-        if self.task_count > 0:
-            self.cancel()
-
-    def task_completed(self) -> None:
-        """Decrement task count and restart timer when orchestrator becomes idle."""
-        self.task_count -= 1
-        if self.task_count <= 0:
-            self.task_count = 0  # Prevent negative count
-            self.start()
 
 
 class Event(SerializableBaseModel):
@@ -120,7 +57,13 @@ class EventSubscriber(Protocol):
     Implementations in this workspace:
         - ``PersistenceSubscriber`` (akgentic-team): events to an EventStore,
           with StateChangedMessage diverted to a latest-per-agent snapshot
-        - ``TimerStopSubscriber`` (akgentic-team): acts on ``on_stop_request``
+        - ``IdleStopSubscriber`` (akgentic-team): owns idle-stop end to end —
+          it runs its own countdown off this stream (``ReceivedMessage`` starts a
+          task, ``ProcessedMessage`` completes one), pauses while ``set_restoring``
+          is in effect so a replay cannot drive the clock, and stops the team
+          itself. The countdown mechanism lives there, not here: this class holds
+          no inactivity clock, and a deployment wiring no such subscriber never
+          idle-stops.
         - ``EventStreamSubscriber`` (akgentic-infra): events to the per-team stream
         - ``TelemetrySubscriber`` (akgentic-infra): metrics
         - ``RuntimeCacheEvictionSubscriber`` (akgentic-infra): per-team cache teardown
@@ -141,12 +84,22 @@ class EventSubscriber(Protocol):
         ...
 
     def on_stop_request(self, team_id: uuid.UUID) -> None:
-        """Called when an orchestrator makes a stop request (e.g. inactivity timer fires).
+        """Called when an orchestrator BEGINS tearing itself down.
 
-        Default implementation is a no-op — subscribers (e.g. ``TimerStopSubscriber``
-        in ``akgentic-team``) override this to decide how to actually stop the
-        team. The orchestrator itself does NOT stop on this signal; shutdown is
-        the subscriber's responsibility.
+        Teardown has begun — release what you hold for this team, now rather
+        than at the end. The subscriber REACTS to a stop already under way; it
+        does not ask for one. Between this hook and ``on_stop`` the mailbox is
+        still draining and telemetry still flows, so anything keyed off that
+        stream (a countdown, a lease, a buffer) must be shut down here to stay
+        shut down.
+
+        Release, do not block: this runs on the orchestrator's actor thread,
+        inside ``stop()``, before any child is told to stop. A slow subscriber
+        holds the whole teardown open — offload anything slow to a thread.
+
+        Note that a stop driven straight through Pykka (``actor_ref.stop()``,
+        ``ActorRegistry.stop_all()``) never enters ``Orchestrator.stop()`` and so
+        never raises this hook; ``on_stop`` still fires on those paths.
 
         Args:
             team_id: ``team_id`` of the orchestrator triggering the notification,
@@ -194,9 +147,13 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
     The Orchestrator uses a subscriber pattern to enable extensibility. Subscribers
     implement custom event handling — event persistence, stream fan-out, metrics,
-    idle-stop policy — without this package depending on any of them. It owns an
-    inactivity ``Timer`` but never stops itself: on timeout it dispatches
-    ``on_stop_request`` and leaves the decision to its subscribers.
+    idle-stop policy — without this package depending on any of them. It holds no
+    inactivity clock of its own and never initiates an *idle* stop: detecting
+    idleness and acting on it are a subscriber's business end to end. It does
+    announce the start of a teardown it has been asked to perform: ``stop()``
+    opens with ``on_stop_request`` so subscribers release what they hold for the
+    team while the mailbox still drains, and ``on_stop`` marks the end. Announcing
+    a stop is not initiating one.
 
     Attributes:
         messages: Complete message history (all telemetry events)
@@ -246,10 +203,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     def on_start(self) -> None:
         """Initialize the Orchestrator with empty in-memory state.
 
-        The inactivity timer delay is configurable via the
-        ``ORCHESTRATOR_TIMEOUT_DELAY`` environment variable (seconds).
-        Defaults to 3600 seconds (1 hour) when the variable is not set.
-
         Args:
             config: Base configuration for the agent
             **kwargs: Additional keyword arguments passed to parent Akgent class
@@ -294,11 +247,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         # Event subscribers for Phase 3 extensibility
         self.subscribers: list[EventSubscriber] = []
 
-        # Inactivity timer — configurable via env var, defaults to TIMER_DELAY
-        timer_delay = int(os.environ.get("ORCHESTRATOR_TIMEOUT_DELAY", str(TIMER_DELAY)))
-        self._timer = Timer(delay=timer_delay, timeout_callback=self._timeout_handler)
-        self._timer.start()
-
         # Notify orchestrator of its own startup
         start_message = StartMessage(config=self.config)
         start_message.init(self.myAddress, self.team_id)
@@ -306,7 +254,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
     @override
     def on_stop(self) -> None:
-        self._timer.cancel()
         self._cancel_stop_backstop()
         self._notify_subscribers_lifecycle("on_stop", self.team_id)
         super().on_stop()
@@ -322,30 +269,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     def _notify_orchestrator(self, message: Message) -> None:
         """Override to directly append orchestrator's own messages without telemetry cascade."""
         pass
-
-    def _timeout_handler(self) -> None:
-        """Signal inactivity to the subscribers; stop nothing here.
-
-        Runs on the ``Timer`` thread when the countdown expires. Logs the
-        timeout, then dispatches ``on_stop_request(team_id)`` to every
-        subscriber and returns — the orchestrator never stops itself on this
-        signal. Whether the team actually shuts down is the subscriber's
-        decision (``TimerStopSubscriber`` in ``akgentic-team`` is the canonical
-        one; it offloads ``stop_team`` to a daemon thread, because calling it
-        inline would deadlock on a ``proxy_ask`` into this busy orchestrator).
-        A team whose subscribers all ignore the signal simply keeps running.
-        """
-        team_id = self.team_id
-        logger.info(f"Orchestrator timeout after {self._timer.delay}s inactivity (team={team_id})")
-        self._notify_subscribers_lifecycle("on_stop_request", team_id)
-
-    def get_timer(self) -> Timer:
-        """Return the inactivity Timer instance (for testing and introspection).
-
-        Returns:
-            The Timer managing inactivity-based shutdown.
-        """
-        return self._timer
 
     def subscribe(self, subscriber: EventSubscriber) -> None:
         """Add an event subscriber to receive orchestrator events.
@@ -405,7 +328,8 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         team_id: uuid.UUID,
         **kwargs: Any,
     ) -> None:
-        """Dispatch a lifecycle notification (``set_restoring``, ``on_stop_request``, ``on_stop``).
+        """Dispatch a lifecycle notification (``set_restoring``, ``on_stop_request``,
+        ``on_stop``).
 
         Every lifecycle hook carries ``team_id`` as its first positional
         argument so shared subscribers (one instance attached to N teams on a
@@ -413,6 +337,12 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         forwarded to the subscriber method (e.g. ``restoring=True`` for
         ``set_restoring``). Per-subscriber exceptions are caught and logged so
         a single faulty subscriber cannot block the rest of the dispatch chain.
+
+        A subscriber that does not carry the method at all is skipped silently,
+        so the Protocol's no-op default holds at runtime too — not only for a
+        subscriber inheriting ``EventSubscriber``, but for a structurally-typed
+        one, which has no such attribute to find. A hook that exists and raises
+        is still caught and logged.
 
         Args:
             event_method: Name of the lifecycle subscriber method to call.
@@ -423,7 +353,10 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         """
         for subscriber in self.subscribers:
             try:
-                getattr(subscriber, event_method)(team_id, **kwargs)
+                method = getattr(subscriber, event_method, None)
+                if method is None:
+                    continue
+                method(team_id, **kwargs)
             except Exception as e:  # noqa: BLE001
                 logger.error(
                     f"Subscriber {subscriber.__class__.__name__} failed {event_method}: {e}"
@@ -492,7 +425,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         # Skip orchestrator's own telemetry to avoid recursion
         if sender == self.myAddress:
             return
-        self._timer.task_started()
         self.messages.append(message)
         self._notify_subscribers_message("on_message", message)
 
@@ -506,7 +438,6 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         # Skip orchestrator's own telemetry to avoid recursion
         if sender == self.myAddress:
             return
-        self._timer.task_completed()
         self.messages.append(message)
         self._notify_subscribers_message("on_message", message)
 
@@ -801,7 +732,12 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
         Calling ``stop()`` and ignoring the event is a valid fire-and-forget
         teardown. Idempotent: calling ``stop()`` again while already stopping
-        returns the same event and does not re-tell the children.
+        returns the same event and does not re-tell the children — and does not
+        re-announce the teardown either.
+
+        The first thing ``stop()`` does is tell subscribers that teardown has
+        begun (``on_stop_request``), before any child is touched; ``on_stop``
+        still marks the end.
 
         Args:
             grace_timeout: Seconds to allow for graceful quiescence before the
@@ -816,11 +752,15 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             mailbox drained, subscribers' ``on_stop`` fired, actor deregistered.
         """
         if self._stopping:
-            # Idempotent — same event, no re-tell of children.
+            # Idempotent — same event, no re-tell of children, no second
+            # announcement to subscribers that have already released.
             assert self._stop_event is not None
             return self._stop_event
 
-        self._timer.cancel()  # no inactivity auto-stop mid-teardown
+        # Teardown has begun. Tell subscribers before anything is torn down: the
+        # drain that follows still delivers ProcessedMessages, and a subscriber
+        # learning of the stop only at the end (on_stop) would learn too late.
+        self._notify_subscribers_lifecycle("on_stop_request", self.team_id)
         self._stopping = True
         self._stop_event = threading.Event()
         self._stop_non_tool_children()  # PHASE 1: tell non-tool children; defer tools (§2a)

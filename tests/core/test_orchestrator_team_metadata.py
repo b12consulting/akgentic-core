@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Generator
+from typing import Any
 
 import pykka
 import pytest
@@ -61,6 +62,13 @@ class _WorkerState(BaseState):
 
 class _Worker(Akgent[BaseConfig, _WorkerState]):
     """Ordinary child agent — hired, fired, and made to change its state."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        # Base ``Akgent`` attaches no observer, and an unobserved state publishes
+        # nothing — so without this attach nothing ever reaches the orchestrator's
+        # state_dict and the ``!= {}`` guards below would be vacuously true.
+        self.state = _WorkerState().observer(self)
 
 
 class RecordingSubscriber:

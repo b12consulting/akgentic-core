@@ -608,8 +608,9 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
     def notify_state_change(self, state: BaseState) -> None:
         """Notify orchestrator of state change.
 
-        Implements AkgentStateObserver protocol - called by BaseState when
-        fields change, and by init_state() during state initialization.
+        Implements AkgentStateObserver protocol - called by BaseState whenever
+        it publishes, including the publication init_state() triggers through
+        observer(). It emits only; the baseline stamp belongs to the state.
 
         Args:
             state: New state (BaseState instance).
@@ -645,16 +646,21 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
     def init_state(self, state: StateType) -> None:
         """Initialize the state of the agent and notify the orchestrator.
 
-        Preserves observer reference across state replacement.
+        Publishes through ``BaseState.observer()``, which re-attaches the
+        observer carried by the outgoing state and then runs the state-side
+        notify — stamping the change-detection baseline on the way, so the next
+        checkpoint does not report a change that never happened. The observer is
+        preserved, never hard-coded: an agent whose state has none keeps none.
+
+        The notification is unconditional (never a dirty check): it seeds the
+        cursor-0 replay for a restored running team.
 
         Note: Used externally by state restoration logic (e.g., restart_team.py).
 
         Args:
             state: New state to initialize.
         """
-        state._observer = self.state._observer
-        self.state = state
-        self.notify_state_change(self.state)
+        self.state = state.observer(self.state._observer)
 
     def init_llm_context(self, context: list[EventMessage]) -> None:
         """Restore LLM conversation context after team resume.

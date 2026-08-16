@@ -1212,3 +1212,139 @@ class TestInitStateStaysUnconditional:
         ref.proxy().init_state(identical).get(timeout=5)
 
         assert _types(mock_orch_ref).count(StateChangedMessage) == 1
+
+
+class TestInitStateStampsTheBaseline:
+    """Restore leaves a baseline, so the next checkpoint has nothing to report."""
+
+    def test_init_state_stamps_the_baseline_and_the_next_checkpoint_is_silent(
+        self, observed_agent: Any
+    ) -> None:
+        """The headline (story 25-5): publishing through the state stamps it.
+
+        A freshly built state carries a ``None`` baseline — exactly what a
+        deserialized snapshot and ``update_state()`` both hand in. Routing
+        ``init_state()`` through the agent-side observer callback published the
+        state without ever refreshing that baseline, so the very next checkpoint
+        compared against ``None`` and re-published an unchanged state.
+        """
+        ref, mock_orch_ref = observed_agent
+
+        fresh = _CountingState(value=42)
+        assert fresh._last_serialized is None
+
+        ref.proxy().init_state(fresh).get(timeout=5)
+
+        installed = ref.proxy().state.get()
+        assert installed is fresh
+        assert installed._last_serialized is not None
+        assert installed._last_serialized == installed.model_dump_json()
+
+        assert _types(mock_orch_ref).count(StateChangedMessage) == 1
+        installed.notify_if_changed()
+        assert _types(mock_orch_ref).count(StateChangedMessage) == 1
+
+    def test_update_state_stamps_the_baseline(self, observed_agent: Any) -> None:
+        """``update_state()`` publishes once, not once per following checkpoint.
+
+        It deserializes a brand-new object and hands it to ``init_state()``, so
+        it inherited the missing stamp wholesale.
+        """
+        ref, mock_orch_ref = observed_agent
+
+        ref.proxy().update_state({"value": 5}).get(timeout=5)
+
+        installed = ref.proxy().state.get()
+        assert installed.value == 5
+        assert _types(mock_orch_ref).count(StateChangedMessage) == 1
+
+        installed.notify_if_changed()
+        assert _types(mock_orch_ref).count(StateChangedMessage) == 1
+
+    def test_restore_shaped_init_then_stop_publishes_once(
+        self, agent_setup: tuple[uuid.UUID, BaseConfig, uuid.UUID]
+    ) -> None:
+        """The live symptom: one restored agent, one state change — not two.
+
+        ``TeamRestorer`` hands every snapshotted agent a freshly deserialized
+        state, and the spurious second publication showed up at team stop, one
+        per agent. A locally started agent is used so the stop is counted here,
+        before any fixture teardown runs.
+        """
+        agent_id, config, team_id = agent_setup
+        mock_orch_ref, mock_orch = _mock_orchestrator()
+
+        ref = ObservedAgent.start(
+            agent_id=agent_id,
+            config=config,
+            team_id=team_id,
+            orchestrator=mock_orch,
+        )
+        try:
+            mock_orch_ref.reset_mock()
+
+            restored = _CountingState.model_validate_json(_CountingState(value=7).model_dump_json())
+            assert restored._last_serialized is None
+            ref.proxy().init_state(restored).get(timeout=5)
+
+            # Blocking stop: on_stop() — and its checkpoint — has run on return.
+            ref.stop()
+
+            types = _types(mock_orch_ref)
+            assert types.count(StateChangedMessage) == 1
+            assert types.count(StopMessage) == 1
+        finally:
+            ref.stop()
+
+    def test_init_state_preserves_the_observer_it_was_given(self, observed_agent: Any) -> None:
+        """The installed state carries the OLD state's observer (AC #5).
+
+        ``observer(self.state._observer)``, never ``observer(self)`` — the
+        distinction is invisible here and decisive in the unobserved test below.
+        """
+        ref, _ = observed_agent
+
+        before = ref.proxy().state.get()._observer
+        assert before is not None
+
+        ref.proxy().init_state(_CountingState(value=1)).get(timeout=5)
+
+        assert ref.proxy().state.get()._observer is before
+
+    def test_init_state_on_an_unobserved_agent_attaches_nothing_and_stays_silent(
+        self, agent_setup: tuple[uuid.UUID, BaseConfig, uuid.UUID]
+    ) -> None:
+        """No observer in, no observer out, and no publication (AC #5, NFR1).
+
+        The Orchestrator is exactly this agent — a base ``Akgent`` whose state
+        was never observed. Hard-coding ``self`` as the observer would put a
+        ``model_dump_json()`` on every one of its checkpoints.
+
+        The baseline is still stamped, and that assertion is load-bearing: it is
+        the only one here that a "skip the publish entirely when detached"
+        shortcut would fail. Silence and a ``None`` observer are equally true of
+        a plain ``self.state = state``, so without the stamp this test would
+        wave that shortcut through — and a state attached to an observer later
+        would then arrive carrying a stale baseline.
+        """
+        agent_id, config, team_id = agent_setup
+        mock_orch_ref, mock_orch = _mock_orchestrator()
+
+        ref = UnobservedAgent.start(
+            agent_id=agent_id,
+            config=config,
+            team_id=team_id,
+            orchestrator=mock_orch,
+        )
+        try:
+            mock_orch_ref.reset_mock()
+
+            ref.proxy().init_state(_CountingState(value=3)).get(timeout=5)
+
+            installed = ref.proxy().state.get()
+            assert installed.value == 3
+            assert installed._observer is None
+            assert installed._last_serialized == installed.model_dump_json()
+            assert _types(mock_orch_ref).count(StateChangedMessage) == 0
+        finally:
+            ref.stop()

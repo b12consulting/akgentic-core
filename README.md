@@ -157,7 +157,7 @@ src/akgentic/core/
     agent_card.py           # AgentCard — capability profiles
     agent_config.py         # BaseConfig, AgentConfig alias
     agent_state.py          # BaseState with observer pattern
-    orchestrator.py         # Orchestrator, EventSubscriber, Timer
+    orchestrator.py         # Orchestrator, EventSubscriber
     user_proxy.py           # UserProxy — human-in-the-loop bridge
     messages/
         message.py          # Message, UserMessage, ResultMessage, StopRecursively
@@ -167,6 +167,7 @@ src/akgentic/core/
     utils/
         serializer.py       # SerializableBaseModel (internal)
         deserializer.py     # ActorAddressDict, DeserializeContext (internal)
+        timer.py            # Timer — inactivity countdown primitive
 examples/                   # 6 progressive examples with companion docs
 tests/
 ```
@@ -653,8 +654,11 @@ class MySubscriber(EventSubscriber):
         """Called around a restore replay — skip side effects while True."""
 
     def on_stop_request(self, team_id: uuid.UUID) -> None:
-        """The inactivity timer fired. The orchestrator does not stop itself:
-        a subscriber decides whether and how to shut the team down."""
+        """Teardown has begun — release what you hold, before the drain starts.
+
+        Runs on the orchestrator's thread at the start of its stop, so release
+        and return; offload anything slow to a thread.
+        """
 
     def on_stop(self, team_id: uuid.UUID) -> None:
         """The orchestrator is stopping — release anything held for this team."""
