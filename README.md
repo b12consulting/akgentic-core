@@ -718,12 +718,14 @@ Two caveats, both of which matter to anything built on this event:
 
 - **Do not infer team status from the stream.** The announcement comes from
   `Orchestrator.stop()` and nowhere else, so any teardown that bypasses it
-  produces a stopped team with *no* event — the internal force-stop backstop, a
-  stop driven straight through Pykka (`actor_ref.stop()`,
-  `ActorRegistry.stop_all()`), and a worker crash, which emits nothing at all.
-  Code that read "no stop event ⇒ still running" would show those teams live
-  indefinitely, and nothing later in the log corrects it. Read status from the
-  API; treat this event as an accelerator, not a source of truth.
+  produces a stopped team with *no* event — a stop driven straight through Pykka
+  (`actor_ref.stop()`, `ActorRegistry.stop_all()`), and a worker crash, which
+  emits nothing at all. The internal force-stop backstop is *not* such a path:
+  it is armed by `stop()` itself, below the announcement, so a backstop-forced
+  teardown is always announced first. Code that read "no stop event ⇒ still
+  running" would show the bypassing teams live indefinitely, and nothing later
+  in the log corrects it. Read status from the API; treat this event as an
+  accelerator, not a source of truth.
 - **Delivery is best-effort.** The guarantee is that the event is *emitted and
   persisted*, not that it is *delivered*: tearing a team down also tears down
   the machinery carrying its stream, and a reader can lose what it had not yet

@@ -57,10 +57,16 @@ class EventSubscriber(Protocol):
 
     A teardown reaches a subscriber two ways: as an ``EventMessage`` carrying a
     ``TeamStoppingEvent`` payload on ``on_message`` (ADR-018), and as the
-    ``on_stop_request`` hook. The message is emitted BEFORE ``_stopping`` is set
-    and so is not subject to the ``receiveMsg_StopMessage`` suppression that
-    withholds per-agent ``StopMessage``s during teardown — which is why this
-    event arrives when the per-agent stops do not. It is an ordinary
+    ``on_stop_request`` hook. Per-agent ``StopMessage``s are withheld during
+    teardown; this announcement is not, so it arrives when the per-agent stops
+    do not. Its position is not the reason: the suppression lives wholly inside
+    ``receiveMsg_StopMessage`` and gates only that handler, while
+    ``emitMessage`` never consults ``_stopping``, so the announcement would
+    reach subscribers from any position in ``stop()``. It is emitted BEFORE
+    ``_stopping`` is set for its own two reasons (ADR-018 §2) — below the
+    idempotency guard, so a repeated ``stop()`` announces exactly once, and
+    above ``on_stop_request``, so a subscriber just told to release what it
+    holds is never then handed a message to publish. It is an ordinary
     domain-event payload on the existing fan-out: a subscriber needs no change
     to receive it.
 
@@ -168,7 +174,12 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     subscribers release what they hold for the team while the mailbox still
     drains; ``on_stop`` marks the end. The announcement rides the existing
     fan-out as an ordinary domain event, so no subscriber needs a change to
-    receive it. Announcing a stop is not initiating one.
+    receive it. It is emitted before ``_stopping`` is set, which is what makes
+    "emitted before teardown began" true by construction — not what exempts it
+    from the ``receiveMsg_StopMessage`` suppression that withholds per-agent
+    ``StopMessage``s during teardown. That suppression gates only that one
+    handler, so the announcement reaches subscribers whatever its position.
+    Announcing a stop is not initiating one.
 
     Attributes:
         messages: Complete message history (all telemetry events)
