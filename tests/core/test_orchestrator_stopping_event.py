@@ -34,7 +34,7 @@ import threading
 import time
 import uuid
 from collections.abc import Generator
-from typing import Any, override
+from typing import Any, TypeGuard, override
 
 import pykka
 import pytest
@@ -202,17 +202,19 @@ def _occupy_worker(system: ActorSystem, worker_addr: ActorAddress) -> None:
     assert _in_handler.wait(timeout=5.0), "worker never entered its handler"
 
 
-def _is_announcement(message: Message) -> bool:
+def _is_announcement(message: Message) -> TypeGuard[EventMessage]:
     """Whether a message is an ``EventMessage`` carrying a teardown announcement.
 
     The pair of checks is the point: ``EventMessage`` is the shared carrier for
     every domain-event payload, so only the inner ``.event`` identifies a
-    teardown.
+    teardown. A ``TypeGuard`` rather than a plain ``bool`` so callers keep the
+    ``EventMessage`` narrowing the pair establishes — ``_stopping_events`` reads
+    envelope fields off what it returns.
     """
     return isinstance(message, EventMessage) and isinstance(message.event, TeamStoppingEvent)
 
 
-def _stopping_events(subscriber: _EventRecordingSubscriber) -> list[Message]:
+def _stopping_events(subscriber: _EventRecordingSubscriber) -> list[EventMessage]:
     """The teardown announcements among everything the subscriber was handed."""
     return [msg for msg in subscriber.messages if _is_announcement(msg)]
 

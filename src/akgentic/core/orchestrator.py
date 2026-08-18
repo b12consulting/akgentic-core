@@ -492,8 +492,13 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
         One exception: an ``EventMessage`` carrying a ``TeamStoppingEvent`` is
         skipped entirely — neither appended nor dispatched. The event stays in
-        the durable event store and the read path keeps serving it; only the
-        replay skips it (ADR-018 §3).
+        the durable event store owned by the team layer and that store's read
+        path keeps serving it; only the replay skips it (ADR-018 §3).
+
+        Note which store that is: ``get_events()`` below reads ``self.messages``,
+        this orchestrator's own in-memory log, not the durable one — so after a
+        restore it reports no announcement. That is the intended result of the
+        skip, not a gap to hedge against.
 
         Args:
             message: The persisted message to replay.
