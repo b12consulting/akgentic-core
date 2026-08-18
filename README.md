@@ -701,6 +701,7 @@ needs no change to receive it — and you discriminate it on the inner payload,
 exactly as for any other domain event:
 
 ```python
+from akgentic.core import EventSubscriber
 from akgentic.core.messages import Message
 from akgentic.core.messages.orchestrator import EventMessage, TeamStoppingEvent
 
