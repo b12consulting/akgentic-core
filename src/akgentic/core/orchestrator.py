@@ -490,9 +490,24 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         other history-based queries work correctly after restore, then
         dispatches to all subscribers via ``_notify_subscribers_message``.
 
+        One exception: an ``EventMessage`` carrying a ``TeamStoppingEvent`` is
+        skipped entirely — neither appended nor dispatched. The event stays in
+        the durable event store and the read path keeps serving it; only the
+        replay skips it (ADR-018 §3).
+
         Args:
             message: The persisted message to replay.
         """
+        # A replayed teardown announcement would tell every client that the team
+        # it has just brought back to life is stopped. This is not in-memory
+        # bookkeeping: the dispatch below is the same fan-out live telemetry
+        # takes, and the community-tier stream subscriber deliberately does NOT
+        # suppress during restore (its in-memory stream has no persistence, so
+        # replay is how it gets repopulated). Keyed on the payload, never on the
+        # envelope: EventMessage carries every domain event, ClosedNotification
+        # included, and all of those must replay normally.
+        if isinstance(message, EventMessage) and isinstance(message.event, TeamStoppingEvent):
+            return
         self.messages.append(message)
         self._current_team_members = None  # Invalidate cache
         self._notify_subscribers_message("on_message", message)

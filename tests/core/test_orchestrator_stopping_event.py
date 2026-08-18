@@ -1,20 +1,30 @@
-"""Tests for ``TeamStoppingEvent`` — the announcement that a teardown has begun.
+"""Tests for ``TeamStoppingEvent`` — the announcement that a teardown has begun,
+and the one place it must NOT reappear: the restore replay.
 
-Without it a stopped team is byte-for-byte indistinguishable from a quiet
+Without the event a stopped team is byte-for-byte indistinguishable from a quiet
 running one: nothing is published when ``Orchestrator.stop()`` starts, so an
 out-of-process observer has no way to tell the difference. The event rides the
 existing ``EventMessage`` fan-out, so no subscriber has to change to see it.
 
-The ordering is pinned by orchestrator state observed AT dispatch time, not by
-wall-clock luck: ``_stop_non_tool_children()`` uses fire-and-forget tells, so a
-child recording its own stop into a shared list would race the orchestrator's
-thread and the test would be flaky-GREEN — it would keep passing with the
-emission in the wrong place. ``_stopping``, ``_stop_backstop`` and
+The ordering of the emission is pinned by orchestrator state observed AT dispatch
+time, not by wall-clock luck: ``_stop_non_tool_children()`` uses fire-and-forget
+tells, so a child recording its own stop into a shared list would race the
+orchestrator's thread and the test would be flaky-GREEN — it would keep passing
+with the emission in the wrong place. ``_stopping``, ``_stop_backstop`` and
 ``_pending_tool_stops`` are all set synchronously on the actor thread.
 
+The second half of the module covers ``restore_message()``. Replay is not
+in-memory bookkeeping: its last statement dispatches to every subscriber, on the
+same path live telemetry takes, and the community-tier stream subscriber
+deliberately does not suppress during restore. So a replayed announcement tells
+every client that the team it has just brought back to life is stopped. The skip
+keys on the payload carried by ``EventMessage``, never on the envelope — the
+envelope carries every domain event, ``ClosedNotification`` included.
+
 Deliberately a NEW module: ``test_orchestrator_stop.py`` holds the non-blocking
-stop harness and ``test_orchestrator_stop_request.py`` the lifecycle-hook
-harness; both must stay untouched.
+stop harness, ``test_orchestrator_stop_request.py`` the lifecycle-hook harness,
+and ``test_orchestrator.py::TestRestoreMessage`` the ordinary-replay harness; all
+three must stay untouched.
 """
 
 from __future__ import annotations
@@ -30,12 +40,23 @@ import pykka
 import pytest
 
 from akgentic.core.actor_address import ActorAddress
+from akgentic.core.actor_address_impl import ActorAddressProxy
 from akgentic.core.actor_system_impl import ActorSystem
 from akgentic.core.agent import Akgent
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.messages.message import Message, UserMessage
-from akgentic.core.messages.orchestrator import EventMessage, TeamStoppingEvent
+from akgentic.core.messages.orchestrator import (
+    ClosedNotification,
+    EventMessage,
+    ProcessedMessage,
+    ReceivedMessage,
+    SentMessage,
+    StartMessage,
+    StopMessage,
+    TeamStoppingEvent,
+)
 from akgentic.core.orchestrator import Orchestrator
+from akgentic.core.utils.deserializer import ActorAddressDict
 
 # Signals the moment the worker is INSIDE its handler, so the stop below arrives
 # while the team is genuinely busy and the roster cannot empty instantly.
@@ -181,13 +202,19 @@ def _occupy_worker(system: ActorSystem, worker_addr: ActorAddress) -> None:
     assert _in_handler.wait(timeout=5.0), "worker never entered its handler"
 
 
-def _stopping_events(subscriber: _EventRecordingSubscriber) -> list[EventMessage]:
+def _is_announcement(message: Message) -> bool:
+    """Whether a message is an ``EventMessage`` carrying a teardown announcement.
+
+    The pair of checks is the point: ``EventMessage`` is the shared carrier for
+    every domain-event payload, so only the inner ``.event`` identifies a
+    teardown.
+    """
+    return isinstance(message, EventMessage) and isinstance(message.event, TeamStoppingEvent)
+
+
+def _stopping_events(subscriber: _EventRecordingSubscriber) -> list[Message]:
     """The teardown announcements among everything the subscriber was handed."""
-    return [
-        msg
-        for msg in subscriber.messages
-        if isinstance(msg, EventMessage) and isinstance(msg.event, TeamStoppingEvent)
-    ]
+    return [msg for msg in subscriber.messages if _is_announcement(msg)]
 
 
 def _error_messages(caplog: pytest.LogCaptureFixture) -> list[str]:
@@ -199,6 +226,74 @@ def _error_messages(caplog: pytest.LogCaptureFixture) -> list[str]:
     a failure about something these tests never claimed.
     """
     return [record.message for record in caplog.records if record.levelno >= logging.ERROR]
+
+
+def _proxy_address(name: str, team_id: uuid.UUID) -> ActorAddress:
+    """A snapshot address, the only kind a replayed log ever carries.
+
+    A persisted message's sender was serialized when it was stored, so what
+    ``restore_message`` is handed back is always an ``ActorAddressProxy``, never
+    a live actor reference.
+    """
+    address: ActorAddressDict = {
+        "__actor_address__": True,
+        "__actor_type__": "akgentic.core.actor_address_impl.ActorAddressProxy",
+        "agent_id": str(uuid.uuid4()),
+        "name": name,
+        "role": "Worker",
+        "team_id": str(team_id),
+        "squad_id": "",
+        "is_user_proxy": False,
+    }
+    return ActorAddressProxy(address)
+
+
+def _orchestrator_with_recorder(
+    system: ActorSystem,
+) -> tuple[Orchestrator, _EventRecordingSubscriber]:
+    """A bare orchestrator proxy with a recorder already attached to its fan-out."""
+    orch_addr = system.createActor(
+        Orchestrator, config=BaseConfig(name="@Orchestrator", role="Orchestrator")
+    )
+    orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+    recorder = _EventRecordingSubscriber()
+    orch_proxy.subscribe(recorder)
+    return orch_proxy, recorder
+
+
+def _every_message_kind(worker: ActorAddress, team_id: uuid.UUID) -> list[Message]:
+    """One ordered log covering every kind a replay can carry, announcement last.
+
+    Asserted as a whole rather than as seven single-message replays, so the test
+    pins relative ORDER as well as membership.
+
+    The ``StartMessage`` and ``StopMessage`` are stamped with a sender the way
+    ``emitMessage`` stamps one: ``get_team()`` skips senderless messages outright,
+    so an unstamped pair would make any roster assertion pass vacuously.
+    """
+    start = StartMessage(config=BaseConfig(name="@Worker", role="Worker"))
+    start.init(worker, team_id)
+    stop = StopMessage()
+    stop.init(worker, team_id)
+    return [
+        start,
+        stop,
+        SentMessage(message=UserMessage(content="x"), recipient=worker),
+        ReceivedMessage(message_id=uuid.uuid4()),
+        ProcessedMessage(message_id=uuid.uuid4()),
+        EventMessage(event=ClosedNotification(message_id=uuid.uuid4())),
+        EventMessage(event=TeamStoppingEvent()),
+    ]
+
+
+def _ids(messages: list[Message]) -> list[uuid.UUID]:
+    """Identify messages by ``id``, not by object identity.
+
+    ``_notify_subscribers_message`` hands subscribers a snapshot rather than the
+    object it was given, so ``is`` comparisons against the replayed input are not
+    reliable; ``id`` survives snapshotting unchanged.
+    """
+    return [message.id for message in messages]
 
 
 class TestTheEventIsPublished:
@@ -343,3 +438,143 @@ class TestSubscribersThatNeverHeardOfTheType:
 
         assert subscriber.seen.count("TeamStoppingEvent") == 1
         assert _error_messages(caplog) == []
+
+
+class TestRestoreSkipsTheAnnouncement:
+    """A restore replay leaves the previous lifecycle's teardown out entirely."""
+
+    def test_a_replayed_announcement_reaches_neither_history_nor_subscribers(self) -> None:
+        """Both halves of ``restore_message`` are skipped, not just the append.
+
+        The subscriber assertion is the one that matters: ``restore_message``
+        ends in ``_notify_subscribers_message``, so a skip that dropped only the
+        ``self.messages`` append would leave the fan-out intact and every client
+        would still be told its freshly restored team is stopped.
+        """
+        system = ActorSystem()
+        orch_proxy, recorder = _orchestrator_with_recorder(system)
+
+        announcement = EventMessage(event=TeamStoppingEvent())
+        orch_proxy.restore_message(announcement)
+
+        assert recorder.messages == []
+        assert orch_proxy.get_events(event_class=TeamStoppingEvent) == []
+        assert announcement.id not in _ids(orch_proxy.get_messages())
+
+    def test_every_other_message_in_the_same_log_replays_unchanged(self) -> None:
+        """One log of every kind: all of it replays, in order, minus the announcement.
+
+        ``get_messages()`` is never empty to begin with — ``on_start()`` records
+        the orchestrator's own ``StartMessage`` before any test can touch it — so
+        history is asserted over the replayed ids alone, and the subscriber
+        record carries the strict whole-sequence assertion.
+        """
+        system = ActorSystem()
+        orch_proxy, recorder = _orchestrator_with_recorder(system)
+        team_id: uuid.UUID = orch_proxy.team_id
+        worker = _proxy_address("@Worker", team_id)
+
+        log = _every_message_kind(worker, team_id)
+        for message in log:
+            orch_proxy.restore_message(message)
+
+        expected = _ids([message for message in log if not _is_announcement(message)])
+        assert len(expected) == len(log) - 1
+        assert _ids(recorder.messages) == expected
+
+        replayed_ids = set(_ids(log))
+        history = [msg for msg in orch_proxy.get_messages() if msg.id in replayed_ids]
+        assert _ids(history) == expected
+
+    def test_an_event_carrying_another_payload_replays_normally(self) -> None:
+        """A ``ClosedNotification`` — the dismissal the frontend replays — is untouched.
+
+        This is the test that pins the guard to the inner payload.
+        ``EventMessage`` is the shared carrier for every domain event, so a guard
+        broadened to ``isinstance(message, EventMessage)`` alone would silently
+        drop every dismissal a client folds into its notification state on
+        restore, along with any payload added later. Do not "simplify" this test
+        by dropping the ``ClosedNotification``: it is the whole subject.
+        """
+        system = ActorSystem()
+        orch_proxy, recorder = _orchestrator_with_recorder(system)
+
+        dismissal = EventMessage(event=ClosedNotification(message_id=uuid.uuid4()))
+        orch_proxy.restore_message(dismissal)
+
+        assert _ids(recorder.messages) == [dismissal.id]
+        assert _ids(orch_proxy.get_events(event_class=ClosedNotification)) == [dismissal.id]
+
+    def test_the_roster_is_unaffected_by_the_skip(self) -> None:
+        """The same log with and without the announcement yields the same roster.
+
+        The early return also skips ``self._current_team_members = None``. That is
+        correct rather than an oversight — ``get_team()`` derives the roster from
+        ``StartMessage``/``StopMessage`` senders alone, so an ``EventMessage``
+        never contributed to it and nothing it reads changed. This is the guard
+        that keeps that true if the return ever grows a body.
+        """
+        system = ActorSystem()
+        with_skip, _ = _orchestrator_with_recorder(system)
+        without_skip, _ = _orchestrator_with_recorder(system)
+        team_id: uuid.UUID = with_skip.team_id
+
+        kept = _proxy_address("@Kept", team_id)
+        gone = _proxy_address("@Gone", team_id)
+        kept_start = StartMessage(config=BaseConfig(name="@Kept", role="Worker"))
+        kept_start.init(kept, team_id)
+        gone_start = StartMessage(config=BaseConfig(name="@Gone", role="Worker"))
+        gone_start.init(gone, team_id)
+        gone_stop = StopMessage()
+        gone_stop.init(gone, team_id)
+        announcement = EventMessage(event=TeamStoppingEvent())
+
+        for message in [kept_start, gone_start, announcement, gone_stop]:
+            with_skip.restore_message(message)
+        for message in [kept_start, gone_start, gone_stop]:
+            without_skip.restore_message(message)
+
+        roster = {member.agent_id for member in with_skip.get_team()}
+        assert roster == {kept.agent_id}
+        assert roster == {member.agent_id for member in without_skip.get_team()}
+
+
+class TestTheStopThenRestoreCycleIsClean:
+    """The end-to-end form: a real teardown's log, replayed into a new team."""
+
+    def test_a_captured_teardown_log_restores_without_the_announcement(self) -> None:
+        """Stop a real team, replay what a persistence subscriber stored, see no teardown.
+
+        The log cannot be read off the stopped orchestrator — once ``stop()``
+        completes the actor is gone and ``get_messages()`` is unavailable — so it
+        is captured through a subscriber attached before the stop. That recording
+        is precisely what a persistence subscriber would have written, which is
+        what makes this the end-to-end case rather than a restatement of the
+        replay tests above.
+
+        The captured messages are subscriber snapshots, with every live address
+        already replaced by a proxy. That is fine: ``restore_message`` does no
+        address resolution — resolving proxies back to live refs belongs to the
+        team layer, in another package.
+        """
+        system = ActorSystem()
+        orch_addr, worker_addr = _build_busy_team(system)
+        orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+        persisted = _EventRecordingSubscriber()
+        orch_proxy.subscribe(persisted)
+
+        _occupy_worker(system, worker_addr)
+        event: threading.Event = orch_proxy.stop(_GRACE_S)
+        assert event.wait(timeout=_WATCHDOG_S), "stop never completed"
+
+        assert len(_stopping_events(persisted)) == 1, "captured log holds no announcement"
+        expected = _ids([msg for msg in persisted.messages if not _is_announcement(msg)])
+        assert expected, "captured log holds nothing but the announcement"
+
+        restored, recorder = _orchestrator_with_recorder(system)
+        for message in persisted.messages:
+            restored.restore_message(message)
+
+        assert _stopping_events(recorder) == []
+        assert restored.get_events(event_class=TeamStoppingEvent) == []
+        assert _ids(recorder.messages) == expected
