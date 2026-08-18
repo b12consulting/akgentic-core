@@ -55,6 +55,15 @@ class EventSubscriber(Protocol):
     it cares about. The three lifecycle hooks carry the dispatching
     orchestrator's ``team_id``, so one instance can be shared across teams.
 
+    A teardown reaches a subscriber two ways: as an ``EventMessage`` carrying a
+    ``TeamStoppingEvent`` payload on ``on_message`` (ADR-018), and as the
+    ``on_stop_request`` hook. The message is emitted BEFORE ``_stopping`` is set
+    and so is not subject to the ``receiveMsg_StopMessage`` suppression that
+    withholds per-agent ``StopMessage``s during teardown — which is why this
+    event arrives when the per-agent stops do not. It is an ordinary
+    domain-event payload on the existing fan-out: a subscriber needs no change
+    to receive it.
+
     Implementations in this workspace:
         - ``PersistenceSubscriber`` (akgentic-team): events to an EventStore,
           with StateChangedMessage diverted to a latest-per-agent snapshot
@@ -151,10 +160,15 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     idle-stop policy — without this package depending on any of them. It holds no
     inactivity clock of its own and never initiates an *idle* stop: detecting
     idleness and acting on it are a subscriber's business end to end. It does
-    announce the start of a teardown it has been asked to perform: ``stop()``
-    opens with ``on_stop_request`` so subscribers release what they hold for the
-    team while the mailbox still drains, and ``on_stop`` marks the end. Announcing
-    a stop is not initiating one.
+    announce the start of a teardown it has been asked to perform, on two
+    channels. ``stop()`` opens with the wire announcement — a
+    ``TeamStoppingEvent`` on an ``EventMessage`` envelope (ADR-018), for
+    out-of-process observers that see only the message stream. The in-process
+    hook ``on_stop_request`` follows, still before any child is touched, so
+    subscribers release what they hold for the team while the mailbox still
+    drains; ``on_stop`` marks the end. The announcement rides the existing
+    fan-out as an ordinary domain event, so no subscriber needs a change to
+    receive it. Announcing a stop is not initiating one.
 
     Attributes:
         messages: Complete message history (all telemetry events)
