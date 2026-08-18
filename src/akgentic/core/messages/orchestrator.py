@@ -172,3 +172,24 @@ class ClosedNotification:
     """
 
     message_id: uuid.UUID
+
+
+@dataclass(frozen=True)
+class TeamStoppingEvent:
+    """Domain event recording that a team teardown has begun.
+
+    Emitted by ``Orchestrator.stop()`` before any child is touched, so an
+    out-of-process observer — a second browser tab, an operator dashboard, a
+    client watching an idle-stopped session — learns that the team is going down
+    instead of seeing a stopped team as a quiet running one.
+
+    Carried by ``EventMessage(event=...)`` like any other domain-event payload —
+    it is deliberately not a ``Message`` subclass and needs no orchestrator
+    handler of its own. ``Message.init`` puts ``team_id``, ``timestamp`` and the
+    sending orchestrator on the envelope, which is why this payload carries no
+    fields of its own.
+
+    Keep it in this module: ``serialize()`` persists its import path into every
+    stored event and replay resolves that string back to the class, with no
+    alias mechanism — moving it breaks replay of teardowns already written.
+    """

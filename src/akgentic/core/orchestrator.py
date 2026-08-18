@@ -27,6 +27,7 @@ from akgentic.core.messages.orchestrator import (
     StartMessage,
     StateChangedMessage,
     StopMessage,
+    TeamStoppingEvent,
 )
 from akgentic.core.utils.serializer import SerializableBaseModel
 
@@ -735,9 +736,11 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         returns the same event and does not re-tell the children — and does not
         re-announce the teardown either.
 
-        The first thing ``stop()`` does is tell subscribers that teardown has
-        begun (``on_stop_request``), before any child is touched; ``on_stop``
-        still marks the end.
+        The first thing ``stop()`` does is announce the teardown on the wire — a
+        ``TeamStoppingEvent`` on an ``EventMessage`` envelope, for out-of-process
+        observers that see only the message stream. Telling subscribers directly
+        (``on_stop_request``) follows, still before any child is touched;
+        ``on_stop`` marks the end.
 
         Args:
             grace_timeout: Seconds to allow for graceful quiescence before the
@@ -756,6 +759,14 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             # announcement to subscribers that have already released.
             assert self._stop_event is not None
             return self._stop_event
+
+        # Announce the teardown on the wire (ADR-018 §2). The position is fixed
+        # at both ends: BELOW the guard, so a repeated stop() announces once and
+        # the idempotency is inherited rather than reimplemented; ABOVE both the
+        # flag and the on_stop_request hook, so "emitted before teardown began"
+        # holds by construction — a subscriber told to release what it holds must
+        # not then be handed a message to publish.
+        self.emitMessage(EventMessage(event=TeamStoppingEvent()))
 
         # Teardown has begun. Tell subscribers before anything is torn down: the
         # drain that follows still delivers ProcessedMessages, and a subscriber
