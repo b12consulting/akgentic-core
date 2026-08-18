@@ -121,10 +121,6 @@ class _ProbeOrchestrator(Orchestrator):
             len(self._pending_tool_stops),
         )
 
-    def dispatch_records(self) -> list[DispatchRecord]:
-        """Public façade over the recorded dispatches (Pykka filters ``_`` members)."""
-        return list(_dispatch_records)
-
 
 class _EventRecordingSubscriber:
     """Records every message it is handed, with no knowledge of any payload type.
@@ -284,10 +280,23 @@ class TestTheEventPrecedesEveryTeardownStep:
     def test_the_event_precedes_the_lifecycle_hook_and_all_teardown_work(self) -> None:
         """It is dispatched first, with ``stop()`` untouched at that moment.
 
-        Both assertions are needed and neither implies the other: the state
-        snapshot catches the emission sinking below ``self._stopping = True`` or
-        below phase 1, and the shared ordered record catches it sinking below the
-        ``on_stop_request`` dispatch — which leaves the state identical.
+        The ordered record is the primary pin, and it alone is sufficient today:
+        ``on_stop_request`` is dispatched immediately below the emission, so ANY
+        downward move of the emission reddens the index assertion. The state
+        snapshot is NOT an independent second mutation — ``self._stopping = True``
+        sits *below* the ``on_stop_request`` dispatch, so sinking past the flag
+        necessarily sinks past the hook and both assertions fire together. It is
+        kept as a positional guard: it pins the emission against the teardown
+        work itself rather than against a hook whose own position could later
+        move, and it is what would still fail if ``on_stop_request`` were
+        relocated out from under the ordering assertion.
+
+        The three state assertions are not equally strong. ``stopping`` is the
+        durable one — set once and never cleared, so it rejects every position
+        below the flag. ``backstop_armed`` is monotonic too. ``pending_tools``
+        is NOT: ``_maybe_stop_pending_tools()`` empties the list again, so a
+        zero there proves "phase 1 has not run" only for a position above that
+        call, and it must not be read as a general guard.
         """
         system = ActorSystem()
         orch_addr, worker_addr = _build_busy_team(system, _ProbeOrchestrator)
