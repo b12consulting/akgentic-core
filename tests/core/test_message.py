@@ -4,7 +4,7 @@ Tests base Message class, UserMessage, ResultMessage, and orchestrator messages.
 """
 
 import uuid
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, fields
 from datetime import UTC, datetime
 
 import pytest
@@ -27,6 +27,7 @@ from akgentic.core.messages.orchestrator import (
     StartMessage,
     StateChangedMessage,
     StopMessage,
+    TeamStoppingEvent,
     WarningMessage,
 )
 from akgentic.core.utils.deserializer import deserialize_object
@@ -605,6 +606,71 @@ class TestClosedNotification:
         assert isinstance(restored.event, ClosedNotification)
         assert isinstance(restored.event.message_id, uuid.UUID)
         assert restored.event.message_id == message_id
+
+
+class TestTeamStoppingEvent:
+    """Tests for TeamStoppingEvent, the payload announcing that a teardown has begun."""
+
+    def test_carries_no_fields(self) -> None:
+        """The envelope supplies team_id, sender and timestamp, so the payload holds nothing.
+
+        A field added here would have to be optional forever, because events
+        persisted before it must stay deserializable.
+        """
+        assert fields(TeamStoppingEvent()) == ()
+
+    def test_is_frozen(self) -> None:
+        """Assigning anything raises, so a stored announcement cannot be mutated in place."""
+        stopping = TeamStoppingEvent()
+        with pytest.raises(FrozenInstanceError):
+            stopping.reason = "idle"  # type: ignore[attr-defined]
+
+    def test_is_not_a_message_subclass(self) -> None:
+        """It is a payload, not telemetry: EventMessage is its carrier, not its base.
+
+        Being a Message would give it a receiveMsg_ handler by MRO dispatch; being
+        a StopMessage in particular would make the team layer's restore logic read
+        the orchestrator as one of the agents that stopped.
+        """
+        assert issubclass(TeamStoppingEvent, Message) is False
+
+    def test_serialize_emits_the_model_tag_alone(self) -> None:
+        """serialize() tags the class path, and with no fields that tag is the whole payload.
+
+        The dotted path is the persisted identity: replay resolves this exact
+        string back to the class and there is no alias mechanism, so relocating
+        the class to another module breaks replay of events already written.
+        """
+        payload = serialize(TeamStoppingEvent())
+
+        assert payload == {
+            "__model__": "akgentic.core.messages.orchestrator.TeamStoppingEvent",
+        }
+
+    def test_deserialize_restores_the_class(self) -> None:
+        """deserialize_object() turns the tag back into a real TeamStoppingEvent."""
+        restored = deserialize_object(serialize(TeamStoppingEvent()))
+
+        assert isinstance(restored, TeamStoppingEvent)
+
+    def test_round_trip_inside_event_message(self) -> None:
+        """A dump/validate cycle through the real EventMessage carrier restores the payload.
+
+        `EventMessage.event` is typed `Any`, so `.event` must be asserted to be a
+        TeamStoppingEvent — a plain dict would otherwise slip through.
+        """
+        msg = EventMessage(event=TeamStoppingEvent())
+
+        restored = EventMessage.model_validate(msg.model_dump())
+
+        assert isinstance(restored.event, TeamStoppingEvent)
+
+    def test_is_importable_from_the_package_message_surface(self) -> None:
+        """It is part of `akgentic.core.messages`, the surface consumers import from."""
+        import akgentic.core.messages as messages
+
+        assert messages.TeamStoppingEvent is TeamStoppingEvent
+        assert "TeamStoppingEvent" in messages.__all__
 
 
 class TestStateChangedMessage:

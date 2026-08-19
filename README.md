@@ -691,6 +691,48 @@ implement only what you need — but a method you *do* define must match this si
 `SentMessage`, `ReceivedMessage`, `ProcessedMessage`, `ErrorMessage`,
 `WarningMessage`, `StateChangedMessage`, `EventMessage`.
 
+#### The teardown announcement
+
+Stopping a team publishes an `EventMessage` whose `.event` is a
+`TeamStoppingEvent`, so a client watching only the message stream learns the
+team is going down rather than reading a stopped team as a quiet running one.
+It is an ordinary domain-event payload on the fan-out above — a subscriber
+needs no change to receive it — and you discriminate it on the inner payload,
+exactly as for any other domain event:
+
+```python
+from akgentic.core import EventSubscriber
+from akgentic.core.messages import Message
+from akgentic.core.messages.orchestrator import EventMessage, TeamStoppingEvent
+
+class TeardownWatcher(EventSubscriber):
+    def on_message(self, msg: Message) -> None:
+        if isinstance(msg, EventMessage) and isinstance(msg.event, TeamStoppingEvent):
+            print(f"team {msg.team_id} is stopping")
+```
+
+The payload has no fields: the envelope already carries `team_id`, `timestamp`
+and the sending orchestrator.
+
+Two caveats, both of which matter to anything built on this event:
+
+- **Do not infer team status from the stream.** The announcement comes from
+  `Orchestrator.stop()` and nowhere else, so any teardown that bypasses it
+  produces a stopped team with *no* event — a stop driven straight through Pykka
+  (`actor_ref.stop()`, `ActorRegistry.stop_all()`), and a worker crash, which
+  emits nothing at all. The internal force-stop backstop is *not* such a path:
+  it is armed by `stop()` itself, below the announcement, so a backstop-forced
+  teardown is always announced first. Code that read "no stop event ⇒ still
+  running" would show the bypassing teams live indefinitely, and nothing later
+  in the log corrects it. Read status from the API; treat this event as an
+  accelerator, not a source of truth.
+- **Delivery is best-effort.** The guarantee is that the event is *emitted and
+  persisted*, not that it is *delivered*: tearing a team down also tears down
+  the machinery carrying its stream, and a reader can lose what it had not yet
+  consumed. The window is widest on a normal teardown and effectively zero on a
+  team with no agents, where the whole teardown completes inside the emitting
+  call.
+
 ### Team Metadata
 
 `team_metadata` is caller-defined, **team-scoped** business context — tenant,
@@ -744,6 +786,12 @@ can be fully reconstructed by:
 1. Identifying agents alive at shutdown (`StartMessage` minus `StopMessage`)
 2. Recreating those actors with original `agent_id`, `team_id`, and `config`
 3. Replaying persisted events via `restore_message()` to rebuild in-memory state
+
+One event is deliberately not replayed: `restore_message()` skips an
+`EventMessage` carrying a `TeamStoppingEvent`, since replay goes out on the same
+fan-out live telemetry takes and would otherwise tell every client that the team
+it has just brought back to life is stopped. The event itself is not lost — it
+stays in the durable event store owned by the team layer.
 
 `akgentic-team` implements the full 3-phase restore protocol on top of these
 primitives. See [akgentic-team](https://github.com/b12consulting/akgentic-team/blob/master/README.md) for details.

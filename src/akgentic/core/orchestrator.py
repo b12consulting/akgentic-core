@@ -27,6 +27,7 @@ from akgentic.core.messages.orchestrator import (
     StartMessage,
     StateChangedMessage,
     StopMessage,
+    TeamStoppingEvent,
 )
 from akgentic.core.utils.serializer import SerializableBaseModel
 
@@ -53,6 +54,21 @@ class EventSubscriber(Protocol):
     Every method has a no-op default, so a subscriber implements only the hooks
     it cares about. The three lifecycle hooks carry the dispatching
     orchestrator's ``team_id``, so one instance can be shared across teams.
+
+    A teardown reaches a subscriber two ways: as an ``EventMessage`` carrying a
+    ``TeamStoppingEvent`` payload on ``on_message`` (ADR-018), and as the
+    ``on_stop_request`` hook. Per-agent ``StopMessage``s are withheld during
+    teardown; this announcement is not, so it arrives when the per-agent stops
+    do not. Its position is not the reason: the suppression lives wholly inside
+    ``receiveMsg_StopMessage`` and gates only that handler, while
+    ``emitMessage`` never consults ``_stopping``, so the announcement would
+    reach subscribers from any position in ``stop()``. It is emitted BEFORE
+    ``_stopping`` is set for its own two reasons (ADR-018 §2) — below the
+    idempotency guard, so a repeated ``stop()`` announces exactly once, and
+    above ``on_stop_request``, so a subscriber just told to release what it
+    holds is never then handed a message to publish. It is an ordinary
+    domain-event payload on the existing fan-out: a subscriber needs no change
+    to receive it.
 
     Implementations in this workspace:
         - ``PersistenceSubscriber`` (akgentic-team): events to an EventStore,
@@ -150,10 +166,20 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
     idle-stop policy — without this package depending on any of them. It holds no
     inactivity clock of its own and never initiates an *idle* stop: detecting
     idleness and acting on it are a subscriber's business end to end. It does
-    announce the start of a teardown it has been asked to perform: ``stop()``
-    opens with ``on_stop_request`` so subscribers release what they hold for the
-    team while the mailbox still drains, and ``on_stop`` marks the end. Announcing
-    a stop is not initiating one.
+    announce the start of a teardown it has been asked to perform, on two
+    channels. ``stop()`` opens with the wire announcement — a
+    ``TeamStoppingEvent`` on an ``EventMessage`` envelope (ADR-018), for
+    out-of-process observers that see only the message stream. The in-process
+    hook ``on_stop_request`` follows, still before any child is touched, so
+    subscribers release what they hold for the team while the mailbox still
+    drains; ``on_stop`` marks the end. The announcement rides the existing
+    fan-out as an ordinary domain event, so no subscriber needs a change to
+    receive it. It is emitted before ``_stopping`` is set, which is what makes
+    "emitted before teardown began" true by construction — not what exempts it
+    from the ``receiveMsg_StopMessage`` suppression that withholds per-agent
+    ``StopMessage``s during teardown. That suppression gates only that one
+    handler, so the announcement reaches subscribers whatever its position.
+    Announcing a stop is not initiating one.
 
     Attributes:
         messages: Complete message history (all telemetry events)
@@ -489,9 +515,29 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         other history-based queries work correctly after restore, then
         dispatches to all subscribers via ``_notify_subscribers_message``.
 
+        One exception: an ``EventMessage`` carrying a ``TeamStoppingEvent`` is
+        skipped entirely — neither appended nor dispatched. The event stays in
+        the durable event store owned by the team layer and that store's read
+        path keeps serving it; only the replay skips it (ADR-018 §3).
+
+        Note which store that is: ``get_events()`` below reads ``self.messages``,
+        this orchestrator's own in-memory log, not the durable one — so after a
+        restore it reports no announcement. That is the intended result of the
+        skip, not a gap to hedge against.
+
         Args:
             message: The persisted message to replay.
         """
+        # A replayed teardown announcement would tell every client that the team
+        # it has just brought back to life is stopped. This is not in-memory
+        # bookkeeping: the dispatch below is the same fan-out live telemetry
+        # takes, and the community-tier stream subscriber deliberately does NOT
+        # suppress during restore (its in-memory stream has no persistence, so
+        # replay is how it gets repopulated). Keyed on the payload, never on the
+        # envelope: EventMessage carries every domain event, ClosedNotification
+        # included, and all of those must replay normally.
+        if isinstance(message, EventMessage) and isinstance(message.event, TeamStoppingEvent):
+            return
         self.messages.append(message)
         self._current_team_members = None  # Invalidate cache
         self._notify_subscribers_message("on_message", message)
@@ -735,9 +781,11 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         returns the same event and does not re-tell the children — and does not
         re-announce the teardown either.
 
-        The first thing ``stop()`` does is tell subscribers that teardown has
-        begun (``on_stop_request``), before any child is touched; ``on_stop``
-        still marks the end.
+        The first thing ``stop()`` does is announce the teardown on the wire — a
+        ``TeamStoppingEvent`` on an ``EventMessage`` envelope, for out-of-process
+        observers that see only the message stream. Telling subscribers directly
+        (``on_stop_request``) follows, still before any child is touched;
+        ``on_stop`` marks the end.
 
         Args:
             grace_timeout: Seconds to allow for graceful quiescence before the
@@ -756,6 +804,14 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             # announcement to subscribers that have already released.
             assert self._stop_event is not None
             return self._stop_event
+
+        # Announce the teardown on the wire (ADR-018 §2). The position is fixed
+        # at both ends: BELOW the guard, so a repeated stop() announces once and
+        # the idempotency is inherited rather than reimplemented; ABOVE both the
+        # flag and the on_stop_request hook, so "emitted before teardown began"
+        # holds by construction — a subscriber told to release what it holds must
+        # not then be handed a message to publish.
+        self.emitMessage(EventMessage(event=TeamStoppingEvent()))
 
         # Teardown has begun. Tell subscribers before anything is torn down: the
         # drain that follows still delivers ProcessedMessages, and a subscriber
