@@ -119,3 +119,17 @@ class ResultMessage(Message):
 
     display_type: Literal["ai"] = "ai"
     content: str
+
+
+class CancelMessage(Message):
+    """Ask the recipient to abandon its current run at the next step boundary (ADR-040 §4).
+
+    A pure carrier like StopMessage: core ships the vocabulary only, and an
+    agent that does not recognise cancellation ignores it like any unknown
+    Message subclass.
+
+    Attributes:
+        reason: Optional human-readable reason for the cancellation.
+    """
+
+    reason: str = ""

@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 import pytest
 
 from akgentic.core.messages.message import (
+    CancelMessage,
     Message,
     ResultMessage,
     StopRecursively,
@@ -199,6 +200,60 @@ class TestResultMessage:
         msg = ResultMessage(content="Response")
         assert isinstance(msg.id, uuid.UUID)
         assert isinstance(msg.timestamp, datetime)
+
+
+class TestCancelMessage:
+    """Tests for CancelMessage, the typed cancel carrier."""
+
+    def test_default_reason_is_empty(self) -> None:
+        """Should default reason to ''."""
+        msg = CancelMessage()
+        assert msg.reason == ""
+
+    def test_default_display_type_is_other(self) -> None:
+        """Should keep the inherited display_type 'other'."""
+        msg = CancelMessage()
+        assert msg.display_type == "other"
+
+    def test_inherits_message_fields(self) -> None:
+        """Should inherit all Message fields."""
+        msg = CancelMessage()
+        assert isinstance(msg.id, uuid.UUID)
+        assert isinstance(msg.timestamp, datetime)
+        assert msg.sender is None
+
+    def test_init_chaining(self) -> None:
+        """init() should set sender, team_id, parent_id and return self."""
+        parent = Message()
+        team_id = uuid.uuid4()
+        msg = CancelMessage()
+        result = msg.init(sender="mock_sender", team_id=team_id, current_message=parent)
+        assert result is msg
+        assert msg.sender == "mock_sender"
+        assert msg.team_id == team_id
+        assert msg.parent_id == parent.id
+
+    def test_serialization_includes_model_marker(self) -> None:
+        """model_dump() should carry the inherited __model__ marker naming CancelMessage."""
+        payload = CancelMessage().model_dump()
+        assert payload["__model__"] == "akgentic.core.messages.message.CancelMessage"
+
+    def test_round_trip_preserves_class_and_reason(self) -> None:
+        """A serialize/deserialize cycle restores a CancelMessage, not a plain Message."""
+        msg = CancelMessage(reason="user pressed stop")
+
+        restored = deserialize_object(serialize(msg))
+
+        assert isinstance(restored, CancelMessage)
+        assert restored.reason == "user pressed stop"
+        assert restored.id == msg.id
+
+    def test_is_importable_from_the_package_message_surface(self) -> None:
+        """It is part of `akgentic.core.messages`, the surface consumers import from."""
+        import akgentic.core.messages as messages
+
+        assert messages.CancelMessage is CancelMessage
+        assert "CancelMessage" in messages.__all__
 
 
 class TestSentMessage:
