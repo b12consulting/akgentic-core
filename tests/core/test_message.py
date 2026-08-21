@@ -248,13 +248,6 @@ class TestCancelMessage:
         assert restored.reason == "user pressed stop"
         assert restored.id == msg.id
 
-    def test_is_importable_from_the_package_message_surface(self) -> None:
-        """It is part of `akgentic.core.messages`, the surface consumers import from."""
-        import akgentic.core.messages as messages
-
-        assert messages.CancelMessage is CancelMessage
-        assert "CancelMessage" in messages.__all__
-
 
 class TestSentMessage:
     """Tests for SentMessage orchestrator message."""

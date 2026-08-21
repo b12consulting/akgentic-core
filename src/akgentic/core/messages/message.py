@@ -1,7 +1,9 @@
 """Base message classes for actor communication.
 
-Provides the Message base class and basic message types (UserMessage, ResultMessage)
-for actor-to-actor communication. Preserves v1 message structure.
+Provides the Message base class and basic message types (UserMessage, ResultMessage,
+CancelMessage) for actor-to-actor communication. CancelMessage is a request to abandon
+the current run, honoured by agents that implement run cancellation and a no-op
+elsewhere. Preserves v1 message structure.
 
 Source: akgentic-framework/libs/akgentic/akgentic/core/messages/message.py
 """
@@ -129,7 +131,8 @@ class CancelMessage(Message):
     Message subclass.
 
     Attributes:
-        reason: Optional human-readable reason for the cancellation.
+        reason: Human-readable reason for the cancellation; empty string
+            when none is given.
     """
 
     reason: str = ""
