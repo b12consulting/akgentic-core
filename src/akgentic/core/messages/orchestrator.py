@@ -60,6 +60,22 @@ class ProcessedMessage(Message):
     message_id: uuid.UUID
 
 
+class HandledMessage(Message):
+    """Telemetry message indicating a queued message was absorbed, not processed.
+
+    Records a message that the run in progress dealt with while it sat in the
+    mailbox: it was removed before delivery, so it never gets its own turn and
+    no ``ReceivedMessage``/``ProcessedMessage`` pair is ever emitted for it.
+    Together with ``ProcessedMessage`` it closes the ledger a ``SentMessage``
+    opens — every message ends either processed or handled.
+
+    Attributes:
+        message_id: UUID of the absorbed message.
+    """
+
+    message_id: uuid.UUID
+
+
 class StartMessage(Message):
     """Message to start an actor with configuration.
 

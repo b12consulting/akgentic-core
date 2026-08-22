@@ -27,6 +27,7 @@ from akgentic.core.messages.message import Message, StopRecursively
 from akgentic.core.messages.orchestrator import (
     ErrorMessage,
     EventMessage,
+    HandledMessage,
     ProcessedMessage,
     ReceivedMessage,
     SentMessage,
@@ -299,6 +300,56 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             for envelope in list(self._actor_ref.actor_inbox.queue)  # type: ignore
             if isinstance(envelope.message, Message)
         ]
+
+    def consume_mailbox(self, message_ids: list[uuid.UUID]) -> list[Message]:
+        """Remove queued messages from this agent's own mailbox, without delivering them.
+
+        Call this from the actor's own thread only — from inside a handler, a tool
+        call or a capability hook. That thread is the inbox's single consumer, and
+        while it is here it is not dequeuing; every producer appends under the same
+        mutex this holds, so removing entries loses nothing and reorders nothing.
+        Called from any other thread it races the consumer and is unsupported.
+
+        Envelopes carrying a ``reply_to`` are left alone: their sender is blocked on
+        a reply that removal would never deliver.
+
+        One ``HandledMessage`` is emitted per removal, so the ledger a
+        ``SentMessage`` opened still closes for mail that never gets its own turn.
+
+        Args:
+            message_ids: Ids of the queued messages to remove. An id that is not
+                (or no longer) queued is ignored silently.
+
+        Returns:
+            The removed messages, in the order they sat in the queue.
+        """
+        wanted = set(message_ids)
+        if not wanted:
+            return []
+
+        inbox = self._actor_ref.actor_inbox
+        removed: list[Message] = []
+        with inbox.mutex:  # type: ignore
+            # Two passes, never one: mutating a deque while iterating it skips
+            # elements silently. Envelope defines no __eq__, so the remove() below
+            # matches by identity — which is exactly what is wanted here.
+            doomed = [
+                envelope
+                for envelope in inbox.queue  # type: ignore
+                if isinstance(envelope.message, Message)
+                and envelope.reply_to is None
+                and envelope.message.id in wanted
+            ]
+            for envelope in doomed:
+                inbox.queue.remove(envelope)  # type: ignore
+                removed.append(envelope.message)
+
+        # Emit outside the mutex: _notify_orchestrator tells another actor, and no
+        # lock on this inbox may be held across that.
+        for message in removed:
+            self._notify_orchestrator(HandledMessage(message_id=message.id))
+
+        return removed
 
     def createActor(  # noqa: N802
         self,

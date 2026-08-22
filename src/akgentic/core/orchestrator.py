@@ -20,6 +20,7 @@ from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message
 from akgentic.core.messages.orchestrator import (
     EventMessage,
+    HandledMessage,
     NotificationMessage,
     ProcessedMessage,
     ReceivedMessage,
@@ -459,6 +460,19 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
         Args:
             message: ProcessedMessage containing processing completion details
+            sender: ActorAddress of sending agent
+        """
+        # Skip orchestrator's own telemetry to avoid recursion
+        if sender == self.myAddress:
+            return
+        self.messages.append(message)
+        self._notify_subscribers_message("on_message", message)
+
+    def receiveMsg_HandledMessage(self, message: HandledMessage, sender: ActorAddress) -> None:
+        """Handle absorbed-message events.
+
+        Args:
+            message: HandledMessage naming a queued message removed without a turn
             sender: ActorAddress of sending agent
         """
         # Skip orchestrator's own telemetry to avoid recursion
