@@ -9,6 +9,7 @@ import pytest
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.messages.orchestrator import (
     ErrorMessage,
+    HandledMessage,
     ProcessedMessage,
     ReceivedMessage,
     WarningMessage,
@@ -44,6 +45,9 @@ class TestOrchestratorMessageHandlers:
 
     def _make_processed_message(self) -> ProcessedMessage:
         return ProcessedMessage(message_id=uuid.uuid4())
+
+    def _make_handled_message(self) -> HandledMessage:
+        return HandledMessage(message_id=uuid.uuid4())
 
     def _make_error_message(self) -> ErrorMessage:
         return ErrorMessage(
@@ -142,6 +146,90 @@ class TestOrchestratorMessageHandlers:
         assert len(orch.messages.get()) == messages_before
         assert subscriber.messages == []
 
+        orch_ref.stop()
+
+    def test_handled_message_is_appended_and_fanned_out(self) -> None:
+        """A HandledMessage from an external sender is stored and fanned out."""
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config)
+        orch = orch_ref.proxy()
+
+        subscriber = _RecordingStopSubscriber()
+        orch.subscribe(subscriber).get()
+
+        dummy_config = BaseConfig(name="dummy-agent3", role="Agent")
+
+        class _DummyOrch3(Orchestrator):
+            pass
+
+        dummy_ref = _DummyOrch3.start(config=dummy_config)
+        sender_addr = dummy_ref.proxy().myAddress.get()
+
+        msg = self._make_handled_message()
+        orch.receiveMsg_HandledMessage(msg, sender_addr).get()
+
+        assert msg in orch.messages.get()
+        assert [type(m) for m in subscriber.messages] == [HandledMessage]
+        assert [m.id for m in subscriber.messages] == [msg.id]
+
+        dummy_ref.stop()
+        orch_ref.stop()
+
+    def test_handled_message_from_self_is_ignored(self) -> None:
+        """A HandledMessage sent by the orchestrator itself is neither stored nor fanned out."""
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config)
+        orch = orch_ref.proxy()
+
+        subscriber = _RecordingStopSubscriber()
+        orch.subscribe(subscriber).get()
+        messages_before = len(orch.messages.get())
+
+        my_address = orch.myAddress.get()
+        orch.receiveMsg_HandledMessage(self._make_handled_message(), my_address).get()
+
+        assert len(orch.messages.get()) == messages_before
+        assert subscriber.messages == []
+
+        orch_ref.stop()
+
+    def test_handled_message_reaches_the_handler_through_real_dispatch(self) -> None:
+        """A told HandledMessage resolves to a handler instead of falling through.
+
+        Delivered by ``tell`` rather than a direct method call, because that is the
+        only shape that proves the point: ``_receiveMessage`` dispatches per concrete
+        type with no ``receiveMsg_Message`` fallback, so without the handler the
+        emission is logged as an unknown message and reaches neither ``messages``
+        nor any subscriber.
+        """
+        config = BaseConfig(name="test-orchestrator", role="Orchestrator")
+        orch_ref = Orchestrator.start(config=config)
+        orch = orch_ref.proxy()
+
+        subscriber = _RecordingStopSubscriber()
+        orch.subscribe(subscriber).get()
+
+        dummy_config = BaseConfig(name="dummy-agent7", role="Agent")
+
+        class _DummyOrch7(Orchestrator):
+            pass
+
+        dummy_ref = _DummyOrch7.start(config=dummy_config)
+        sender_addr = dummy_ref.proxy().myAddress.get()
+
+        handled = self._make_handled_message()
+        handled.init(sender_addr)
+
+        orch_ref.tell(handled)
+
+        # The actor drains its mailbox in order, so this proxy call is served after the tell
+        stored = orch.messages.get()
+
+        assert handled in stored
+        assert [type(m) for m in subscriber.messages] == [HandledMessage]
+        assert [m.id for m in subscriber.messages] == [handled.id]
+
+        dummy_ref.stop()
         orch_ref.stop()
 
     def test_warning_message_is_appended_and_fanned_out(self) -> None:

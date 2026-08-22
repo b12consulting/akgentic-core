@@ -21,6 +21,7 @@ from akgentic.core.messages.orchestrator import (
     ClosedNotification,
     ErrorMessage,
     EventMessage,
+    HandledMessage,
     NotificationMessage,
     ProcessedMessage,
     ReceivedMessage,
@@ -308,6 +309,44 @@ class TestProcessedMessage:
         msg_id = uuid.uuid4()
         processed = ProcessedMessage(message_id=msg_id)
         assert processed.message_id == msg_id
+
+
+class TestHandledMessage:
+    """Tests for HandledMessage, the closing record for absorbed mail."""
+
+    def test_instantiation(self) -> None:
+        """Should instantiate with message_id."""
+        msg_id = uuid.uuid4()
+        handled = HandledMessage(message_id=msg_id)
+        assert handled.message_id == msg_id
+
+    def test_message_id_is_required(self) -> None:
+        """Should refuse construction without a message_id."""
+        with pytest.raises(ValueError):
+            HandledMessage()
+
+    def test_inherits_message_fields(self) -> None:
+        """Should inherit all Message fields."""
+        handled = HandledMessage(message_id=uuid.uuid4())
+        assert isinstance(handled.id, uuid.UUID)
+        assert isinstance(handled.timestamp, datetime)
+        assert handled.sender is None
+
+    def test_serialization_includes_model_marker(self) -> None:
+        """model_dump() should carry the inherited __model__ marker naming HandledMessage."""
+        payload = HandledMessage(message_id=uuid.uuid4()).model_dump()
+        assert payload["__model__"] == "akgentic.core.messages.orchestrator.HandledMessage"
+
+    def test_round_trip_preserves_class_and_message_id(self) -> None:
+        """A serialize/deserialize cycle restores a HandledMessage, not a plain Message."""
+        msg_id = uuid.uuid4()
+        handled = HandledMessage(message_id=msg_id)
+
+        restored = deserialize_object(serialize(handled))
+
+        assert isinstance(restored, HandledMessage)
+        assert restored.message_id == msg_id
+        assert restored.id == handled.id
 
 
 class TestStartMessage:

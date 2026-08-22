@@ -11,6 +11,7 @@ Tests cover:
 """
 
 import logging
+import time
 import uuid
 from collections.abc import Iterator
 from typing import Any, cast
@@ -841,6 +842,23 @@ def _types(mock_orch_ref: MagicMock) -> list[type]:
     return [type(message) for message in _telemetry(mock_orch_ref)]
 
 
+def _await_stop_telemetry(mock_orch_ref: MagicMock, timeout: float = 5.0) -> bool:
+    """Wait until the StopMessage emitted by ``on_stop()`` has reached the orchestrator.
+
+    ``actor_stopped`` is NOT the barrier to use here: pykka sets it in ``_stop()``
+    *before* calling ``on_stop()``, so waiting on it can return while the
+    ``StopMessage`` tell is still in flight. Under load that gap is wide enough to
+    lose, which made the assertions below intermittently red for no behavioural
+    reason. Wait on the signal actually being asserted instead.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if StopMessage in _types(mock_orch_ref):
+            return True
+        time.sleep(0.005)
+    return False
+
+
 def _checkpoint_warnings(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
     """WARNING records emitted by the agent module."""
     return [
@@ -1063,7 +1081,7 @@ class TestAkgentStopCheckpoint:
         ref.proxy().stop().get(timeout=5)
         # super().stop() only *posts* _ActorStop, so on_stop() and its StopMessage
         # land after the proxy future resolves.
-        ref.actor_stopped.wait(timeout=5)
+        assert _await_stop_telemetry(mock_orch_ref), "on_stop() never emitted a StopMessage"
 
         types = _types(mock_orch_ref)
         # One, not two: the on_stop() checkpoint sees an equal digest.
@@ -1075,7 +1093,7 @@ class TestAkgentStopCheckpoint:
         ref, mock_orch_ref = observed_agent
 
         ref.proxy().stop().get(timeout=5)
-        ref.actor_stopped.wait(timeout=5)
+        assert _await_stop_telemetry(mock_orch_ref), "on_stop() never emitted a StopMessage"
 
         types = _types(mock_orch_ref)
         assert types.count(StateChangedMessage) == 0
