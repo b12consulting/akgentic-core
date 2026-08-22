@@ -140,6 +140,7 @@ class EventSubscriber(Protocol):
             - SentMessage
             - ReceivedMessage
             - ProcessedMessage
+            - HandledMessage
             - ErrorMessage
             - WarningMessage
             - StateChangedMessage

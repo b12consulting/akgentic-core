@@ -290,7 +290,11 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         return self._orchestrator
 
     def get_mailbox(self) -> list[Message]:
-        """Get list of pending messages in this agent's mailbox.
+        """Peek at the pending messages in this agent's mailbox, without dequeuing them.
+
+        Reading here removes nothing: every message listed is still delivered later
+        as its own turn. To remove them instead — recording each removal as a
+        ``HandledMessage`` — use ``consume_mailbox``.
 
         Returns:
             List of Message objects currently in the mailbox queue.

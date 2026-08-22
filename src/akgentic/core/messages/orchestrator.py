@@ -5,6 +5,13 @@ and error conditions. Used by the orchestrator for system observability.
 Also home to the domain-event payloads carried by ``EventMessage.event``,
 which are not ``Message`` subclasses and live beside their carrier.
 
+The message ledger: a ``SentMessage`` **opens** the record for a message, and exactly
+one of two types **closes** it — ``ProcessedMessage`` when the message had its own
+turn, or ``HandledMessage`` when a run in progress absorbed it out of the mailbox and
+it never got one. A consumer computing in-flight depth or per-agent queue length must
+therefore close on **both**; one that closes on ``ProcessedMessage`` alone counts
+absorbed mail as permanently in flight and drifts upward forever.
+
 Source: akgentic-framework/libs/akgentic/akgentic/core/messages/orchestrator.py
 """
 
@@ -24,7 +31,9 @@ class SentMessage(Message):
     """Telemetry message indicating a message was sent.
 
     Records when an actor sends a message to another actor,
-    including both the message content and the recipient.
+    including both the message content and the recipient. This opens the
+    ledger entry for that message, closed later by either a
+    ``ProcessedMessage`` or a ``HandledMessage``.
 
     Attributes:
         message: The message that was sent.
@@ -51,7 +60,10 @@ class ReceivedMessage(Message):
 class ProcessedMessage(Message):
     """Telemetry message indicating a message was processed.
 
-    Records when an actor completes processing of a message.
+    Records when an actor completes processing of a message — a message that had
+    its own turn. That meaning is unchanged by the arrival of ``HandledMessage``,
+    and deliberately so: the two are the ledger's two terminators, and mail
+    absorbed without a turn is recorded by the other one.
 
     Attributes:
         message_id: UUID of the processed message.
