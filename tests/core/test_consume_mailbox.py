@@ -313,8 +313,11 @@ def test_akgentic_core_never_calls_the_primitive() -> None:
     """
     src_root = Path(akgentic.core.__file__).parent
     offenders: list[str] = []
+    definitions: list[str] = []
     for path in sorted(src_root.rglob("*.py")):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.FunctionDef) and node.name == "consume_mailbox":
+                definitions.append(f"{path.relative_to(src_root)}:{node.lineno}")
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
@@ -322,4 +325,8 @@ def test_akgentic_core_never_calls_the_primitive() -> None:
             ):
                 offenders.append(f"{path.relative_to(src_root)}:{node.lineno}")
 
+    # Finding the definition proves the walk reached the tree that owns the
+    # primitive. Without it an empty walk — a wrong src_root, a checkout whose
+    # akgentic.core resolves elsewhere — satisfies the assertion below vacuously.
+    assert definitions, f"walked the wrong tree: no consume_mailbox defined under {src_root}"
     assert offenders == [], f"akgentic-core must not call consume_mailbox (NFR1): {offenders}"
