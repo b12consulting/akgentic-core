@@ -176,7 +176,7 @@ src/akgentic/core/
     orchestrator.py         # Orchestrator, EventSubscriber
     user_proxy.py           # UserProxy — human-in-the-loop bridge
     messages/
-        message.py          # Message, UserMessage, ResultMessage, StopRecursively
+        message.py          # Message, UserMessage, ResultMessage, CancelMessage, StopRecursively
         orchestrator.py     # Telemetry messages (SentMessage, NotificationMessage, …)
     diagnostics/
         memory.py           # Memory sampling, object census, referrer reports (internal)
@@ -228,6 +228,8 @@ from akgentic.core.messages import (
     Message,           # Base class for all application messages
     UserMessage,       # Human input into the agent system
     ResultMessage,     # Agent response to a UserMessage
+    CancelMessage,     # Request to abandon the current run — honoured by agents
+                       # that implement run cancellation; a no-op elsewhere
     StopRecursively,   # Signal recursive shutdown
 )
 ```

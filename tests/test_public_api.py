@@ -39,6 +39,7 @@ class TestAkgenticNamespace:
         import akgentic.core
 
         message_types = {
+            "CancelMessage",
             "Message",
             "UserMessage",
             "ResultMessage",
@@ -85,6 +86,7 @@ class TestMessagesNamespace:
 
     def test_all_message_types_importable(self) -> None:
         from akgentic.core.messages import (
+            CancelMessage,
             ErrorMessage,
             EventMessage,
             Message,
@@ -103,6 +105,7 @@ class TestMessagesNamespace:
         )
 
         assert Message is not None
+        assert CancelMessage is not None
         assert StartMessage is not None
         assert StopMessage is not None
         assert StopRecursively is not None
@@ -122,6 +125,7 @@ class TestMessagesNamespace:
         import akgentic.core.messages as msgs
 
         expected = {
+            "CancelMessage",
             "Message",
             "UserMessage",
             "ResultMessage",

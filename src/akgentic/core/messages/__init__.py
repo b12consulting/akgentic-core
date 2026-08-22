@@ -6,6 +6,7 @@ payloads carried by ``EventMessage.event``.
 """
 
 from akgentic.core.messages.message import (
+    CancelMessage,
     Message,
     ResultMessage,
     StopRecursively,
@@ -28,6 +29,7 @@ from akgentic.core.messages.orchestrator import (
 )
 
 __all__ = [
+    "CancelMessage",
     "ClosedNotification",
     "ErrorMessage",
     "EventMessage",
