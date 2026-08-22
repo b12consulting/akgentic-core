@@ -49,6 +49,7 @@ class TestAkgenticNamespace:
             "SentMessage",
             "ReceivedMessage",
             "ProcessedMessage",
+            "HandledMessage",
             "NotificationMessage",
             "ErrorMessage",
             "StateChangedMessage",
@@ -89,6 +90,7 @@ class TestMessagesNamespace:
             CancelMessage,
             ErrorMessage,
             EventMessage,
+            HandledMessage,
             Message,
             NotificationMessage,
             ProcessedMessage,
@@ -114,6 +116,7 @@ class TestMessagesNamespace:
         assert SentMessage is not None
         assert ReceivedMessage is not None
         assert ProcessedMessage is not None
+        assert HandledMessage is not None
         assert NotificationMessage is not None
         assert ErrorMessage is not None
         assert StateChangedMessage is not None
@@ -132,6 +135,7 @@ class TestMessagesNamespace:
             "StopRecursively",
             "date_time_factory",
             "ErrorMessage",
+            "HandledMessage",
             "NotificationMessage",
             "ProcessedMessage",
             "ReceivedMessage",

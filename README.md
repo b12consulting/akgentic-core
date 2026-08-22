@@ -240,11 +240,18 @@ flow automatically to the Orchestrator. Import them when building
 
 ```python
 from akgentic.core.messages.orchestrator import (
-    SentMessage, ReceivedMessage, ProcessedMessage, NotificationMessage,
-    ErrorMessage, WarningMessage,
+    SentMessage, ReceivedMessage, ProcessedMessage, HandledMessage,
+    NotificationMessage, ErrorMessage, WarningMessage,
     StartMessage, StopMessage, StateChangedMessage, EventMessage,
 )
 ```
+
+**The message ledger — close on both terminators.** A `SentMessage` opens the record for
+a message; exactly one of `ProcessedMessage` (it had its own turn) or `HandledMessage`
+(a run in progress absorbed it out of the mailbox, so it never got one) closes it. If you
+compute in-flight depth or per-agent queue length, close on **both**: a consumer that
+closes only on `ProcessedMessage` works today, but starts over-counting in-flight work
+the moment a caller of `consume_mailbox` ships.
 
 ## Agents — Akgent
 
@@ -289,6 +296,8 @@ class SummaryAgent(Akgent[BaseConfig, BaseState]):
 | `notify_event(event)` | Emit domain event via `EventMessage` |
 | `proxy_tell(addr, Type)` | Typed fire-and-forget proxy call |
 | `proxy_ask(addr, Type)` | Typed blocking proxy call |
+| `get_mailbox()` | Peek at pending messages — never dequeues; each is still delivered |
+| `consume_mailbox(ids)` | Remove queued messages from own inbox — actor thread only; one `HandledMessage` each |
 | `get_team()` | Team roster via orchestrator |
 | `get_agent_card(role)` | Look up capability profile |
 | `find_agents_with_skill(skill)` | Discover agents by skill |
@@ -690,8 +699,8 @@ implement only what you need — but a method you *do* define must match this si
 `EventSubscriber` is a `Protocol` and a mismatch fails at dispatch time rather than at import.
 
 `on_message()` receives all telemetry types: `StartMessage`, `StopMessage`,
-`SentMessage`, `ReceivedMessage`, `ProcessedMessage`, `ErrorMessage`,
-`WarningMessage`, `StateChangedMessage`, `EventMessage`.
+`SentMessage`, `ReceivedMessage`, `ProcessedMessage`, `HandledMessage`,
+`ErrorMessage`, `WarningMessage`, `StateChangedMessage`, `EventMessage`.
 
 #### The teardown announcement
 

@@ -5,6 +5,9 @@ CancelMessage) for actor-to-actor communication. CancelMessage is a request to a
 the current run, honoured by agents that implement run cancellation and a no-op
 elsewhere. Preserves v1 message structure.
 
+Telemetry types — including the ``Sent`` → ``Processed`` | ``Handled`` ledger that records
+what became of each of these — live in ``messages/orchestrator.py``.
+
 Source: akgentic-framework/libs/akgentic/akgentic/core/messages/message.py
 """
 
