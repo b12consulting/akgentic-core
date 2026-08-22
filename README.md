@@ -297,7 +297,7 @@ class SummaryAgent(Akgent[BaseConfig, BaseState]):
 | `proxy_tell(addr, Type)` | Typed fire-and-forget proxy call |
 | `proxy_ask(addr, Type)` | Typed blocking proxy call |
 | `get_mailbox()` | Peek at pending messages — never dequeues; each is still delivered |
-| `consume_mailbox(ids)` | Remove queued messages from own inbox, one `HandledMessage` each |
+| `consume_mailbox(ids)` | Remove queued messages from own inbox — actor thread only; one `HandledMessage` each |
 | `get_team()` | Team roster via orchestrator |
 | `get_agent_card(role)` | Look up capability profile |
 | `find_agents_with_skill(skill)` | Discover agents by skill |
