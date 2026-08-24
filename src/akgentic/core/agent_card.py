@@ -154,8 +154,8 @@ class AgentCard(SerializableBaseModel):
 
     agent_class: str | type
     skills: list[str] = Field(
-        default_factory=list, 
-        description="List of capabilities used for the team's dynamic discovery"
+        default_factory=list,
+        description="List of capabilities used for the team's dynamic discovery",
     )
     description: str = Field(
         ..., description="Description of the agent role used for the team's dynamic discovery"
