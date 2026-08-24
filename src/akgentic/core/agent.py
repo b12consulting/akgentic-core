@@ -525,10 +525,10 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         Returns:
             Result from message handler.
         """
-        logger.info(
-            f"[{self.config.name}-{self.team_id}] receiveMessage: {message.__class__.__name__}"
-        )
         if isinstance(message, Message):
+            logger.info(
+                f"[{self.config.name}-{self.team_id}] receiveMessage: {message.__class__.__name__}"
+            )
             self._current_message = message
             self._notify_orchestrator(ReceivedMessage(message_id=message.id))
             result = self._receiveMessage(message, message.sender)
