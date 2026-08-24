@@ -294,8 +294,8 @@ class SummaryAgent(Akgent[BaseConfig, BaseState]):
 | `stop()` | Recursive stop (children first, then self) |
 | `update_state(updates)` | Merge dict into typed state |
 | `notify_event(event)` | Emit domain event via `EventMessage` |
-| `proxy_tell(addr, Type)` | Typed fire-and-forget proxy call |
-| `proxy_ask(addr, Type)` | Typed blocking proxy call |
+| `proxy_tell(addr, Type)` | Typed fire-and-forget proxy call — holds the target **strongly** |
+| `proxy_ask(addr, Type)` | Typed blocking proxy call — holds the target **strongly** |
 | `get_mailbox()` | Peek at pending messages — never dequeues; each is still delivered |
 | `consume_mailbox(ids)` | Remove queued messages from own inbox — actor thread only; one `HandledMessage` each |
 | `get_team()` | Team roster via orchestrator |
@@ -387,14 +387,41 @@ addr.role          # str  — e.g. "SummaryAgent"
 addr.team_id       # UUID — always set; defines team membership
 addr.squad_id      # UUID | None — optional sub-grouping
 addr.is_user_proxy # bool — is the actor a UserProxy (or subclass)?
-addr.is_alive()    # bool — whether the actor is still running
+addr.is_alive()    # bool — whether the actor can still receive
+addr.tell(msg)     # deliver to this actor, no reply
+addr.ask(msg, timeout=5.0)  # deliver and block for the handler's return value
 addr.serialize()   # → ActorAddressDict — survives serialization/persistence
 ```
 
+`tell` and `ask` deliver **to** this actor, where `send(recipient, msg)` routes a message **from**
+it. Both raise `ActorDeadError` when the actor cannot receive.
+
+Reach for them over a proxy whenever the target is a *message* rather than a method call. A proxy
+holds a **strong** reference to the actor and introspects its attributes when built, so a retained
+proxy pins the actor in memory and a per-call one costs roughly a quarter of a millisecond. An
+address costs neither: it holds the actor weakly and sends without introspection.
+
 Every field above is captured **once, when the address is constructed**, and read back from that
 snapshot — an address never dereferences its actor again. That is what lets it outlive the actor:
-metadata still reads correctly after the actor has stopped or been garbage-collected, and `send()`
-is the only operation that needs it alive.
+metadata still reads correctly after the actor has stopped or been garbage-collected, and only
+delivery needs it alive.
+
+#### Liveness means "can receive", not "was not stopped"
+
+`is_alive()` answers **two** questions, because an actor has two ways to die:
+
+| How it died | |
+|---|---|
+| **Stopped** | `stop()` was called, and the actor set its stopped flag on the way out. |
+| **Deallocated** | The last reference went away and it was garbage-collected, having never been stopped — so nothing ever set that flag. |
+
+Pykka's own `ActorRef.is_alive()` answers only the first: it is `not actor_stopped.is_set()`, so a
+collected actor reports **alive** while every call through the reference fails. Worse, a raw
+`tell` to one succeeds and drops the message into an inbox nobody will ever drain.
+
+`ActorAddress.is_alive()` checks both, so it is safe to poll as a give-up condition — a timer
+thread asking "is my actor still there?" gets a truthful answer either way. `tell` and `ask` apply
+the same check, so one `except ActorDeadError` covers both deaths.
 
 `is_user_proxy` answers "is this the human-in-the-loop member?" from the actor's **type**
 (`isinstance(actor, UserProxy)`), not from a config string, so it holds for any `UserProxy`
@@ -406,11 +433,17 @@ human = next((m for m in self.get_team() if m.is_user_proxy), None)
 
 Three implementations cover the full actor lifecycle:
 
-| Class | Used when | `send()` |
-|---|---|---|
-| `ActorAddressImpl` | Live actor | delivers to mailbox |
-| `ActorAddressProxy` | Deserialized / mock | raises `RuntimeError` |
-| `ActorAddressStopped` | Post-stop tracking | raises `RuntimeError` |
+| Class | Used when | `send()` | `tell()` / `ask()` |
+|---|---|---|---|
+| `ActorAddressImpl` | Live actor | delivers to mailbox | delivers to mailbox |
+| `ActorAddressProxy` | Deserialized / mock | raises `RuntimeError` | raises `RuntimeError` |
+| `ActorAddressStopped` | Post-stop tracking | raises `RuntimeError` | raises `RuntimeError` |
+
+`tell` and `ask` are **concrete on the ABC**, defaulting to a `RuntimeError` that names the
+address, rather than abstract. `ActorAddress` is subclassed by test fakes across several packages,
+and an abstract method added here breaks every one of them at instantiation — in repositories that
+cannot be fixed in the same change. Addresses that can deliver override; the rest inherit the
+refusal.
 
 ## Communication Patterns
 
@@ -422,6 +455,24 @@ Three implementations cover the full actor lifecycle:
 | **Return value** | None | Handler's return value |
 | **Deadlock risk** | None | Yes if called from within the same actor |
 | **Use for** | Notifications, events | Queries, request-response |
+
+Blocking is not only a cost. An `ask` on a timer applies **backpressure**: the next send cannot be
+issued until the last one was handled, so a slow actor is never handed work faster than it drains.
+A `tell` in the same loop keeps enqueuing regardless, and the mailbox grows without bound. Pass a
+`timeout` whenever the caller must stay responsive — an unbounded `ask` lets a wedged actor park
+the calling thread for good.
+
+There are two levels, and they are not interchangeable:
+
+| | `ActorAddress.tell` / `.ask` | `proxy_tell` / `proxy_ask` |
+|---|---|---|
+| **Sends** | a message, dispatched to `receiveMsg_<Type>` | a method call on the actor |
+| **Holds the actor** | weakly — safe to retain | **strongly** — a retained proxy pins it |
+| **Cost per call** | a queue put | plus attribute introspection (~0.25 ms) |
+| **Reaches** | message handlers | any public method |
+
+Use the address for anything long-lived — a timer thread, a cached handle. Use a proxy when you
+genuinely need to call a method and the handle is short-lived.
 
 ### Bidirectional Messaging (reply via `sender`)
 

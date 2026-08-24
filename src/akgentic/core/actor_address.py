@@ -122,6 +122,43 @@ class ActorAddress(ABC):
         """
         ...
 
+    def tell(self, message: Any) -> None:
+        """Deliver *message* to this actor's inbox without waiting for a reply.
+
+        Unlike :meth:`send`, which routes a message *from* this actor to a
+        recipient, ``tell`` delivers *to* this actor.
+
+        Concrete rather than abstract on purpose. ``ActorAddress`` is subclassed
+        by test fakes across several packages, and an abstract method added here
+        breaks every one of them at instantiation — in repositories that cannot
+        be fixed in the same change. Addresses that can deliver override this;
+        the rest inherit a refusal that names them.
+
+        Args:
+            message: The message to deliver.
+
+        Raises:
+            RuntimeError: If this address cannot deliver messages.
+        """
+        raise RuntimeError(f"{type(self).__name__} {self.name} cannot deliver messages")
+
+    def ask(self, message: Any, timeout: float | None = None) -> Any:
+        """Deliver *message* to this actor and block until it has been handled.
+
+        Concrete for the same reason as :meth:`tell`.
+
+        Args:
+            message: The message to deliver.
+            timeout: Seconds to wait for the reply; ``None`` waits forever.
+
+        Returns:
+            Whatever the actor's handler returned.
+
+        Raises:
+            RuntimeError: If this address cannot deliver messages.
+        """
+        raise RuntimeError(f"{type(self).__name__} {self.name} cannot deliver messages")
+
     @abstractmethod
     def is_alive(self) -> bool:
         """Check if this actor is still running.

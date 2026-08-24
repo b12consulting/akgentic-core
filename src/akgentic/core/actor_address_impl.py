@@ -16,6 +16,8 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING, Any
 
+from pykka import ActorDeadError
+
 from akgentic.core.actor_address import ActorAddress
 from akgentic.core.utils.deserializer import ActorAddressDict
 
@@ -166,17 +168,85 @@ class ActorAddressImpl(ActorAddress):
         """
         self._actor_ref.proxy().send(recipient, message).get()
 
+    def tell(self, message: Any) -> None:
+        """Deliver *message* to the actor's inbox without waiting for a reply.
+
+        Prefer this over building a proxy when the target is a message rather
+        than a method call: a Pykka proxy holds a **strong** reference to the
+        actor (``ActorProxy._actor``) and introspects its attributes on every
+        construction, so a retained proxy pins the actor and a per-call one is
+        expensive. An ``ActorRef`` holds the actor weakly and costs neither.
+
+        Args:
+            message: The message to deliver.
+
+        Raises:
+            ActorDeadError: If the actor is stopped or has been deallocated.
+        """
+        self._raise_if_dead()
+        self._actor_ref.tell(message)
+
+    def ask(self, message: Any, timeout: float | None = None) -> Any:
+        """Deliver *message* and block until the actor has handled it.
+
+        The reply is returned rather than discarded — an ``ask`` that drops its
+        result is a blocking ``tell``. Blocking is the point: it applies
+        backpressure, so a caller on a timer cannot enqueue faster than the
+        actor drains.
+
+        Args:
+            message: The message to deliver.
+            timeout: Seconds to wait for the reply. ``None`` waits forever,
+                which lets a wedged actor park the calling thread — pass a bound
+                on any path that must stay responsive.
+
+        Returns:
+            Whatever the actor's handler returned.
+
+        Raises:
+            ActorDeadError: If the actor is stopped or has been deallocated.
+            Timeout: If *timeout* elapses before the actor replies.
+        """
+        self._raise_if_dead()
+        return self._actor_ref.ask(message, block=True, timeout=timeout)
+
+    def _raise_if_dead(self) -> None:
+        """Raise ``ActorDeadError`` when the actor cannot receive.
+
+        Pykka raises this itself for a *stopped* actor, but not for a
+        deallocated one — ``ActorRef.tell`` gates on ``is_alive()`` alone and
+        would drop the message into an inbox nobody drains. Checking here makes
+        one exception type cover both, so callers need a single ``except``.
+
+        The check is best-effort by nature: the actor can die between it and the
+        send, in which case Pykka raises the same error a moment later.
+
+        Raises:
+            ActorDeadError: If the actor is stopped or has been deallocated.
+        """
+        if not self.is_alive():
+            msg = f"{self.name} ({self.agent_id}) is not available"
+            raise ActorDeadError(msg)
+
     def is_alive(self) -> bool:
         """Check if the underlying actor is still running (never raises).
 
         Liveness is best-effort: a torn-down or collected ref is simply
         "not alive" (ADR-013 §3).
 
+        Two conditions, because Pykka's own check answers only the first.
+        ``ActorRef.is_alive()`` is ``not actor_stopped.is_set()``, which stays
+        ``True`` for an actor garbage-collected without ever being stopped — a
+        reference nobody can reach, reported as live. Every call through such a
+        ref fails while liveness keeps saying otherwise, so a caller polling
+        this to decide whether to give up never does.
+
         Returns:
-            True if the Pykka actor is alive; False on any exception.
+            True when the actor is neither stopped nor deallocated; False on
+            any exception.
         """
         try:
-            return self._actor_ref.is_alive()
+            return self._actor_ref.is_alive() and self._actor_ref._actor_weakref() is not None
         except Exception:  # noqa: BLE001 — a torn-down/collected ref is not alive
             return False
 

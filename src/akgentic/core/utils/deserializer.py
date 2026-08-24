@@ -86,6 +86,7 @@ def import_class(class_path: str) -> type[Any]:
 
 _type_adapter_cache: dict[type[Any], TypeAdapter[Any] | None] = {}
 
+
 def _get_type_adapter(cls: type[Any]) -> TypeAdapter[Any] | None:
     """Return a cached TypeAdapter for *cls*, or None if the type is not fully defined."""
     try:

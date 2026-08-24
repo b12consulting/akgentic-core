@@ -9,11 +9,11 @@ stays out of core to preserve core's zero-infrastructure-deps invariant.
 ``ObjectCensus.capture`` snapshots live-instance counts per class.
 
 ``ObjectCensus.diff`` ranks the per-class growth between two snapshots (the A/B
-leak primitive — which *types* accumulated). 
+leak primitive — which *types* accumulated).
 
-``ReferrerReport.capture`` then names *who* still holds a leaked type, 
-walking ``gc.get_referrers`` from sampled instances up to the long-lived 
-root pinning them. ``MemorySampler`` records, once per iteration, three 
+``ReferrerReport.capture`` then names *who* still holds a leaked type,
+walking ``gc.get_referrers`` from sampled instances up to the long-lived
+root pinning them. ``MemorySampler`` records, once per iteration, three
 independent signals so a plateau can be classified instead of guessed at:
 
 * **heap** — ``tracemalloc`` current traced bytes (live Python objects). Grows

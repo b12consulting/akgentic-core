@@ -937,9 +937,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         then drains its mailbox and runs ``on_stop`` (which sets the event).
         """
         if self.actor_ref.is_alive():
-            logger.warning(
-                "Orchestrator stop timed out (team=%s); forcing teardown", self.team_id
-            )
+            logger.warning("Orchestrator stop timed out (team=%s); forcing teardown", self.team_id)
             # A non-tool agent wedged before phase 2 fired, so the tool actors may
             # still be un-told. Flush their stop tells (reverse order) for a last
             # graceful chance before forcing teardown; any that wedge are reaped by
