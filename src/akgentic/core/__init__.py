@@ -9,6 +9,8 @@ from pkgutil import extend_path
 
 __path__ = extend_path(__path__, __name__)
 
+from pykka import ActorDeadError, ActorRef, ActorRegistry
+
 from akgentic.core.actor_address import ActorAddress
 from akgentic.core.actor_address_impl import (
     ActorAddressImpl,
@@ -40,6 +42,13 @@ __all__ = [
     "Statistics",
     # Actor addressing
     "ActorAddress",
+    # Pykka types re-exported so packages outside core can name them — catch a dead
+    # actor, annotate a started actor, reach the registry — without taking a direct
+    # dependency on Pykka. Core owns the actor implementation; everyone else talks
+    # to it through this module.
+    "ActorDeadError",
+    "ActorRef",
+    "ActorRegistry",
     "ActorAddressImpl",
     "ActorAddressProxy",
     "ActorAddressStopped",
