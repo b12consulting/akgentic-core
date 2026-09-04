@@ -1,5 +1,6 @@
 """Tests for AgentCard profile catalog functionality."""
 
+import json
 import time
 
 import pytest
@@ -11,6 +12,8 @@ from akgentic.core import (
     BaseConfig,
     Orchestrator,
 )
+from akgentic.core.utils.deserializer import deserialize_object
+from akgentic.core.utils.serializer import SerializableBaseModel
 
 
 class TestAgentCard:
@@ -228,6 +231,96 @@ class TestGetAgentClass:
         )
         with pytest.raises(AttributeError):
             card.get_agent_class()
+
+
+def _card(role: str, *, can_be_hired: bool | None = None) -> AgentCard:
+    """Build a minimal valid AgentCard, optionally setting ``can_be_hired``.
+
+    Omitting *can_be_hired* exercises the field default rather than an
+    explicit ``False`` — the two are distinguishable and both matter.
+
+    ``agent_class`` must be importable: these specs re-validate a dumped card,
+    whose ``config`` arrives as a plain dict, and that is the path on which
+    ``coerce_config_to_agent_class_generic`` resolves the class.
+    """
+    kwargs = {} if can_be_hired is None else {"can_be_hired": can_be_hired}
+    return AgentCard(
+        description=f"{role} used by the can_be_hired specs",
+        skills=["testing"],
+        agent_class="akgentic.core.Akgent",
+        config=BaseConfig(name=role.lower(), role=role),
+        **kwargs,
+    )
+
+
+class _CardHolder(SerializableBaseModel):
+    """Wrapper proving the flag survives one level of model nesting."""
+
+    primary: AgentCard
+    others: list[AgentCard]
+
+
+class TestCanBeHired:
+    """``AgentCard.can_be_hired`` — default, publicness and serialization survival."""
+
+    def test_defaults_to_false(self) -> None:
+        """A card constructed without the argument is not hireable."""
+        assert _card("TestAgent").can_be_hired is False
+
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_explicit_value_is_honoured(self, flag: bool) -> None:
+        """Both values are accepted and stored as given."""
+        assert _card("TestAgent", can_be_hired=flag).can_be_hired is flag
+
+    def test_is_a_declared_pydantic_field(self) -> None:
+        """The flag is a public field, not a PrivateAttr and not a property."""
+        assert "can_be_hired" in AgentCard.model_fields
+
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_model_dump_contains_the_key(self, flag: bool) -> None:
+        """The dumped payload carries the flag for both values."""
+        dumped = _card("TestAgent", can_be_hired=flag).model_dump()
+        assert dumped["can_be_hired"] is flag
+
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_dump_validate_round_trip(self, flag: bool) -> None:
+        """``model_dump()`` → ``model_validate()`` restores the value."""
+        restored = AgentCard.model_validate(_card("TestAgent", can_be_hired=flag).model_dump())
+        assert restored.can_be_hired is flag
+
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_survives_nesting_in_another_serializable_model(self, flag: bool) -> None:
+        """A nested card — alone and inside a list — keeps its flag through a round-trip."""
+        holder = _CardHolder(
+            primary=_card("PrimaryAgent", can_be_hired=flag),
+            others=[
+                _card("FirstOther", can_be_hired=flag),
+                _card("SecondOther", can_be_hired=not flag),
+            ],
+        )
+
+        restored = _CardHolder.model_validate(holder.model_dump())
+
+        assert restored.primary.can_be_hired is flag
+        assert restored.others[0].can_be_hired is flag
+        assert restored.others[1].can_be_hired is (not flag)
+
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_survives_the_worker_hop(self, flag: bool) -> None:
+        """JSON out, JSON in, ``deserialize_object`` back — the flag is unchanged."""
+        payload = _card("TestAgent", can_be_hired=flag).model_dump_json()
+
+        restored = deserialize_object(json.loads(payload))
+
+        assert isinstance(restored, AgentCard)
+        assert restored.can_be_hired is flag
+
+    def test_payload_without_the_key_defaults_to_false(self) -> None:
+        """A card persisted before the field existed stays loadable and is not hireable."""
+        legacy = _card("TestAgent").model_dump()
+        del legacy["can_be_hired"]
+
+        assert AgentCard.model_validate(legacy).can_be_hired is False
 
 
 class TestOrchestratorCatalog:

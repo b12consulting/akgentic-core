@@ -11,6 +11,7 @@ import pytest
 from akgentic.core.actor_address_impl import ActorAddressImpl, ActorAddressProxy
 from akgentic.core.actor_system_impl import ActorSystem
 from akgentic.core.agent import Akgent
+from akgentic.core.agent_card import AgentCard
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message, UserMessage
@@ -1560,3 +1561,70 @@ class TestOnStopFanOutThenClear:
 
         # AC #4 redux: clear() still ran post-stop.
         assert subscribers_list == []
+
+
+class TestCatalogCarriesCanBeHired:
+    """The catalog is a pass-through for ``AgentCard.can_be_hired``."""
+
+    @staticmethod
+    def _card(role: str, can_be_hired: bool) -> AgentCard:
+        return AgentCard(
+            description=f"{role} registered by the catalog pass-through spec",
+            skills=["testing"],
+            agent_class="test.SomeAgent",
+            config=BaseConfig(name=role.lower(), role=role),
+            can_be_hired=can_be_hired,
+        )
+
+    def test_register_agent_profiles_preserves_the_flag(self) -> None:
+        """A mixed hireable/non-hireable set comes back out exactly as registered."""
+        system = ActorSystem()
+        try:
+            orch_addr = system.createActor(
+                Orchestrator,
+                config=BaseConfig(name="orchestrator", role="Orchestrator"),
+            )
+            orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+            orch_proxy.register_agent_profiles(
+                [
+                    self._card("HireableAgent", True),
+                    self._card("FixedAgent", False),
+                ]
+            )
+
+            catalog = orch_proxy.get_agent_catalog()
+
+            assert {card.role: card.can_be_hired for card in catalog} == {
+                "HireableAgent": True,
+                "FixedAgent": False,
+            }
+        finally:
+            system.shutdown()
+
+    def test_get_agent_profile_preserves_the_flag(self) -> None:
+        """The role-keyed lookup returns the flag as registered, per role."""
+        system = ActorSystem()
+        try:
+            orch_addr = system.createActor(
+                Orchestrator,
+                config=BaseConfig(name="orchestrator", role="Orchestrator"),
+            )
+            orch_proxy = system.proxy_ask(orch_addr, Orchestrator)
+
+            orch_proxy.register_agent_profiles(
+                [
+                    self._card("HireableAgent", True),
+                    self._card("FixedAgent", False),
+                ]
+            )
+
+            hireable = orch_proxy.get_agent_profile("HireableAgent")
+            fixed = orch_proxy.get_agent_profile("FixedAgent")
+
+            assert hireable is not None
+            assert fixed is not None
+            assert hireable.can_be_hired is True
+            assert fixed.can_be_hired is False
+        finally:
+            system.shutdown()

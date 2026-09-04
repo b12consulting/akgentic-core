@@ -139,6 +139,9 @@ class AgentCard(SerializableBaseModel):
         skills: List of capabilities this agent provides
         agent_class: Fully qualified class name (str) or actual class (type) for instantiation
         config: Default BaseConfig (or subclass) for this profile — role lives here
+        can_be_hired: Whether an agent may hire this role at runtime.
+                      Defaults to ``False`` — a card is hireable only when something
+                      explicitly says so, never by virtue of being in the catalog.
         routes_to: List of roles this agent can send requests to.
                    Empty list means can route to any role (no restrictions).
                    Agents can always respond to requests regardless of this field.
@@ -161,6 +164,10 @@ class AgentCard(SerializableBaseModel):
         ..., description="Description of the agent role used for the team's dynamic discovery"
     )
     config: BaseConfig = Field(default_factory=BaseConfig)
+    can_be_hired: bool = Field(
+        default=False,
+        description="Whether an agent may hire this role at runtime",
+    )
     routes_to: list[str] = Field(default_factory=list)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
