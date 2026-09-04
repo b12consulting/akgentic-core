@@ -912,8 +912,11 @@ get_team()         → "What instances are running?" (dynamic runtime roster)
   serialization, and a card restored from a persisted team would come back at the
   default with every role silently non-hireable.
 - **`akgentic-core` only stores and transports it — nothing here enforces it.**
-  The value is set on a copy at team build time (`akgentic-team`), and the guard
-  that refuses a hire when it is `False` lives in `akgentic-tool`.
+  The value is intended to be set on a copy at team build time (`akgentic-team`),
+  and the guard that refuses a hire when it is `False` belongs in `akgentic-tool`.
+  **Neither has shipped yet**, so today the flag is carried and read by nothing:
+  a card marked `can_be_hired=False` is not currently refused anywhere. Treat it
+  as a declaration that travels correctly, not as an access-control boundary.
 
 ## UserProxy — Human-in-the-Loop
 
