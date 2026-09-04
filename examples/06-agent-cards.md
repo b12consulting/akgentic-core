@@ -17,34 +17,16 @@ card = AgentCard(
     skills=["web_search", "pdf_extraction"],
     agent_class="examples.research.ResearchAgent",
     configuration=BaseConfig(name="researcher", role="ResearchAgent"),
-    routes_to=["WriterAgent", "AnalystAgent"],  # Routing constraints
+    can_be_hired=False,  # may an agent hire this role at runtime? default False
     metadata={"version": "1.0"}
 )
 ```
 
 **Important**: AgentCards are *profiles*, not instances. They describe what kinds of agents exist, not which instances are running.
 
-### Routing Constraints
+### Hireability
 
-The `routes_to` field controls which roles an agent can proactively send requests to:
-
-```python
-card = AgentCard(
-    role="ResearchAgent",
-    routes_to=["WriterAgent", "AnalystAgent"],  # Can only send to these
-    # ...
-)
-
-# Check routing permissions
-card.can_route_to("WriterAgent")   # True
-card.can_route_to("UnknownAgent")  # False
-```
-
-**Key rules**:
-- **Empty `routes_to` = no restrictions** (can route to any role)
-- **Non-empty `routes_to` = restricted** (can only send to listed roles)
-- **Responses are always allowed** regardless of `routes_to`
-- Use this to model workflow phases, security boundaries, or team structure
+`can_be_hired` rides on the card and defaults to `False`. `akgentic-core` stores and transports it; it neither sets nor enforces it.
 
 ### Orchestrator Catalog Management
 
@@ -154,6 +136,4 @@ Output shows:
 - **Capability negotiation**: Find agents with specific skills
 - **Service directory**: Agents as discoverable services
 - **Configuration templates**: Store default settings per agent type
-- **Access control**: Define routing constraints via `routes_to` field
 - **Workflow phases**: Model sequential workflows (e.g., Research → Writer → Analyst)
-- **Security boundaries**: Restrict agent communication patterns
