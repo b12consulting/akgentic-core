@@ -124,7 +124,6 @@ class AgentCard(SerializableBaseModel):
         ...     skills=["web_search", "pdf_extraction"],
         ...     agent_class="examples.multi_agent.ResearchAgent",
         ...     config=BaseConfig(name="research", role="ResearchAgent"),
-        ...     routes_to=["WriterAgent", "AnalystAgent"]
         ... )
         >>> # ``role`` is a derived accessor sourced from ``config.role``
         >>> card.role
@@ -132,16 +131,18 @@ class AgentCard(SerializableBaseModel):
         >>> # Other agents can discover this profile and its config
         >>> print(card.skills)
         ['web_search', 'pdf_extraction']
-        >>> card.can_route_to("WriterAgent")
-        True
 
     Attributes:
         skills: List of capabilities this agent provides
         agent_class: Fully qualified class name (str) or actual class (type) for instantiation
         config: Default BaseConfig (or subclass) for this profile — role lives here
-        routes_to: List of roles this agent can send requests to.
-                   Empty list means can route to any role (no restrictions).
-                   Agents can always respond to requests regardless of this field.
+        can_be_hired: Whether an agent may hire this role at runtime.
+                      Defaults to ``False`` — a card is hireable only when something
+                      explicitly says so, never by virtue of being in the catalog.
+                      ``akgentic-core`` only stores and transports the flag: the value
+                      is set on a copy at team build time, and the guard that reads it
+                      before hiring lives outside this package. Nothing here enforces
+                      it.
         metadata: Extensible key-value storage for custom attributes
 
     Note:
@@ -161,7 +162,10 @@ class AgentCard(SerializableBaseModel):
         ..., description="Description of the agent role used for the team's dynamic discovery"
     )
     config: BaseConfig = Field(default_factory=BaseConfig)
-    routes_to: list[str] = Field(default_factory=list)
+    can_be_hired: bool = Field(
+        default=False,
+        description="Whether an agent may hire this role at runtime",
+    )
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @property
@@ -318,22 +322,3 @@ class AgentCard(SerializableBaseModel):
             True if skill is in the profile's skill list
         """
         return skill in self.skills
-
-    def can_route_to(self, role: str) -> bool:
-        """Check if this profile can send requests to a specific role.
-
-        An empty routes_to list means no restrictions (can route to anyone).
-        Otherwise, the target role must be in the routes_to list.
-
-        Note: Agents can always RESPOND to requests from any role.
-        This only controls which roles an agent can proactively SEND to.
-
-        Args:
-            role: Target role to check routing permission for
-
-        Returns:
-            True if this agent profile can send requests to the target role
-        """
-        if not self.routes_to:
-            return True  # No restrictions - can route to any role
-        return role in self.routes_to

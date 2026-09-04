@@ -1,5 +1,6 @@
 """Tests for AgentCard profile catalog functionality."""
 
+import json
 import time
 
 import pytest
@@ -11,6 +12,8 @@ from akgentic.core import (
     BaseConfig,
     Orchestrator,
 )
+from akgentic.core.utils.deserializer import deserialize_object
+from akgentic.core.utils.serializer import SerializableBaseModel
 
 
 class TestAgentCard:
@@ -94,46 +97,6 @@ class TestAgentCard:
 
         assert card.metadata["version"] == "1.0"
         assert card.metadata["author"] == "team-alpha"
-
-    def test_routes_to_unrestricted(self) -> None:
-        """AgentCard with empty routes_to allows routing to any role."""
-        card = AgentCard(
-            description="Test",
-            skills=["testing"],
-            agent_class="test.Agent",
-            config=BaseConfig(role="TestAgent"),
-            routes_to=[],  # Empty = no restrictions
-        )
-
-        assert card.can_route_to("AnyRole") is True
-        assert card.can_route_to("AnotherRole") is True
-
-    def test_routes_to_restricted(self) -> None:
-        """AgentCard with routes_to list restricts routing."""
-        card = AgentCard(
-            description="Research",
-            skills=["research"],
-            agent_class="test.ResearchAgent",
-            config=BaseConfig(role="ResearchAgent"),
-            routes_to=["WriterAgent", "AnalystAgent"],
-        )
-
-        assert card.can_route_to("WriterAgent") is True
-        assert card.can_route_to("AnalystAgent") is True
-        assert card.can_route_to("OtherAgent") is False
-
-    def test_routes_to_default_empty(self) -> None:
-        """AgentCard defaults to no routing restrictions."""
-        card = AgentCard(
-            description="Test",
-            skills=["testing"],
-            agent_class="test.Agent",
-            config=BaseConfig(role="TestAgent"),
-            # routes_to not specified - should default to []
-        )
-
-        assert card.routes_to == []
-        assert card.can_route_to("AnyRole") is True
 
     def test_get_config_returns_independent_copies(self) -> None:
         """get_config() returns independent copies to prevent shared state."""
@@ -228,6 +191,176 @@ class TestGetAgentClass:
         )
         with pytest.raises(AttributeError):
             card.get_agent_class()
+
+
+def _card(role: str, *, can_be_hired: bool | None = None) -> AgentCard:
+    """Build a minimal valid AgentCard, optionally setting ``can_be_hired``.
+
+    Omitting *can_be_hired* exercises the field default rather than an
+    explicit ``False`` — the two are distinguishable and both matter.
+
+    ``agent_class`` must be importable: these specs re-validate a dumped card,
+    whose ``config`` arrives as a plain dict, and that is the path on which
+    ``coerce_config_to_agent_class_generic`` resolves the class.
+    """
+    kwargs = {} if can_be_hired is None else {"can_be_hired": can_be_hired}
+    return AgentCard(
+        description=f"{role} used by the can_be_hired specs",
+        skills=["testing"],
+        agent_class="akgentic.core.Akgent",
+        config=BaseConfig(name=role.lower(), role=role),
+        **kwargs,
+    )
+
+
+class _CardHolder(SerializableBaseModel):
+    """Wrapper proving the flag survives one level of model nesting."""
+
+    primary: AgentCard
+    others: list[AgentCard]
+
+
+class TestCanBeHired:
+    """``AgentCard.can_be_hired`` — default, publicness and serialization survival."""
+
+    def test_defaults_to_false(self) -> None:
+        """A card constructed without the argument is not hireable."""
+        assert _card("TestAgent").can_be_hired is False
+
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_explicit_value_is_honoured(self, flag: bool) -> None:
+        """Both values are accepted and stored as given."""
+        assert _card("TestAgent", can_be_hired=flag).can_be_hired is flag
+
+    def test_is_a_declared_pydantic_field(self) -> None:
+        """The flag is a public field, not a PrivateAttr and not a property."""
+        assert "can_be_hired" in AgentCard.model_fields
+
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_model_dump_contains_the_key(self, flag: bool) -> None:
+        """The dumped payload carries the flag for both values."""
+        dumped = _card("TestAgent", can_be_hired=flag).model_dump()
+        assert dumped["can_be_hired"] is flag
+
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_dump_validate_round_trip(self, flag: bool) -> None:
+        """``model_dump()`` → ``model_validate()`` restores the value."""
+        restored = AgentCard.model_validate(_card("TestAgent", can_be_hired=flag).model_dump())
+        assert restored.can_be_hired is flag
+
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_survives_nesting_in_another_serializable_model(self, flag: bool) -> None:
+        """A nested card — alone and inside a list — keeps its flag through a round-trip."""
+        holder = _CardHolder(
+            primary=_card("PrimaryAgent", can_be_hired=flag),
+            others=[
+                _card("FirstOther", can_be_hired=flag),
+                _card("SecondOther", can_be_hired=not flag),
+            ],
+        )
+
+        restored = _CardHolder.model_validate(holder.model_dump())
+
+        assert restored.primary.can_be_hired is flag
+        assert restored.others[0].can_be_hired is flag
+        assert restored.others[1].can_be_hired is (not flag)
+
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_survives_the_worker_hop(self, flag: bool) -> None:
+        """JSON out, JSON in, ``deserialize_object`` back — the flag is unchanged."""
+        payload = _card("TestAgent", can_be_hired=flag).model_dump_json()
+
+        restored = deserialize_object(json.loads(payload))
+
+        assert isinstance(restored, AgentCard)
+        assert restored.can_be_hired is flag
+
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_survives_the_worker_hop_while_nested(self, flag: bool) -> None:
+        """Nested *and* JSON — the shape the persisted record actually travels in.
+
+        Nesting and the JSON hop are asserted separately above; the record that
+        reaches a worker is both at once, and only the composition exercises the
+        nested-``__model__`` rebuild on the JSON path.
+        """
+        holder = _CardHolder(
+            primary=_card("PrimaryAgent", can_be_hired=flag),
+            others=[_card("FirstOther", can_be_hired=not flag)],
+        )
+
+        restored = _CardHolder.model_validate(json.loads(holder.model_dump_json()))
+
+        assert restored.primary.can_be_hired is flag
+        assert restored.others[0].can_be_hired is (not flag)
+
+    def test_payload_without_the_key_defaults_to_false(self) -> None:
+        """A card persisted before the field existed stays loadable and is not hireable.
+
+        The payload is dumped from a *hireable* card on purpose: dumping one that was
+        already ``False`` gives the same answer whether the default was applied or the
+        stored value survived, so it could not fail for the reason this spec exists.
+        """
+        legacy = _card("TestAgent", can_be_hired=True).model_dump()
+        del legacy["can_be_hired"]
+
+        assert AgentCard.model_validate(legacy).can_be_hired is False
+
+
+class TestLegacyRoutesToPayload:
+    """``routes_to`` / ``can_route_to()`` are gone, and a payload carrying the key still loads.
+
+    The removal needs no migration: ``SerializableBaseModel`` sets no ``extra``, so
+    Pydantic's default ``extra="ignore"`` drops the stale key at validation. These
+    specs verify that guarantee on the paths a persisted card actually travels.
+    """
+
+    def test_field_is_gone_from_the_model(self) -> None:
+        """The field is no longer declared, and no instance carries the attribute."""
+        assert "routes_to" not in AgentCard.model_fields
+        assert not hasattr(_card("TestAgent"), "routes_to")
+
+    def test_method_is_gone_from_the_class(self) -> None:
+        """The routing accessor is removed from the class itself, not just from instances."""
+        assert not hasattr(AgentCard, "can_route_to")
+
+    def test_legacy_payload_validates_and_drops_the_key(self) -> None:
+        """A dumped payload with a stale ``routes_to`` key loads, and the key does not survive."""
+        legacy = {
+            **_card("TestAgent", can_be_hired=True).model_dump(),
+            "routes_to": ["WriterAgent"],
+        }
+
+        restored = AgentCard.model_validate(legacy)
+
+        assert not hasattr(restored, "routes_to")
+
+    def test_legacy_payload_preserves_every_surviving_field(self) -> None:
+        """Dropping the stale key costs nothing else — a silent field loss is not a pass."""
+        original = _card("TestAgent", can_be_hired=True)
+        legacy = {**original.model_dump(), "routes_to": ["WriterAgent"]}
+
+        restored = AgentCard.model_validate(legacy)
+
+        assert restored.role == original.role
+        assert restored.description == original.description
+        assert restored.skills == original.skills
+        assert restored.config.role == original.config.role
+        assert restored.can_be_hired is True
+
+    def test_legacy_payload_survives_the_worker_hop(self) -> None:
+        """JSON out with the stale key, JSON in, ``deserialize_object`` back."""
+        original = _card("TestAgent", can_be_hired=True)
+        legacy = {**json.loads(original.model_dump_json()), "routes_to": ["WriterAgent"]}
+
+        restored = deserialize_object(legacy)
+
+        assert isinstance(restored, AgentCard)
+        assert not hasattr(restored, "routes_to")
+        assert restored.role == original.role
+        assert restored.description == original.description
+        assert restored.skills == original.skills
+        assert restored.config.role == original.config.role
+        assert restored.can_be_hired is True
 
 
 class TestOrchestratorCatalog:
