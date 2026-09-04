@@ -315,9 +315,32 @@ class TestCanBeHired:
         assert isinstance(restored, AgentCard)
         assert restored.can_be_hired is flag
 
+    @pytest.mark.parametrize("flag", [True, False])
+    def test_survives_the_worker_hop_while_nested(self, flag: bool) -> None:
+        """Nested *and* JSON — the shape the persisted record actually travels in.
+
+        Nesting and the JSON hop are asserted separately above; the record that
+        reaches a worker is both at once, and only the composition exercises the
+        nested-``__model__`` rebuild on the JSON path.
+        """
+        holder = _CardHolder(
+            primary=_card("PrimaryAgent", can_be_hired=flag),
+            others=[_card("FirstOther", can_be_hired=not flag)],
+        )
+
+        restored = _CardHolder.model_validate(json.loads(holder.model_dump_json()))
+
+        assert restored.primary.can_be_hired is flag
+        assert restored.others[0].can_be_hired is (not flag)
+
     def test_payload_without_the_key_defaults_to_false(self) -> None:
-        """A card persisted before the field existed stays loadable and is not hireable."""
-        legacy = _card("TestAgent").model_dump()
+        """A card persisted before the field existed stays loadable and is not hireable.
+
+        The payload is dumped from a *hireable* card on purpose: dumping one that was
+        already ``False`` gives the same answer whether the default was applied or the
+        stored value survived, so it could not fail for the reason this spec exists.
+        """
+        legacy = _card("TestAgent", can_be_hired=True).model_dump()
         del legacy["can_be_hired"]
 
         assert AgentCard.model_validate(legacy).can_be_hired is False

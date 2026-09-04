@@ -142,6 +142,10 @@ class AgentCard(SerializableBaseModel):
         can_be_hired: Whether an agent may hire this role at runtime.
                       Defaults to ``False`` — a card is hireable only when something
                       explicitly says so, never by virtue of being in the catalog.
+                      ``akgentic-core`` only stores and transports the flag: the value
+                      is set on a copy at team build time, and the guard that reads it
+                      before hiring lives outside this package. Nothing here enforces
+                      it.
         routes_to: List of roles this agent can send requests to.
                    Empty list means can route to any role (no restrictions).
                    Agents can always respond to requests regardless of this field.
