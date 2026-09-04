@@ -98,46 +98,6 @@ class TestAgentCard:
         assert card.metadata["version"] == "1.0"
         assert card.metadata["author"] == "team-alpha"
 
-    def test_routes_to_unrestricted(self) -> None:
-        """AgentCard with empty routes_to allows routing to any role."""
-        card = AgentCard(
-            description="Test",
-            skills=["testing"],
-            agent_class="test.Agent",
-            config=BaseConfig(role="TestAgent"),
-            routes_to=[],  # Empty = no restrictions
-        )
-
-        assert card.can_route_to("AnyRole") is True
-        assert card.can_route_to("AnotherRole") is True
-
-    def test_routes_to_restricted(self) -> None:
-        """AgentCard with routes_to list restricts routing."""
-        card = AgentCard(
-            description="Research",
-            skills=["research"],
-            agent_class="test.ResearchAgent",
-            config=BaseConfig(role="ResearchAgent"),
-            routes_to=["WriterAgent", "AnalystAgent"],
-        )
-
-        assert card.can_route_to("WriterAgent") is True
-        assert card.can_route_to("AnalystAgent") is True
-        assert card.can_route_to("OtherAgent") is False
-
-    def test_routes_to_default_empty(self) -> None:
-        """AgentCard defaults to no routing restrictions."""
-        card = AgentCard(
-            description="Test",
-            skills=["testing"],
-            agent_class="test.Agent",
-            config=BaseConfig(role="TestAgent"),
-            # routes_to not specified - should default to []
-        )
-
-        assert card.routes_to == []
-        assert card.can_route_to("AnyRole") is True
-
     def test_get_config_returns_independent_copies(self) -> None:
         """get_config() returns independent copies to prevent shared state."""
         card = AgentCard(
@@ -344,6 +304,63 @@ class TestCanBeHired:
         del legacy["can_be_hired"]
 
         assert AgentCard.model_validate(legacy).can_be_hired is False
+
+
+class TestLegacyRoutesToPayload:
+    """``routes_to`` / ``can_route_to()`` are gone, and a payload carrying the key still loads.
+
+    The removal needs no migration: ``SerializableBaseModel`` sets no ``extra``, so
+    Pydantic's default ``extra="ignore"`` drops the stale key at validation. These
+    specs verify that guarantee on the paths a persisted card actually travels.
+    """
+
+    def test_field_is_gone_from_the_model(self) -> None:
+        """The field is no longer declared, and no instance carries the attribute."""
+        assert "routes_to" not in AgentCard.model_fields
+        assert not hasattr(_card("TestAgent"), "routes_to")
+
+    def test_method_is_gone_from_the_class(self) -> None:
+        """The routing accessor is removed from the class itself, not just from instances."""
+        assert not hasattr(AgentCard, "can_route_to")
+
+    def test_legacy_payload_validates_and_drops_the_key(self) -> None:
+        """A dumped payload with a stale ``routes_to`` key loads, and the key does not survive."""
+        legacy = {
+            **_card("TestAgent", can_be_hired=True).model_dump(),
+            "routes_to": ["WriterAgent"],
+        }
+
+        restored = AgentCard.model_validate(legacy)
+
+        assert not hasattr(restored, "routes_to")
+
+    def test_legacy_payload_preserves_every_surviving_field(self) -> None:
+        """Dropping the stale key costs nothing else — a silent field loss is not a pass."""
+        original = _card("TestAgent", can_be_hired=True)
+        legacy = {**original.model_dump(), "routes_to": ["WriterAgent"]}
+
+        restored = AgentCard.model_validate(legacy)
+
+        assert restored.role == original.role
+        assert restored.description == original.description
+        assert restored.skills == original.skills
+        assert restored.config.role == original.config.role
+        assert restored.can_be_hired is True
+
+    def test_legacy_payload_survives_the_worker_hop(self) -> None:
+        """JSON out with the stale key, JSON in, ``deserialize_object`` back."""
+        original = _card("TestAgent", can_be_hired=True)
+        legacy = {**json.loads(original.model_dump_json()), "routes_to": ["WriterAgent"]}
+
+        restored = deserialize_object(legacy)
+
+        assert isinstance(restored, AgentCard)
+        assert not hasattr(restored, "routes_to")
+        assert restored.role == original.role
+        assert restored.description == original.description
+        assert restored.skills == original.skills
+        assert restored.config.role == original.config.role
+        assert restored.can_be_hired is True
 
 
 class TestOrchestratorCatalog:

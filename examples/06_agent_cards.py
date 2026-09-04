@@ -58,10 +58,6 @@ class CoordinatorAgent(Akgent):
         for card in catalog:
             print(f"  - {card.role}")
             print(f"    Skills: {', '.join(card.skills)}")
-            if card.routes_to:
-                print(f"    Routes to: {', '.join(card.routes_to)}")
-            else:
-                print("    Routes to: (any role)")
 
         # Find specific profile
         print(f"\n[{self.config.name}] Looking for ResearchAgent profile...")
@@ -71,11 +67,6 @@ class CoordinatorAgent(Akgent):
             print(f"  Skills: {research_profile.skills}")
             config = research_profile.get_config_copy()
             print(f"  Default config: name={config.name}, role={config.role}")
-
-            # Check routing permissions
-            print(f"  Can route to WriterAgent: {research_profile.can_route_to('WriterAgent')}")
-            print(f"  Can route to AnalystAgent: {research_profile.can_route_to('AnalystAgent')}")
-            print(f"  Can route to UnknownAgent: {research_profile.can_route_to('UnknownAgent')}")
 
         # Find agents with specific skill
         print(f"\n[{self.config.name}] Finding agents with 'writing' skill...")
@@ -115,7 +106,6 @@ def main() -> None:
                 skills=["web_search", "pdf_extraction", "arxiv_lookup"],
                 agent_class="examples.agent_cards.ResearchAgent",
                 config=BaseConfig(name="researcher", role="ResearchAgent"),
-                routes_to=["WriterAgent", "AnalystAgent"],  # Can only route to these
                 metadata={"version": "1.0", "max_concurrent_tasks": 5},
             )
         )
@@ -127,7 +117,6 @@ def main() -> None:
                 skills=["writing", "summarization", "formatting"],
                 agent_class="examples.agent_cards.WriterAgent",
                 config=BaseConfig(name="writer", role="WriterAgent"),
-                routes_to=["AnalystAgent"],  # Can only route to analyst
                 metadata={"version": "1.0", "max_words": 2000},
             )
         )
@@ -139,7 +128,6 @@ def main() -> None:
                 skills=["data_analysis", "visualization", "web_search"],
                 agent_class="examples.agent_cards.AnalystAgent",
                 config=BaseConfig(name="analyst", role="AnalystAgent"),
-                routes_to=[],  # Empty = no restrictions, can route to anyone
                 metadata={"version": "1.0"},
             )
         )

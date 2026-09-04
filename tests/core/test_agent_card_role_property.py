@@ -88,7 +88,6 @@ class TestRoundTripStability:
             skills=["coordination"],
             agent_class="akgentic.core.Akgent",
             config=BaseConfig(name="mgr", role="Manager"),
-            routes_to=["Worker"],
         )
 
     def test_round_trip_preserves_card(self) -> None:
