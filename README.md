@@ -873,7 +873,7 @@ card = AgentCard(
     skills=["web_search", "pdf_extraction"],
     agent_class=ResearchAgent,             # class or fully-qualified string
     config=BaseConfig(name="researcher", role="ResearchAgent"),
-    routes_to=["WriterAgent"],             # empty = no routing restrictions
+    can_be_hired=False,                    # default; set on a copy at team build time
 )
 
 # Register with the Orchestrator
@@ -903,10 +903,20 @@ AgentCard catalog  → "What agent types exist?" (static capability directory)
 get_team()         → "What instances are running?" (dynamic runtime roster)
 ```
 
-**`routes_to` routing constraints:**
-- Empty list → no restrictions; the agent can send to any role
-- Non-empty list → restricted; only listed roles are valid targets
-- Responses are always allowed regardless of `routes_to`
+**`can_be_hired`:**
+- Says whether an agent may hire this role at runtime. Defaults to `False` — a
+  card is hireable only when something explicitly says so, never by virtue of
+  being in the catalog.
+- It is a public field, not a `PrivateAttr`, so it survives `model_dump()` /
+  `model_validate()` and the worker hop. A private attribute would be dropped by
+  serialization, and a card restored from a persisted team would come back at the
+  default with every role silently non-hireable.
+- **`akgentic-core` only stores and transports it — nothing here enforces it.**
+  The value is intended to be set on a copy at team build time (`akgentic-team`),
+  and the guard that refuses a hire when it is `False` belongs in `akgentic-tool`.
+  **Neither has shipped yet**, so today the flag is carried and read by nothing:
+  a card marked `can_be_hired=False` is not currently refused anywhere. Treat it
+  as a declaration that travels correctly, not as an access-control boundary.
 
 ## UserProxy — Human-in-the-Loop
 
@@ -982,7 +992,7 @@ uv run python examples/01_hello_world.py
 | 03 | `03_dynamic_agents.py` | `createActor()`, parent-child hierarchy, `on_start()` |
 | 04 | `04_stateful_agents.py` | `BaseConfig`, `BaseState`, observer pattern, Orchestrator |
 | 05 | `05_multi_agent.py` | Multi-agent workflows, `UserProxy`, `EventSubscriber` |
-| 06 | `06_agent_cards.py` | `AgentCard`, capability catalog, routing constraints |
+| 06 | `06_agent_cards.py` | `AgentCard`, capability catalog |
 
 See [`examples/README.md`](https://github.com/b12consulting/akgentic-core/blob/master/examples/README.md) for the full concept index.
 
