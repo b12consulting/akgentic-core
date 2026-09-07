@@ -242,6 +242,9 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         self.agent_id: uuid.UUID = agent_id or uuid.uuid4()
         self.team_id: uuid.UUID = team_id if team_id is not None else uuid.uuid4()
         self.config: ConfigType = config or BaseConfig()  # type: ignore
+        # The annotation is the guard, not a tidy-up: left inferred, mypy would take
+        # this attribute's type from the parameter, so narrowing user_id back to a
+        # uuid.UUID would narrow this with it and no gate would say a word.
         self._user_id: str | None = user_id
         self._user_email = user_email
         self._parent = parent
