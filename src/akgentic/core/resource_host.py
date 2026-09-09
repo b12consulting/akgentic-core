@@ -191,8 +191,13 @@ class ResourceHost(Akgent[BaseConfig, BaseState]):
         replaced rather than duplicated. Liveness here is pykka's stopped flag — whether the
         actor can still receive — and it is not a health probe and must never become one.
 
+        A scope belongs to exactly one actor class, and the caller owns that invariant: on a
+        hit the registered actor is returned whatever *actor_class* asks for, unverified and
+        unlogged. Two classes sharing one host must therefore be keyed apart by name — the
+        host cannot tell them apart, because it never learns what a name means.
+
         Args:
-            actor_class: The ``Akgent`` subclass to instantiate on a miss.
+            actor_class: The ``Akgent`` subclass to instantiate on a miss. Ignored on a hit.
             config: Configuration for the hosted actor. ``config.name`` is the registry key
                 and is used verbatim.
 

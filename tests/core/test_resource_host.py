@@ -151,15 +151,23 @@ class _FakeStore:
 
 
 class _FailingStore:
-    """Raises from both methods, recording the scope it was asked about."""
+    """Raises from ``apply`` always, and from ``load`` unless told otherwise.
 
-    def __init__(self) -> None:
+    The two failures are separable on purpose. A store that raises from both puts a
+    ``load`` record in ``caplog`` before the ``apply`` path is ever exercised, so an
+    assertion that only looks for the scope string is satisfied by the wrong record.
+    """
+
+    def __init__(self, *, fail_load: bool = True) -> None:
+        self.fail_load = fail_load
         self.load_calls: list[str] = []
         self.apply_calls: list[str] = []
 
     def load(self, scope: str) -> BaseState | None:
         self.load_calls.append(scope)
-        raise RuntimeError("store unreachable")
+        if self.fail_load:
+            raise RuntimeError("store unreachable")
+        return None
 
     def apply(self, scope: str, delta: StateDelta) -> None:
         self.apply_calls.append(scope)
@@ -403,7 +411,10 @@ class TestFailingStore:
         state = _state_of(address)
         assert state.value == "default"
         assert store.load_calls == ["#Resource-broken"]
-        assert any("#Resource-broken" in record.getMessage() for record in _host_records(caplog))
+        assert any(
+            "store load failed" in record.getMessage() and "#Resource-broken" in record.getMessage()
+            for record in _host_records(caplog)
+        )
         # Non-load-bearing: pykka keeps an actor whose handler raised, so this passes
         # with the guard deleted. Kept for completeness only — see the completion notes.
         assert host.is_alive()
@@ -411,7 +422,8 @@ class TestFailingStore:
     def test_failing_apply_does_not_reach_the_caller(
         self, host: ActorAddress, caplog: pytest.LogCaptureFixture
     ) -> None:
-        store = _FailingStore()
+        # load succeeds here so the only failure record in caplog is the apply one.
+        store = _FailingStore(fail_load=False)
         _register_store(host, store)
         address = _get_or_create(host, "#Resource-broken")
 
@@ -421,7 +433,13 @@ class TestFailingStore:
             )
 
         assert store.apply_calls == ["#Resource-broken"]
-        assert any("#Resource-broken" in record.getMessage() for record in _host_records(caplog))
+        records = _host_records(caplog)
+        assert any(
+            "store apply failed" in record.getMessage()
+            and "#Resource-broken" in record.getMessage()
+            for record in records
+        )
+        assert not any("store load failed" in record.getMessage() for record in records)
 
         again = _get_or_create(host, "#Resource-broken")
         assert again.agent_id == address.agent_id
