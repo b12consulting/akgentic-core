@@ -24,7 +24,6 @@ from akgentic.core.messages.orchestrator import (
     NotificationMessage,
     ProcessedMessage,
     ReceivedMessage,
-    ResourceAttached,
     SentMessage,
     StartMessage,
     StateChangedMessage,
@@ -609,63 +608,74 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
 
     def getResourceOrCreate(  # noqa: N802
         self,
+        host_class: type[ResourceHost],
         actor_class: type[Akgent[Any, Any]],
         config: BaseConfig,
-        agent_id: uuid.UUID,
-        workspace_path: str,
-        metadata_keys: list[str] | None = None,
+        # Typed as ``EventMessage.event`` is: a genuinely open domain-event payload that
+        # core carries and never reads (Golden Rule 1c).
+        event: Any,
     ) -> ActorAddress:
         """Bind an agent to the process-wide resource named ``config.name``.
 
-        Forwards the get-or-create to the one ``ResourceHost`` running in this process
-        and returns the address the host answered — a live actor whether the host found
-        it or created it. The returned actor is **not** a team member and does not
-        become one: it is nobody's child, it emits no ``StartMessage``, and this method
-        creates nothing itself.
+        Forwards the get-or-create to the one ``host_class`` running in this process and
+        returns the address the host answered — a live actor whether the host found it
+        or created it. The returned actor is **not** a team member and does not become
+        one: it is nobody's child, it emits no ``StartMessage``, and this method creates
+        nothing itself.
 
-        Exactly one ``ResourceAttached`` is emitted on this team's stream per successful
-        call, **including a registry hit**. The forward cannot tell a hit from a miss —
-        the host answers with an address either way, deliberately — and it must not
-        learn, because the event records *which agent bound to which resource*. Two
-        agents on one resource are two events and one actor.
+        **The caller names the host class, and the lookup is exact.** Each resource kind
+        subclasses ``ResourceHost`` and exactly one host of each concrete class runs per
+        process, so ``host_class`` is looked up by identity — a subclass of it is another
+        kind's host, with its own registry, and is neither counted nor reached. Two kinds
+        are two hosts and two silos; there is no pair key.
 
-        ``workspace_path`` is a parameter rather than something derived from
-        ``config.name``: core does not know what a name means and must not learn. The
-        caller passes both and core validates no relationship between them.
+        **The caller builds the domain event; core carries it unread.** ``event`` is the
+        object the binding package declares — a frozen dataclass at module top level,
+        so the serializer's ``module.ClassName`` import path resolves on replay — and it
+        is emitted on this team's stream wrapped in ``EventMessage``, the envelope every
+        domain event rides. Core does not copy it, validate it or read a field off it: a
+        client reads the kind by the payload's own name, as it reads every other event.
+
+        Exactly one ``EventMessage`` is emitted per successful call, **including a
+        registry hit**. The forward cannot tell a hit from a miss — the host answers with
+        an address either way, deliberately — and it must not learn, because the event
+        records *which agent bound to which resource*. Two agents on one resource are
+        two events and one actor.
 
         Args:
+            host_class: The concrete host class to look up — exactly this class, not a
+                subclass of it.
             actor_class: The ``Akgent`` subclass the host instantiates on a miss.
             config: Configuration for the hosted actor; ``config.name`` is the host's
                 registry key, used verbatim.
-            agent_id: The agent whose card is binding, carried on the emitted event.
-            workspace_path: The resource's resolved path, carried verbatim.
-            metadata_keys: Keys to advertise on the event; ``None`` becomes ``[]``.
+            event: The caller's domain-event object, emitted as-is inside
+                ``EventMessage`` on success.
 
         Returns:
             The address of the hosted actor.
 
         Raises:
-            RuntimeError: When the process has no ``ResourceHost``, or more than one.
-                Neither case creates anything and neither emits an event.
+            RuntimeError: When the process has no host of ``host_class``, or more than
+                one. Neither case creates anything and neither emits an event.
         """
         # Imported here, not at module scope: actor_system_impl imports STOP_TIMEOUT
         # from this module, so a top-level import would close an import cycle.
         from akgentic.core.actor_system_impl import ActorSystem
 
-        hosts = ActorSystem.find_by_class(ResourceHost)
+        hosts = ActorSystem.find_by_class(host_class)
         if not hosts:
             raise RuntimeError(
-                "No ResourceHost is running in this process, so no resource can be "
-                "bound. A ResourceHost is created once, explicitly, at wiring time — "
+                f"No {host_class.__name__} is running in this process, so no resource "
+                "can be bound. A host is created once, explicitly, at wiring time — "
                 "right after the ActorSystem — and every team's orchestrator finds it "
                 "by lookup. Nothing creates one lazily."
             )
         if len(hosts) > 1:
             raise RuntimeError(
-                f"Found {len(hosts)} ResourceHost actors in this process; exactly one "
-                "is required. Each host keeps its own registry, so two of them let two "
-                "teams put two actors on the same resource. Create the host once, at "
-                "wiring time, right after the ActorSystem."
+                f"Found {len(hosts)} {host_class.__name__} actors in this process; "
+                "exactly one is required. Each host keeps its own registry, so two of "
+                "them let two teams put two actors on the same resource. Create the "
+                "host once, at wiring time, right after the ActorSystem."
             )
 
         # The one blocking outbound ask in this class, and it is safe. ADR-012's
@@ -675,13 +685,7 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
         # that reaches a team member.
         address = self.proxy_ask(hosts[0], ResourceHost).getResourceOrCreate(actor_class, config)
 
-        self.emitMessage(
-            ResourceAttached(
-                agent_id=agent_id,
-                workspace_path=workspace_path,
-                metadata_keys=metadata_keys or [],
-            )
-        )
+        self.emitMessage(EventMessage(event=event))
         return address
 
     def get_team(self) -> list[ActorAddress]:

@@ -184,6 +184,13 @@ class ResourceHost(Akgent[BaseConfig, BaseState]):
     afterwards. Nothing constructs a host lazily or caches one in a module global: two
     hosts in one process is the defect this class exists to remove, and a convenience that
     let a second one appear would reintroduce it a level up.
+
+    This is the generic base. Each resource kind — a workspace, a memory, a vector store —
+    subclasses it in the package that owns the kind, and exactly one instance of each
+    concrete class runs per process. The orchestrator's forward looks that class up
+    exactly, never a subclass of it, so two kinds are two hosts and this registry is the
+    kind's own silo: a store call stuck on one kind blocks nothing of another, and no pair
+    key is needed to tell them apart.
     """
 
     @override

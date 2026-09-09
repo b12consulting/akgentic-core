@@ -890,15 +890,22 @@ Everything else **finds** it rather than creating it:
 hosts = ActorSystem.find_by_class(ResourceHost)   # static — no instance needed
 ```
 
-`find_by_class` matches by class, so a subclassed host is still found, and it returns
-public `ActorAddress` values rather than raw pykka references. It reports what is
-running and refuses nothing; a caller that needs exactly one says so itself.
+`find_by_class` matches the **exact** class, and it returns public `ActorAddress`
+values rather than raw pykka references. It reports what is running and refuses
+nothing; a caller that needs exactly one says so itself.
 
-> **Why explicit creation matters.** Two hosts in one process means two registries,
-> and two registries means two teams can put two actors on the same resource — the
-> exact corruption the host exists to prevent. So nothing anywhere creates a host on
-> demand, and a process that forgot to create one gets a loud error instead of a
-> quietly grown second one.
+Exact, not subclass-inclusive, because `ResourceHost` is the generic base: each
+resource kind — a workspace, a memory, a vector store — subclasses it in the package
+that owns the kind, and **one host of each concrete class runs per process**. Two
+kinds are two hosts with two registries, so a store call stuck on one kind blocks
+nothing of another, and no pair key is needed to tell them apart. A subclass-inclusive
+lookup would hand one kind another kind's host.
+
+> **Why explicit creation matters.** Two hosts of one class in one process means two
+> registries for one kind, and that means two teams can put two actors on the same
+> resource — the exact corruption the host exists to prevent. So nothing anywhere
+> creates a host on demand, and a process that forgot to create one gets a loud error
+> instead of a quietly grown second one.
 
 ### Binding an agent to a resource
 
@@ -906,13 +913,16 @@ An agent reaches a resource through its orchestrator:
 
 ```python
 address = orchestrator.getResourceOrCreate(
+    WorkspaceHost,                        # the kind's host class — looked up exactly
     WorkspaceActor,                       # instantiated only on a miss
     BaseConfig(name="#Workspace-/data/alice"),
-    agent_id=card_agent_id,
-    workspace_path="/data/alice",
-    metadata_keys=["owner"],
+    WorkspaceAttached(agent_id=card_agent_id, workspace_path="/data/alice"),
 )
 ```
+
+`WorkspaceHost` (a `ResourceHost` subclass) and `WorkspaceAttached` (a frozen
+dataclass) are the tool package's declarations, not core's: the package that knows
+what the fields mean declares the host and the event.
 
 The call returns a live address whether the host found the actor or created it. It
 raises `RuntimeError` in exactly two cases, both of which create nothing and emit
@@ -920,12 +930,14 @@ nothing:
 
 | Condition | Fix |
 | --- | --- |
-| No `ResourceHost` in the process | Create one at wiring time, right after the `ActorSystem` |
-| More than one `ResourceHost` | Delete the extra creation site; there is one host per process |
+| No host of the asked class in the process | Create one at wiring time, right after the `ActorSystem` |
+| More than one host of the asked class | Delete the extra creation site; there is one host per concrete class per process |
 
-`workspace_path` is a parameter rather than something core works out from
-`config.name`. Core does not know what a name means and must not learn — the caller
-passes both, and core relates them in no way.
+The last argument is the caller's own domain event. Core wraps it in `EventMessage`
+and emits it on the calling team's stream **unread**: it does not copy it, validate
+it or read a field off it. Core does not know what a name or a path means and must
+not learn — the caller builds the event, and core relates it to `config.name` in no
+way.
 
 ### Persistence: `ResourceStore` and `StateDelta`
 
@@ -979,14 +991,24 @@ deployment, not a degraded one. A store that raises is logged and swallowed — 
 host must not die, because a hosted actor outlives it and a restarted host with an
 empty registry would start a second actor on a live resource.
 
-### Telemetry: `ResourceAttached` and `ResourceStopped`
+### Telemetry: the attach event and `ResourceStopped`
 
-A successful bind emits one `ResourceAttached` on the calling team's stream, so a
-client learns about the resource without a `StartMessage` the hosted actor never
-sends. One event per **bind**, not per actor created: two agents sharing one
-workspace produce two events and one actor, which is what makes a client's
-"accessible by" list a field to read rather than a state to reconstruct. There is
-deliberately **no detach event** — a binding is never released.
+A successful bind puts one `EventMessage` on the calling team's stream, carrying the
+kind's own attach event — `WorkspaceAttached` for a workspace — so a client learns
+about the resource without a `StartMessage` the hosted actor never sends. A client
+reads it by the payload's name, exactly as it reads `ClosedNotification` and
+`TeamStoppingEvent`: core defines no attach message class, no kind string and no base
+class for the payload. One event per **bind**, not per actor created: two agents
+sharing one workspace produce two events and one actor, which is what makes a
+client's "accessible by" list a field to read rather than a state to reconstruct.
+There is deliberately **no detach event** — a binding is never released.
+
+Declare the payload as a frozen dataclass at **module top level**. The serializer
+persists it under `module.ClassName` — `__name__`, not `__qualname__` — and replay
+resolves that string back with no alias mechanism, so a class nested in a function or
+another class serialises to a path that does not exist, and every replay of that
+team's stream fails on it. For the same reason, do not move the class once events
+have been written.
 
 `ResourceStopped` runs the other way. A hosted actor sends it to the host as it
 stops, and the host drops the registry entry and does nothing else. The stored
@@ -996,11 +1018,13 @@ document survives on purpose: it is what the next get-or-create restores from.
 
 **Look the host up at each use; never cache the address.** A cached address survives
 a host that has gone away, and a proxy onto a dead actor turns a lost update into
-silence instead of an error.
+silence instead of an error. Look up the host class **your kind is hosted by** —
+`WorkspaceHost` for a workspace, never the base — because the lookup is exact: asking
+for `ResourceHost` in a process that runs `WorkspaceHost` answers nothing.
 
 ```python
 def _host_address() -> ActorAddress | None:
-    hosts = ActorSystem.find_by_class(ResourceHost)
+    hosts = ActorSystem.find_by_class(WorkspaceHost)
     return hosts[0] if hosts else None
 
 

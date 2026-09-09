@@ -113,35 +113,6 @@ class StopMessage(Message):
     pass
 
 
-class ResourceAttached(Message):
-    """Telemetry message recording that an agent bound to a process-wide resource.
-
-    Emitted by the orchestrator on its own team's stream as it forwards a successful
-    get-or-create to the process's resource host. It is what replaces the
-    ``StartMessage`` a hosted actor no longer emits: a hosted actor is nobody's child
-    and joins no team, so without this nothing on this stream would ever mention it and
-    a client would learn of the resource only by inference.
-
-    **One per successful forward, not one per actor created.** Two agents binding the
-    same resource produce two of these and exactly one actor. That is what makes a
-    client's "accessible by" list a field to read rather than a state to reconstruct.
-
-    ``workspace_path`` is supplied by the caller and stored verbatim: core resolves
-    nothing and derives nothing from ``config.name``, because it does not know what the
-    name means and must not learn. There is deliberately **no** detach event — a binding
-    is never released, and the resource outlives every team that reaches it.
-
-    Attributes:
-        agent_id: The agent whose card bound to the resource.
-        workspace_path: The resource's resolved path, exactly as the caller passed it.
-        metadata_keys: Keys the caller wants a client to know about; empty by default.
-    """
-
-    agent_id: uuid.UUID
-    workspace_path: str
-    metadata_keys: list[str] = []
-
-
 class NotificationMessage(Message):
     """Base telemetry message for actor-level conditions surfaced to the orchestrator.
 

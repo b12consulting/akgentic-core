@@ -207,20 +207,24 @@ class ActorSystem(ExecutionContext):
 
     @staticmethod
     def find_by_class(actor_class: type[Akgent[Any, Any]]) -> list[ActorAddress]:
-        """Live actors of this class, or of a subclass, from the process registry.
+        """Live actors of exactly this class from the process registry.
 
         Static because only boot code holds a system instance and a card never does —
         and because the second caller has neither: a hosted actor is nobody's child, has
         no orchestrator to ask and no parent to walk up to, so this lookup is its only
         way back to the actor that hosts it.
 
-        **Matching is by class, not by class name.** ``ActorRegistry.get_by_class`` is an
-        ``issubclass`` test, so a subclass matches; the ``orchestrators`` property above
-        uses ``get_by_class_name``, which is a string match on ``__name__``, and this
-        deliberately does not. A deployment that subclasses a host must stay findable: a
-        lookup that missed it would answer "none running" while one is running, and the
-        documented remedy for that answer is to create a host — which is two hosts in one
-        process, the defect this lookup exists to prevent.
+        **Matching is by the exact class — not a subclass, and not a class name.** Each
+        resource kind subclasses ``ResourceHost`` and one host of each concrete class
+        runs per process, so a subclass-inclusive answer returns another kind's host.
+        That makes the forward refuse "found two" while exactly one host of the asked
+        class is running, or — worse, because it is silent — lets a hosted actor route
+        its delta or its stop to the wrong kind's registry, where it is dropped as an
+        unknown scope. ``ActorRegistry.get_by_class`` is an ``issubclass`` test, and
+        this narrows it to identity on ``ActorRef.actor_class``, the started actor's
+        own ``__class__``. The ``orchestrators`` property above uses
+        ``get_by_class_name``, a string match on ``__name__``; this deliberately does
+        not, so an unrelated class that happens to share the name is never returned.
 
         The ``is_alive()`` filter mirrors ``orchestrators`` and is **not** load-bearing
         against the installed pykka: ``Actor._stop`` unregisters the ref *before* it sets
@@ -233,7 +237,8 @@ class ActorSystem(ExecutionContext):
         dereferences the actor weakref, so a garbage-collected actor cannot raise.
 
         Args:
-            actor_class: The class to look for. Subclasses of it match too.
+            actor_class: The class to look for. Exactly this class; a subclass of it is
+                another kind and does not match.
 
         Returns:
             Addresses of the live actors of that class — an empty list when none run,
@@ -243,7 +248,7 @@ class ActorSystem(ExecutionContext):
         return [
             ActorAddressImpl(ref)
             for ref in pykka.ActorRegistry.get_by_class(actor_class)
-            if ref.is_alive()
+            if ref.actor_class is actor_class and ref.is_alive()
         ]
 
     def get_actor(self, agent: ActorAddress) -> ActorAddress | None:

@@ -1,9 +1,17 @@
 """Tests for the registry lookup, the orchestrator's forward, and the attach event.
 
-Three names ship here: ``ActorSystem.find_by_class``, ``Orchestrator.getResourceOrCreate``
-and ``ResourceAttached``. The lookup is what lets a card reach a resource whose lifetime
-outlives its team, and — the half story 33-1 could not reach — what lets a hosted actor,
-which has no orchestrator and no parent, find its way back to the host that started it.
+Three things ship here: ``ActorSystem.find_by_class``, ``Orchestrator.getResourceOrCreate``
+and the rule that the caller's own attach event rides ``EventMessage`` unread. The lookup
+is what lets a card reach a resource whose lifetime outlives its team, and — the half
+story 33-1 could not reach — what lets a hosted actor, which has no orchestrator and no
+parent, find its way back to the host that started it.
+
+The lookup matches the **exact** class. Each resource kind subclasses ``ResourceHost`` and
+one host of each concrete class runs per process, so a subclass-inclusive answer would
+return another kind's host: the forward would refuse "found two" while exactly one host
+of the asked class runs, or a hosted actor's route home would land its delta in another
+kind's registry. The two-host specs below run a base host and a subclass host **at
+once**, because a single-class test cannot tell exact-type from ``issubclass``.
 
 ``_host_address`` below is the **reference shape** the tool slice copies. It looks the
 host up at each use and never caches an address, and it treats an empty answer as
@@ -20,10 +28,12 @@ here: core owns the actor implementation.
 
 from __future__ import annotations
 
+import inspect
 import logging
 import time
 import uuid
 from collections.abc import Generator
+from dataclasses import dataclass
 from typing import Any, ClassVar, cast
 
 import pykka
@@ -37,12 +47,13 @@ from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import Message, ResourceStopped
 from akgentic.core.messages.orchestrator import (
-    ResourceAttached,
+    EventMessage,
     StartMessage,
     StopMessage,
 )
 from akgentic.core.orchestrator import Orchestrator
 from akgentic.core.resource_host import ResourceHost, StateDelta
+from akgentic.core.utils.deserializer import deserialize_object
 
 HOST_LOGGER = "akgentic.core.resource_host"
 TIMEOUT = 10.0
@@ -51,6 +62,21 @@ TIMEOUT = 10.0
 # a re-introduced cycle fails in ~2 s rather than parking a thread until the suite's
 # 300 s per-test timeout. It is deliberate test pressure, not a recommended shape.
 CALLBACK_TIMEOUT = 2
+
+
+@dataclass(frozen=True)
+class _ProbeAttached:
+    """The attach event a binding package would declare, as this module's stand-in.
+
+    At **module top level** on purpose: the serializer persists a dataclass under
+    ``f"{cls.__module__}.{cls.__name__}"`` — ``__name__``, not ``__qualname__`` — so a
+    class nested in a test class or a function would serialise to a path that does not
+    exist and the round-trip half of the event spec could not be written. That is the
+    rule the tool slice's own event must follow, and this probe demonstrates it.
+    """
+
+    agent_id: uuid.UUID
+    probe: str = "sentinel"
 
 
 ##
@@ -93,9 +119,13 @@ def _stop_and_wait(address: ActorAddress) -> None:
     assert _wait_until_stopped(address)
 
 
-def _host_of(system: ActorSystem, name: str = "#ResourceHost") -> ActorAddress:
-    """Start a ``ResourceHost`` the way wiring code does: explicitly, once."""
-    return system.createActor(ResourceHost, config=BaseConfig(name=name, role="ResourceHost"))
+def _host_of(
+    system: ActorSystem,
+    name: str = "#ResourceHost",
+    host_class: type[ResourceHost] = ResourceHost,
+) -> ActorAddress:
+    """Start a host the way wiring code does: explicitly, once per concrete class."""
+    return system.createActor(host_class, config=BaseConfig(name=name, role="ResourceHost"))
 
 
 def _ask_host(
@@ -111,17 +141,21 @@ def _ask_host(
     )
 
 
+def _probe() -> _ProbeAttached:
+    """A fresh attach event, as a binding site would build one."""
+    return _ProbeAttached(agent_id=uuid.uuid4())
+
+
 def _forward(
     orchestrator: ActorAddress,
     actor_class: type[Akgent[Any, Any]],
     name: str,
-    agent_id: uuid.UUID,
-    workspace_path: str = "/resources/default",
-    metadata_keys: list[str] | None = None,
+    event: Any,
+    host_class: type[ResourceHost] = ResourceHost,
 ) -> ActorAddress:
     """Call the orchestrator's forward through its proxy and wait for the answer."""
     future = _proxy(orchestrator).getResourceOrCreate(
-        actor_class, BaseConfig(name=name), agent_id, workspace_path, metadata_keys
+        host_class, actor_class, BaseConfig(name=name), event
     )
     return cast(ActorAddress, future.get(timeout=TIMEOUT))
 
@@ -134,9 +168,22 @@ def _messages(orchestrator: ActorAddress, message_type: type | None = None) -> l
     )
 
 
-def _attached(orchestrator: ActorAddress) -> list[ResourceAttached]:
-    """Every ``ResourceAttached`` on the orchestrator's own stream."""
-    return cast("list[ResourceAttached]", _messages(orchestrator, ResourceAttached))
+def _attach_events(messages: list[Message]) -> list[EventMessage]:
+    """The ``EventMessage``s among *messages* whose payload is a ``_ProbeAttached``.
+
+    Keyed on the payload, never on the envelope: ``EventMessage`` carries every domain
+    event, so the envelope's type alone identifies nothing.
+    """
+    return [
+        msg
+        for msg in messages
+        if isinstance(msg, EventMessage) and isinstance(msg.event, _ProbeAttached)
+    ]
+
+
+def _attached(orchestrator: ActorAddress) -> list[EventMessage]:
+    """Every attach event on the orchestrator's own stream."""
+    return _attach_events(_messages(orchestrator, EventMessage))
 
 
 def _host_records(caplog: pytest.LogCaptureFixture, level: int = logging.INFO) -> list[str]:
@@ -151,7 +198,9 @@ def _host_records(caplog: pytest.LogCaptureFixture, level: int = logging.INFO) -
 def _host_address() -> ActorAddress | None:
     """The process's resource host, looked up at each use and never cached.
 
-    The reference shape for every hosted actor, in this package and outside it.
+    The reference shape for every hosted actor, in this package and outside it. A
+    hosted actor names the host class its kind is hosted by; the lookup is exact, so
+    only the base runs in every test that uses this.
 
     Never cached: a cached address survives a host that went away, and a proxy onto a
     dead actor turns a lost delta into silence rather than into an error. An empty
@@ -253,7 +302,7 @@ class _NeverStarted(Akgent[BaseConfig, _HostedState]):
 
 
 class _SubHost(ResourceHost):
-    """A subclassed host, as a deployment that specialises the host would produce."""
+    """A second resource kind's host, as a binding package declares one."""
 
 
 def _make_impostor_host_class() -> type[Akgent[Any, Any]]:
@@ -330,8 +379,14 @@ def system() -> Generator[ActorSystem, None, None]:
 
 @pytest.fixture
 def host(system: ActorSystem) -> ActorAddress:
-    """A ResourceHost with no store registered — cold, as a fresh process is."""
+    """A base ResourceHost with no store registered — cold, as a fresh process is."""
     return _host_of(system)
+
+
+@pytest.fixture
+def sub_host(system: ActorSystem) -> ActorAddress:
+    """A ``_SubHost`` — a second kind's host, running beside the base."""
+    return _host_of(system, "#SubHost", _SubHost)
 
 
 @pytest.fixture
@@ -343,7 +398,7 @@ def orchestrator(system: ActorSystem) -> ActorAddress:
 
 
 ##
-## AC #1 — the lookup is static, typed, and returns usable public addresses
+## The lookup is static, typed, and returns usable public addresses
 ##
 class TestFindByClass:
     """Callable on the class, answering public addresses that work straight away."""
@@ -375,17 +430,31 @@ class TestFindByClass:
 
 
 ##
-## AC #2 — matching is by class, not by class name
+## AC #1 — matching is by the exact class: not a subclass, and not a class name
 ##
-class TestMatchingIsByClass:
-    """A subclass is found; an unrelated class with a colliding ``__name__`` is not."""
+class TestMatchingIsByExactClass:
+    """Each class answers its own host; a colliding ``__name__`` answers nothing."""
 
-    def test_a_subclassed_host_is_found(self, system: ActorSystem) -> None:
-        sub = system.createActor(_SubHost, config=BaseConfig(name="#SubHost", role="ResourceHost"))
+    def test_a_base_and_a_subclass_host_each_answer_their_own(
+        self, host: ActorAddress, sub_host: ActorAddress
+    ) -> None:
+        # The premise of the spec. If either of these ever stops holding, the assertions
+        # below stop meaning what they claim and must be rewritten, not relaxed.
+        assert issubclass(_SubHost, ResourceHost)
+        assert _SubHost is not ResourceHost
+        assert host.agent_id != sub_host.agent_id
 
-        found_ids = {address.agent_id for address in ActorSystem.find_by_class(ResourceHost)}
+        # pykka's own lookup is subclass-inclusive and answers BOTH. Asserted here so the
+        # spec records that the narrowing below is core's, not the registry's — without
+        # it, "the base answers one" would also pass against a registry that had simply
+        # never seen the sub-host.
+        assert len(pykka.ActorRegistry.get_by_class(ResourceHost)) == 2
 
-        assert sub.agent_id in found_ids
+        base_ids = [address.agent_id for address in ActorSystem.find_by_class(ResourceHost)]
+        sub_ids = [address.agent_id for address in ActorSystem.find_by_class(_SubHost)]
+
+        assert base_ids == [host.agent_id]
+        assert sub_ids == [sub_host.agent_id]
 
     def test_an_unrelated_class_with_the_same_name_is_not_found(
         self, system: ActorSystem, host: ActorAddress
@@ -408,7 +477,7 @@ class TestMatchingIsByClass:
 
 
 ##
-## AC #3 — only live actors are returned, and the honesty clause
+## Only live actors are returned, and the honesty clause
 ##
 class TestLivenessFilter:
     """A stopped host is not returned — and the registry, not the filter, is why."""
@@ -419,7 +488,7 @@ class TestLivenessFilter:
         _stop_and_wait(host)
 
         assert ActorSystem.find_by_class(ResourceHost) == []
-        # The experiment AC #3 asks for, recorded as an assertion rather than a claim:
+        # The experiment 33-2 asked for, recorded as an assertion rather than a claim:
         # the stopped host has already left the registry, so the ``is_alive()`` filter
         # never sees it. The filter is therefore NON-LOAD-BEARING against the installed
         # pykka — ``Actor._stop`` unregisters before it sets the stopped flag — and
@@ -428,7 +497,7 @@ class TestLivenessFilter:
 
 
 ##
-## AC #4 — a hosted actor reaches its host through the same lookup
+## A hosted actor reaches its host through the same lookup
 ##
 class TestHostedActorReachesItsHost:
     """The lookup runs in the hosted actor's own thread, and an empty answer is fine."""
@@ -476,7 +545,7 @@ class TestHostedActorReachesItsHost:
 
 
 ##
-## AC #5 — the forward returns what the host returns
+## The forward returns what the host returns
 ##
 class TestForward:
     """One resource per name, across agents and across teams in one process."""
@@ -484,8 +553,8 @@ class TestForward:
     def test_two_agents_in_one_team_get_one_actor(
         self, host: ActorAddress, orchestrator: ActorAddress
     ) -> None:
-        first = _forward(orchestrator, _CountingActor, "#Resource-shared", uuid.uuid4())
-        second = _forward(orchestrator, _CountingActor, "#Resource-shared", uuid.uuid4())
+        first = _forward(orchestrator, _CountingActor, "#Resource-shared", _probe())
+        second = _forward(orchestrator, _CountingActor, "#Resource-shared", _probe())
 
         assert first.agent_id == second.agent_id
         assert len(_CountingActor.constructions) == 1
@@ -499,15 +568,95 @@ class TestForward:
         )
         assert other.team_id != orchestrator.team_id
 
-        first = _forward(orchestrator, _CountingActor, "#Resource-crossteam", uuid.uuid4())
-        second = _forward(other, _CountingActor, "#Resource-crossteam", uuid.uuid4())
+        first = _forward(orchestrator, _CountingActor, "#Resource-crossteam", _probe())
+        second = _forward(other, _CountingActor, "#Resource-crossteam", _probe())
 
         assert first.agent_id == second.agent_id
         assert len(_CountingActor.constructions) == 1
 
 
 ##
-## AC #6 — a process with no host fails the first bind, and creates nothing
+## AC #2, #3 — one host per concrete class, and each forward reaches its own
+##
+class TestOneHostPerKind:
+    """Two kinds are two hosts and two registries; the forward never crosses them.
+
+    Both hosts run at once in every spec here. That is the trap the epic names: with
+    the base alone, or the sub alone, an ``issubclass`` lookup and an exact one give the
+    same answers, and a guard that started them in separate tests would pass against
+    the very defect it exists to catch.
+    """
+
+    def test_each_forward_reaches_its_own_host(
+        self, host: ActorAddress, sub_host: ActorAddress, orchestrator: ActorAddress
+    ) -> None:
+        assert issubclass(_SubHost, ResourceHost)
+        assert _SubHost is not ResourceHost
+
+        # The SAME name through each host. With a subclass-inclusive lookup the first
+        # forward finds two hosts and refuses "Found 2"; with an exact one each host
+        # hosts its own actor under that name — one registry per host is the silo.
+        on_base = _forward(orchestrator, _CountingActor, "#Resource-kind", _probe())
+        on_sub = _forward(
+            orchestrator, _CountingActor, "#Resource-kind", _probe(), host_class=_SubHost
+        )
+
+        assert on_base.is_alive()
+        assert on_sub.is_alive()
+        assert on_base.agent_id != on_sub.agent_id
+        assert len(_CountingActor.constructions) == 2
+
+        # Repeats are hits, each on its own host.
+        assert _forward(orchestrator, _CountingActor, "#Resource-kind", _probe()).agent_id == (
+            on_base.agent_id
+        )
+        assert _forward(
+            orchestrator, _CountingActor, "#Resource-kind", _probe(), host_class=_SubHost
+        ).agent_id == (on_sub.agent_id)
+        assert len(_CountingActor.constructions) == 2
+
+        # Prove the routing rather than infer it from ids. Stop the sub-host's actor:
+        # the sub-host's next answer is a NEW actor, and the base's is still its original.
+        # A forward that reached the base host regardless of host_class would answer the
+        # base's actor for both and construct nothing here.
+        _stop_and_wait(on_sub)
+        replacement = _forward(
+            orchestrator, _CountingActor, "#Resource-kind", _probe(), host_class=_SubHost
+        )
+        assert replacement.agent_id != on_sub.agent_id
+        assert replacement.is_alive()
+        assert len(_CountingActor.constructions) == 3
+        assert _forward(orchestrator, _CountingActor, "#Resource-kind", _probe()).agent_id == (
+            on_base.agent_id
+        )
+        assert len(_CountingActor.constructions) == 3
+
+    def test_only_a_host_of_the_asked_class_counts(
+        self, host: ActorAddress, orchestrator: ActorAddress
+    ) -> None:
+        # Only the base runs. Asking for the sub is asking for a kind with no host.
+        assert ActorSystem.find_by_class(_SubHost) == []
+        subscriber = _RecordingSubscriber()
+        _proxy(orchestrator).subscribe(subscriber).get(timeout=TIMEOUT)
+
+        with pytest.raises(RuntimeError) as excinfo:
+            _forward(orchestrator, _CountingActor, "#Resource-nosub", _probe(), host_class=_SubHost)
+
+        message = str(excinfo.value)
+        assert "No _SubHost is running" in message
+        assert "wiring time" in message
+        assert not isinstance(excinfo.value, WarningError)
+
+        # Refused loudly, and nothing conjured to make the refusal go away: no actor on
+        # the base host, no sub-host, no event.
+        assert _CountingActor.constructions == []
+        assert ActorSystem.find_by_class(_SubHost) == []
+        assert _attached(orchestrator) == []
+        assert _attach_events(subscriber.messages) == []
+
+
+##
+## A process with no host fails the first bind, and creates nothing
 ##
 class TestNoHost:
     """A clear refusal a wiring author can act on, and no host conjured to fix it."""
@@ -516,7 +665,7 @@ class TestNoHost:
         assert ActorSystem.find_by_class(ResourceHost) == []
 
         with pytest.raises(RuntimeError) as excinfo:
-            _forward(orchestrator, _CountingActor, "#Resource-nohost", uuid.uuid4())
+            _forward(orchestrator, _CountingActor, "#Resource-nohost", _probe())
 
         message = str(excinfo.value)
         assert "No ResourceHost is running" in message
@@ -532,7 +681,7 @@ class TestNoHost:
 
 
 ##
-## AC #7 — two hosts in one process is refused, not silently resolved
+## Two hosts OF ONE CLASS in one process is refused, not silently resolved
 ##
 class TestTwoHosts:
     """Picking the first would let two teams land two actors on one resource."""
@@ -545,7 +694,7 @@ class TestTwoHosts:
         assert len(ActorSystem.find_by_class(ResourceHost)) == 2
 
         with pytest.raises(RuntimeError) as excinfo:
-            _forward(orchestrator, _CountingActor, "#Resource-twohosts", uuid.uuid4())
+            _forward(orchestrator, _CountingActor, "#Resource-twohosts", _probe())
 
         message = str(excinfo.value)
         assert "Found 2 ResourceHost actors" in message
@@ -563,60 +712,74 @@ class TestTwoHosts:
 
 
 ##
-## AC #8, #12 — one ResourceAttached per successful forward, and the exports
+## AC #4, #5, #6 — the caller's event, carried by identity, one per successful forward
 ##
-class TestResourceAttached:
-    """The orchestrator's own event, one per bind, carrying what the caller passed."""
+class TestAttachEvent:
+    """The orchestrator wraps the caller's object in ``EventMessage`` and reads nothing."""
 
-    def test_the_event_carries_the_callers_fields_and_the_teams_identity(
+    def test_the_stream_holds_the_callers_object_by_identity(
         self, host: ActorAddress, orchestrator: ActorAddress
     ) -> None:
-        agent_id = uuid.uuid4()
+        payload = _probe()
 
-        _forward(
-            orchestrator,
-            _CountingActor,
-            "#Resource-event",
-            agent_id,
-            workspace_path="/workspaces/alice/project",
-            metadata_keys=["owner", "created_at"],
-        )
+        _forward(orchestrator, _CountingActor, "#Resource-event", payload)
 
         events = _attached(orchestrator)
         assert len(events) == 1
-        event = events[0]
-        assert event.agent_id == agent_id
-        assert event.workspace_path == "/workspaces/alice/project"
-        assert event.metadata_keys == ["owner", "created_at"]
-        assert event.team_id == orchestrator.team_id
-        assert event.sender is not None
-        assert event.sender.agent_id == orchestrator.agent_id
+        message = events[0]
+        # Identity, not equality. A copy, a rebuild or a re-validation of the payload
+        # compares EQUAL to the original and would pass ``==``; only ``is`` records that
+        # core carried the caller's object and did nothing to it.
+        assert message.event is payload
+        # What core does do — the whole of it — is ``Message.init`` on the envelope.
+        assert message.team_id == orchestrator.team_id
+        assert message.sender is not None
+        assert message.sender.agent_id == orchestrator.agent_id
 
-    def test_absent_metadata_keys_become_an_empty_list(
+    def test_a_subscriber_receives_the_same_object(
         self, host: ActorAddress, orchestrator: ActorAddress
     ) -> None:
-        _forward(orchestrator, _CountingActor, "#Resource-nometa", uuid.uuid4())
-
-        assert _attached(orchestrator)[0].metadata_keys == []
-
-    def test_a_subscriber_receives_it(self, host: ActorAddress, orchestrator: ActorAddress) -> None:
         subscriber = _RecordingSubscriber()
         _proxy(orchestrator).subscribe(subscriber).get(timeout=TIMEOUT)
+        payload = _probe()
 
-        _forward(orchestrator, _CountingActor, "#Resource-subscribed", uuid.uuid4())
+        _forward(orchestrator, _CountingActor, "#Resource-subscribed", payload)
 
-        attached = [msg for msg in subscriber.messages if isinstance(msg, ResourceAttached)]
-        assert len(attached) == 1
-        assert attached[0].workspace_path == "/resources/default"
+        # The fan-out snapshots the ENVELOPE (its live sender becomes a proxy) and leaves
+        # a non-model payload untouched, so the identity survives to the subscriber.
+        received = _attach_events(subscriber.messages)
+        assert len(received) == 1
+        assert received[0].event is payload
+        assert received[0].team_id == orchestrator.team_id
+
+    def test_the_payload_round_trips_under_its_own_import_path(
+        self, host: ActorAddress, orchestrator: ActorAddress
+    ) -> None:
+        payload = _probe()
+        _forward(orchestrator, _CountingActor, "#Resource-roundtrip", payload)
+        message = _attached(orchestrator)[0]
+
+        dumped = message.model_dump()
+        restored = deserialize_object(dumped)
+
+        # Equality on purpose here, and only here: a deserialised object is never the
+        # same object. What this pins is that the payload persisted under its own
+        # ``module.ClassName`` and came back as itself — which is how a client reads
+        # the kind by name, with no kind string and no base class in core.
+        assert isinstance(restored, EventMessage)
+        assert isinstance(restored.event, _ProbeAttached)
+        assert restored.event == payload
+        assert restored.event is not payload
+        assert restored.team_id == orchestrator.team_id
 
     def test_two_agents_binding_one_resource_emit_two_events_and_build_one_actor(
         self, host: ActorAddress, orchestrator: ActorAddress
     ) -> None:
-        first_agent = uuid.uuid4()
-        second_agent = uuid.uuid4()
+        first_payload = _probe()
+        second_payload = _probe()
 
-        first = _forward(orchestrator, _CountingActor, "#Resource-two", first_agent)
-        second = _forward(orchestrator, _CountingActor, "#Resource-two", second_agent)
+        first = _forward(orchestrator, _CountingActor, "#Resource-two", first_payload)
+        second = _forward(orchestrator, _CountingActor, "#Resource-two", second_payload)
 
         # One actor: the second call was a registry hit.
         assert first.agent_id == second.agent_id
@@ -625,19 +788,33 @@ class TestResourceAttached:
         # Two events all the same. The forward cannot tell a hit from a miss and must
         # not learn: the event records which agent bound, not what the host did.
         events = _attached(orchestrator)
-        assert [event.agent_id for event in events] == [first_agent, second_agent]
+        assert [event.event for event in events] == [first_payload, second_payload]
+        assert events[0].event is first_payload
+        assert events[1].event is second_payload
 
-    def test_exported_from_messages_and_not_from_the_top_level(self) -> None:
+    def test_core_keeps_no_attach_message_class(self) -> None:
         import akgentic.core
         import akgentic.core.messages
 
-        assert "ResourceAttached" in akgentic.core.messages.__all__
-        assert akgentic.core.messages.ResourceAttached is ResourceAttached
+        with pytest.raises(ImportError):
+            from akgentic.core.messages import ResourceAttached  # noqa: F401
+
+        assert "ResourceAttached" not in akgentic.core.messages.__all__
         assert "ResourceAttached" not in akgentic.core.__all__
+
+    def test_the_forward_takes_the_host_class_and_the_event_and_nothing_workspace_shaped(
+        self,
+    ) -> None:
+        parameters = inspect.signature(Orchestrator.getResourceOrCreate).parameters
+
+        assert list(parameters) == ["self", "host_class", "actor_class", "config", "event"]
+        assert "agent_id" not in parameters
+        assert "workspace_path" not in parameters
+        assert "metadata_keys" not in parameters
 
 
 ##
-## AC #9 — no event on a refusal
+## AC #6 — no event on a refusal
 ##
 class TestNoEventOnRefusal:
     """Neither refusal reaches the stream, and neither reaches a subscriber."""
@@ -647,10 +824,10 @@ class TestNoEventOnRefusal:
         _proxy(orchestrator).subscribe(subscriber).get(timeout=TIMEOUT)
 
         with pytest.raises(RuntimeError):
-            _forward(orchestrator, _CountingActor, "#Resource-nohost", uuid.uuid4())
+            _forward(orchestrator, _CountingActor, "#Resource-nohost", _probe())
 
         assert _attached(orchestrator) == []
-        assert not any(isinstance(msg, ResourceAttached) for msg in subscriber.messages)
+        assert _attach_events(subscriber.messages) == []
 
     def test_a_two_host_refusal_emits_nothing(
         self, system: ActorSystem, host: ActorAddress, orchestrator: ActorAddress
@@ -660,30 +837,30 @@ class TestNoEventOnRefusal:
         _proxy(orchestrator).subscribe(subscriber).get(timeout=TIMEOUT)
 
         with pytest.raises(RuntimeError):
-            _forward(orchestrator, _CountingActor, "#Resource-twohosts", uuid.uuid4())
+            _forward(orchestrator, _CountingActor, "#Resource-twohosts", _probe())
 
         assert _attached(orchestrator) == []
-        assert not any(isinstance(msg, ResourceAttached) for msg in subscriber.messages)
+        assert _attach_events(subscriber.messages) == []
 
     def test_a_failed_host_call_emits_nothing(
         self, host: ActorAddress, orchestrator: ActorAddress
     ) -> None:
-        # Beyond the story's two refusals, and deliberately so. AC #8 says "one event
-        # per SUCCESSFUL forward"; with one host running and the host call itself
-        # failing, only this spec separates emitting after the answer from emitting
-        # before it. Without it, moving the emit above the ask leaves the suite green.
+        # Beyond the two refusals, and deliberately so. The rule is "one event per
+        # SUCCESSFUL forward"; with one host running and the host call itself failing,
+        # only this spec separates emitting after the answer from emitting before it.
+        # Without it, moving the emit above the ask leaves the suite green.
         subscriber = _RecordingSubscriber()
         _proxy(orchestrator).subscribe(subscriber).get(timeout=TIMEOUT)
 
         with pytest.raises(RuntimeError, match="cannot be built"):
-            _forward(orchestrator, _UnbuildableActor, "#Resource-unbuildable", uuid.uuid4())
+            _forward(orchestrator, _UnbuildableActor, "#Resource-unbuildable", _probe())
 
         assert _attached(orchestrator) == []
-        assert not any(isinstance(msg, ResourceAttached) for msg in subscriber.messages)
+        assert _attach_events(subscriber.messages) == []
 
 
 ##
-## AC #10 — a hosted actor is not a team actor, and the forward does not make it one
+## A hosted actor is not a team actor, and the forward does not make it one
 ##
 class TestHostedActorIsNotATeamActor:
     """The forward binds; it does not adopt."""
@@ -691,7 +868,7 @@ class TestHostedActorIsNotATeamActor:
     def test_the_forward_adds_nobody_to_the_team(
         self, host: ActorAddress, orchestrator: ActorAddress
     ) -> None:
-        hosted = _forward(orchestrator, _CountingActor, "#Resource-unowned", uuid.uuid4())
+        hosted = _forward(orchestrator, _CountingActor, "#Resource-unowned", _probe())
 
         # A control the orchestrator *does* own. Without it every negative below is
         # vacuous: an orchestrator that saw nothing at all would satisfy them too.
@@ -715,7 +892,7 @@ class TestHostedActorIsNotATeamActor:
         assert hosted.agent_id not in start_senders
 
         # Nothing at all on this stream was sent by the hosted actor; the only message
-        # that mentions the resource is the orchestrator's own ResourceAttached.
+        # that mentions the resource is the orchestrator's own attach event.
         assert not any(
             msg.sender is not None and msg.sender.agent_id == hosted.agent_id
             for msg in _messages(orchestrator)
@@ -727,10 +904,10 @@ class TestHostedActorIsNotATeamActor:
         assert control.agent_id in children_ids
         assert hosted.agent_id not in children_ids
 
-        # The StopMessage half of the AC, asserted last and against a control, because
-        # asserting it while both actors are still running proves nothing: the list is
-        # empty then whatever the forward did. Stopping both makes it a difference.
-        # ``on_stop`` notifies through ``_notify_orchestrator``, which is a no-op with no
+        # The StopMessage half, asserted last and against a control, because asserting
+        # it while both actors are still running proves nothing: the list is empty then
+        # whatever the forward did. Stopping both makes it a difference. ``on_stop``
+        # notifies through ``_notify_orchestrator``, which is a no-op with no
         # orchestrator, so the team member's stop lands here and the hosted actor's does
         # not — and an implementation that adopted the hosted actor would announce it.
         _stop_and_wait(hosted)
@@ -746,14 +923,14 @@ class TestHostedActorIsNotATeamActor:
     def test_a_hosted_actor_asking_for_a_team_is_a_bug_by_construction(
         self, host: ActorAddress, orchestrator: ActorAddress
     ) -> None:
-        hosted = _forward(orchestrator, _CountingActor, "#Resource-noteam", uuid.uuid4())
+        hosted = _forward(orchestrator, _CountingActor, "#Resource-noteam", _probe())
 
         with pytest.raises(WarningError):
             _proxy(hosted).get_team().get(timeout=TIMEOUT)
 
 
 ##
-## AC #11 — the cycle guard
+## The cycle guard
 ##
 class TestCycleGuard:
     """A hosted actor calling back into the host from ``init_state`` must not wedge.
