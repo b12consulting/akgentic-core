@@ -934,13 +934,38 @@ dependency:
 
 ```python
 class ResourceStore(Protocol):
-    def load(self, scope: str) -> BaseState | None: ...
-    def apply(self, scope: str, delta: StateDelta) -> None: ...
+    def load(self, actor_class: type[Akgent[Any, Any]], scope: str) -> BaseState | None: ...
+    def apply(self, actor_class: type[Akgent[Any, Any]], scope: str, delta: StateDelta) -> None: ...
 ```
 
 `scope` is `config.name` verbatim. `StateDelta` names what changed — `set` and
 `unset` — rather than carrying a whole state, so nothing downstream ever rebuilds a
 persisted document by enumerating its fields.
+
+`actor_class` comes first on both methods and does two jobs. It **namespaces the
+document**, so two resource kinds that meet at one scope string are two documents
+rather than one — the host hosts any `Akgent` subclass and cannot tell two kinds
+apart by name. And it is **how a store derives the state type to rebuild into**:
+
+```python
+from akgentic.core import resolve_state_type
+
+state_type = resolve_state_type(actor_class)   # the declared StateType, or None
+```
+
+A stored document is assembled from the delta's `set` / `unset` keys, so unlike a
+whole serialised model it carries no root type marker and cannot say what it is —
+the class is the only way back to a concrete state class. `resolve_state_type`
+answers `None` for an unparameterised `Akgent` subclass or a binding whose state
+argument is not a `BaseState`; a store that gets `None` should return `None` from
+`load` rather than substituting `BaseState`. Deriving the namespace key from the
+class is the store's job and core has no opinion about it —
+`f"{cls.__module__}.{cls.__qualname__}"` is safe, bare `__name__` collides across
+packages.
+
+A delta for a scope the host has no registry entry for is **dropped and logged**,
+never written: the host cannot invent a class, and writing under a guessed one
+would corrupt another kind's document rather than lose one delta.
 
 Register a store after creating the host:
 

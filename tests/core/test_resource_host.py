@@ -29,7 +29,12 @@ from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import ResourceStopped, UserMessage
 from akgentic.core.messages.orchestrator import StartMessage
 from akgentic.core.orchestrator import Orchestrator
-from akgentic.core.resource_host import ResourceHost, ResourceStore, StateDelta
+from akgentic.core.resource_host import (
+    ResourceHost,
+    ResourceStore,
+    StateDelta,
+    resolve_state_type,
+)
 from akgentic.core.utils.deserializer import deserialize_object
 
 HOST_LOGGER = "akgentic.core.resource_host"
@@ -55,6 +60,20 @@ def _get_or_create(host: ActorAddress, name: str) -> ActorAddress:
     """Ask the host for the resource named *name*, creating a ``_CountingActor`` on a miss."""
     future = _proxy(host).getResourceOrCreate(_CountingActor, BaseConfig(name=name))
     return cast(ActorAddress, future.get(timeout=TIMEOUT))
+
+
+def _get_or_create_kind(
+    host: ActorAddress, actor_class: type[Akgent[Any, Any]], name: str
+) -> ActorAddress:
+    """Ask the host for *name*, creating *actor_class* on a miss."""
+    future = _proxy(host).getResourceOrCreate(actor_class, BaseConfig(name=name))
+    return cast(ActorAddress, future.get(timeout=TIMEOUT))
+
+
+def _drop_entry(host: ActorAddress, name: str) -> None:
+    """Announce that the resource at *name* stopped, and wait for the host to act."""
+    host.tell(ResourceStopped(scope=name))
+    _flush(host)
 
 
 def _register_store(host: ActorAddress, store: ResourceStore) -> None:
@@ -134,20 +153,103 @@ class _CountingActor(Akgent[BaseConfig, _HostedState]):
         super().on_stop()
 
 
+class _AlphaState(BaseState):
+    """One resource kind's state. Its fields do not overlap ``_BetaState``'s."""
+
+    alpha: str = "alpha-default"
+
+
+class _BetaState(BaseState):
+    """The other kind's state, so a document written for one cannot validate as the other."""
+
+    beta: int = -1
+
+
+class _AlphaActor(Akgent[BaseConfig, _AlphaState]):
+    """A hosted actor of the first kind."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.state = _AlphaState()
+
+
+class _BetaActor(Akgent[BaseConfig, _BetaState]):
+    """A hosted actor of the second kind, with a different state type."""
+
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.state = _BetaState()
+
+
+class _DerivedAlphaActor(_AlphaActor):
+    """A subclass adding no type parameters — its state type is found up the MRO."""
+
+
+class _UnparameterisedActor(Akgent):  # type: ignore[type-arg]
+    """An ``Akgent`` subclass with no type arguments: both arguments are TypeVars."""
+
+
+class _NoStateActor(Akgent[BaseConfig, None]):  # type: ignore[type-var]
+    """``Akgent[BaseConfig, None]`` — a real shape in this repo, and not a ``BaseState``."""
+
+
+class _RichConfig(BaseConfig):
+    """A config type that is not ``BaseConfig``, so position 0 and 1 differ visibly."""
+
+    extra: str = "rich"
+
+
+class _RichAlphaActor(Akgent[_RichConfig, _AlphaState]):
+    """Both type arguments concrete and distinct — the resolver must answer the state."""
+
+
+class _TypedStore:
+    """A store keyed on ``(actor_class, scope)`` that holds raw documents, not states.
+
+    Documents are plain dicts assembled from ``StateDelta`` keys, exactly as a real store
+    would hold them: nothing here carries a root type marker, so ``load`` can only rebuild
+    by asking :func:`resolve_state_type` what class the actor declared. A store that
+    ignored ``actor_class`` could not answer at all, which is what stops the two-kind spec
+    passing vacuously.
+    """
+
+    def __init__(self) -> None:
+        self.documents: dict[tuple[type[Akgent[Any, Any]], str], dict[str, JsonValue]] = {}
+
+    def load(self, actor_class: type[Akgent[Any, Any]], scope: str) -> BaseState | None:
+        document = self.documents.get((actor_class, scope))
+        if document is None:
+            return None
+        state_type = resolve_state_type(actor_class)
+        if state_type is None:
+            return None
+        return state_type.model_validate(document)
+
+    def apply(self, actor_class: type[Akgent[Any, Any]], scope: str, delta: StateDelta) -> None:
+        document = self.documents.setdefault((actor_class, scope), {})
+        document.update(delta.set)
+        for key in delta.unset:
+            document.pop(key, None)
+
+
 class _FakeStore:
-    """Records every call and returns whatever state it was seeded with."""
+    """Records every call and returns whatever state it was seeded with.
+
+    Calls are recorded as ``(actor_class, scope)`` rather than a bare scope, so a spec
+    can assert *which class* reached the store and not merely that one did.
+    """
 
     def __init__(self, state: BaseState | None = None) -> None:
         self.state = state
-        self.load_calls: list[str] = []
-        self.apply_calls: list[tuple[str, StateDelta]] = []
+        self.load_calls: list[tuple[type[Akgent[Any, Any]], str]] = []
+        self.apply_calls: list[tuple[type[Akgent[Any, Any]], str, StateDelta]] = []
 
-    def load(self, scope: str) -> BaseState | None:
-        self.load_calls.append(scope)
+    def load(self, actor_class: type[Akgent[Any, Any]], scope: str) -> BaseState | None:
+        self.load_calls.append((actor_class, scope))
         return self.state
 
-    def apply(self, scope: str, delta: StateDelta) -> None:
-        self.apply_calls.append((scope, delta))
+    def apply(self, actor_class: type[Akgent[Any, Any]], scope: str, delta: StateDelta) -> None:
+        self.apply_calls.append((actor_class, scope, delta))
 
 
 class _FailingStore:
@@ -160,17 +262,17 @@ class _FailingStore:
 
     def __init__(self, *, fail_load: bool = True) -> None:
         self.fail_load = fail_load
-        self.load_calls: list[str] = []
-        self.apply_calls: list[str] = []
+        self.load_calls: list[tuple[type[Akgent[Any, Any]], str]] = []
+        self.apply_calls: list[tuple[type[Akgent[Any, Any]], str]] = []
 
-    def load(self, scope: str) -> BaseState | None:
-        self.load_calls.append(scope)
+    def load(self, actor_class: type[Akgent[Any, Any]], scope: str) -> BaseState | None:
+        self.load_calls.append((actor_class, scope))
         if self.fail_load:
             raise RuntimeError("store unreachable")
         return None
 
-    def apply(self, scope: str, delta: StateDelta) -> None:
-        self.apply_calls.append(scope)
+    def apply(self, actor_class: type[Akgent[Any, Any]], scope: str, delta: StateDelta) -> None:
+        self.apply_calls.append((actor_class, scope))
         raise RuntimeError("store unreachable")
 
 
@@ -279,8 +381,10 @@ class TestColdAndHotFlowsAreIdentical:
 
         assert cold == (True, "default", 0)
         assert hot == cold
-        assert store.load_calls == ["#Resource-hot"]
-        assert [scope for scope, _ in store.apply_calls] == ["#Resource-hot"]
+        assert store.load_calls == [(_CountingActor, "#Resource-hot")]
+        assert [(cls, scope) for cls, scope, _ in store.apply_calls] == [
+            (_CountingActor, "#Resource-hot")
+        ]
 
 
 ##
@@ -410,11 +514,15 @@ class TestFailingStore:
         assert address.is_alive()
         state = _state_of(address)
         assert state.value == "default"
-        assert store.load_calls == ["#Resource-broken"]
+        assert store.load_calls == [(_CountingActor, "#Resource-broken")]
+        records = _host_records(caplog)
         assert any(
             "store load failed" in record.getMessage() and "#Resource-broken" in record.getMessage()
-            for record in _host_records(caplog)
+            for record in records
         )
+        # The other path's record must be absent — caplog accumulates, so a bare
+        # "some record mentions the scope" assertion is satisfiable by the wrong one.
+        assert not any("store apply failed" in record.getMessage() for record in records)
         # Non-load-bearing: pykka keeps an actor whose handler raised, so this passes
         # with the guard deleted. Kept for completeness only — see the completion notes.
         assert host.is_alive()
@@ -432,7 +540,7 @@ class TestFailingStore:
                 timeout=TIMEOUT
             )
 
-        assert store.apply_calls == ["#Resource-broken"]
+        assert store.apply_calls == [(_CountingActor, "#Resource-broken")]
         records = _host_records(caplog)
         assert any(
             "store apply failed" in record.getMessage()
@@ -498,7 +606,7 @@ class TestResourceStopped:
         replacement = _get_or_create(host, "#Resource-gone")
         assert replacement.agent_id != address.agent_id
         assert len(_CountingActor.constructions) == 2
-        assert store.load_calls == ["#Resource-gone"]
+        assert store.load_calls == [(_CountingActor, "#Resource-gone")]
 
     def test_unknown_scope_is_harmless(self, host: ActorAddress) -> None:
         address = _get_or_create(host, "#Resource-known")
@@ -508,3 +616,232 @@ class TestResourceStopped:
 
         assert host.is_alive()
         assert _get_or_create(host, "#Resource-known").agent_id == address.agent_id
+
+
+##
+## 33-3 AC #1 — the Protocol takes the class first
+##
+class TestStoreProtocolTakesTheClassFirst:
+    """The re-signatured Protocol still has exactly two methods and still accepts a fake.
+
+    ``runtime_checkable`` proves method *presence* only — it has never checked
+    signatures, so a stale two-argument store passes ``isinstance`` too and only ``mypy``
+    catches the drift. That is precisely why this is not the story's guard; the guard is
+    :class:`TestTwoKindsAtOneScope`.
+    """
+
+    def test_still_declares_exactly_load_and_apply(self) -> None:
+        declared = {
+            name
+            for name, value in vars(ResourceStore).items()
+            if callable(value) and not name.startswith("_")
+        }
+        assert declared == {"load", "apply"}
+
+    def test_a_class_first_fake_satisfies_the_protocol(self) -> None:
+        assert isinstance(_FakeStore(), ResourceStore)
+        assert isinstance(_TypedStore(), ResourceStore)
+
+    def test_runtime_checkable_does_not_catch_a_stale_two_argument_store(self) -> None:
+        class _StaleStore:
+            """The pre-33-3 shape. Recorded, not condoned: mypy is the only gate."""
+
+            def load(self, scope: str) -> BaseState | None:
+                return None
+
+            def apply(self, scope: str, delta: StateDelta) -> None:
+                return None
+
+        assert isinstance(_StaleStore(), ResourceStore)
+
+
+##
+## 33-3 AC #2 — the class reaches the store on both paths
+##
+class TestTheClassReachesTheStore:
+    """``load`` gets the caller's class; ``apply`` gets the registry entry's."""
+
+    def test_load_and_apply_both_receive_the_class_the_caller_asked_for(
+        self, host: ActorAddress
+    ) -> None:
+        store = _FakeStore()
+        _register_store(host, store)
+
+        _get_or_create_kind(host, _AlphaActor, "P")
+        assert store.load_calls == [(_AlphaActor, "P")]
+
+        delta = StateDelta(set={"alpha": "written"})
+        _proxy(host).notify_delta("P", delta).get(timeout=TIMEOUT)
+
+        assert store.apply_calls == [(_AlphaActor, "P", delta)]
+
+    def test_apply_uses_the_registered_class_not_the_most_recent_one(
+        self, host: ActorAddress
+    ) -> None:
+        # Two scopes, two kinds. If ``notify_delta`` took the class from anywhere but the
+        # entry for *its own* scope, one of these two would carry the other's class.
+        store = _FakeStore()
+        _register_store(host, store)
+
+        _get_or_create_kind(host, _AlphaActor, "P-alpha")
+        _get_or_create_kind(host, _BetaActor, "P-beta")
+
+        _proxy(host).notify_delta("P-alpha", StateDelta(set={"alpha": "a"})).get(timeout=TIMEOUT)
+        _proxy(host).notify_delta("P-beta", StateDelta(set={"beta": 1})).get(timeout=TIMEOUT)
+
+        assert [(cls, scope) for cls, scope, _ in store.apply_calls] == [
+            (_AlphaActor, "P-alpha"),
+            (_BetaActor, "P-beta"),
+        ]
+
+
+##
+## 33-3 AC #3 — THE GUARD: two kinds at one scope are two documents
+##
+class TestTwoKindsAtOneScope:
+    """One host, one scope string, two actor classes, two documents.
+
+    This is the story's central guard and the only spec that can tell this design from
+    the one it replaces: a store keyed on the scope alone would hand Beta the document
+    Alpha wrote, and could not rebuild either into a concrete state at all. Deliberately
+    one host and sequential — two ``ResourceHost``s in one process is the defect the epic
+    exists to remove and must not appear in a test.
+    """
+
+    def test_two_kinds_at_one_scope_do_not_share_a_document(self, host: ActorAddress) -> None:
+        store = _TypedStore()
+        _register_store(host, store)
+
+        # 1. Alpha at scope "P", writing a value only _AlphaState has a field for.
+        alpha = _get_or_create_kind(host, _AlphaActor, "P")
+        _proxy(host).notify_delta("P", StateDelta(set={"alpha": "written-by-alpha"})).get(
+            timeout=TIMEOUT
+        )
+        assert store.documents[(_AlphaActor, "P")] == {"alpha": "written-by-alpha"}
+        alpha_document_before = dict(store.documents[(_AlphaActor, "P")])
+
+        # 2. Alpha stops and its entry goes; the stored document deliberately survives.
+        cast(ActorAddressImpl, alpha)._actor_ref.stop(block=True)
+        _drop_entry(host, "P")
+
+        # 3. Beta at the SAME scope "P". Its load must miss, because the document that
+        #    exists is Alpha's and is not keyed under Beta.
+        beta = _get_or_create_kind(host, _BetaActor, "P")
+        beta_state = _state_of(beta)
+
+        assert isinstance(beta_state, _BetaState)
+        assert beta_state == _BetaState()
+        assert beta_state.beta == -1
+
+        # 4. Beta writes its own delta. Alpha's document must not move.
+        _proxy(host).notify_delta("P", StateDelta(set={"beta": 7})).get(timeout=TIMEOUT)
+
+        assert store.documents[(_BetaActor, "P")] == {"beta": 7}
+        assert store.documents[(_AlphaActor, "P")] == alpha_document_before
+        assert set(store.documents) == {(_AlphaActor, "P"), (_BetaActor, "P")}
+
+        # 5. Alpha comes back at "P" and restores its own values, intact and typed.
+        cast(ActorAddressImpl, beta)._actor_ref.stop(block=True)
+        _drop_entry(host, "P")
+
+        alpha_again = _get_or_create_kind(host, _AlphaActor, "P")
+        restored = _state_of(alpha_again)
+
+        assert isinstance(restored, _AlphaState)
+        assert restored.alpha == "written-by-alpha"
+
+
+##
+## 33-3 AC #4 — a delta for an unregistered scope is dropped, not written
+##
+class TestUnregisteredScopeDeltaIsDropped:
+    """The host cannot invent a class, so it drops the delta rather than guessing one."""
+
+    def test_delta_after_resource_stopped_is_not_written_and_is_logged(
+        self, host: ActorAddress, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        store = _FakeStore()
+        _register_store(host, store)
+        _get_or_create_kind(host, _AlphaActor, "P")
+        _drop_entry(host, "P")
+
+        with caplog.at_level(logging.WARNING, logger=HOST_LOGGER):
+            _proxy(host).notify_delta("P", StateDelta(set={"alpha": "lost"})).get(timeout=TIMEOUT)
+
+        # The absence of the store call is the guard; the log is corroboration.
+        assert store.apply_calls == []
+        assert host.is_alive()
+        assert any(
+            "delta dropped" in record.getMessage() and "P" in record.getMessage()
+            for record in _host_records(caplog)
+        )
+
+    def test_a_registered_scope_is_still_written(self, host: ActorAddress) -> None:
+        # Without this the spec above is satisfiable by a host that never writes at all.
+        store = _FakeStore()
+        _register_store(host, store)
+        _get_or_create_kind(host, _AlphaActor, "P")
+
+        _proxy(host).notify_delta("P", StateDelta(set={"alpha": "kept"})).get(timeout=TIMEOUT)
+
+        assert [(cls, scope) for cls, scope, _ in store.apply_calls] == [(_AlphaActor, "P")]
+
+
+##
+## 33-3 AC #5 — resolve_state_type
+##
+class TestResolveStateType:
+    """The declared state type, or ``None`` rather than a guess."""
+
+    def test_direct_binding(self) -> None:
+        assert resolve_state_type(_AlphaActor) is _AlphaState
+        assert resolve_state_type(_BetaActor) is _BetaState
+
+    def test_subclass_finds_it_up_the_mro(self) -> None:
+        assert resolve_state_type(_DerivedAlphaActor) is _AlphaState
+
+    def test_a_base_state_binding_answers_base_state(self) -> None:
+        # ResourceHost, UserProxy and Orchestrator are all Akgent[BaseConfig, BaseState].
+        assert resolve_state_type(ResourceHost) is BaseState
+        assert resolve_state_type(Orchestrator) is BaseState
+
+    def test_unparameterised_answers_none(self) -> None:
+        assert resolve_state_type(_UnparameterisedActor) is None
+
+    def test_a_none_state_argument_answers_none(self) -> None:
+        assert resolve_state_type(_NoStateActor) is None
+
+    def test_a_non_akgent_class_answers_none(self) -> None:
+        assert resolve_state_type(cast(Any, _AlphaState)) is None
+        assert resolve_state_type(cast(Any, BaseConfig)) is None
+
+    def test_it_answers_the_state_not_the_config(self) -> None:
+        # The distinguishing case: both type arguments are concrete and different, so a
+        # resolver reading position 0 would answer _RichConfig here and pass every other
+        # row in this class.
+        assert resolve_state_type(_RichAlphaActor) is _AlphaState
+        assert resolve_state_type(_RichAlphaActor) is not _RichConfig
+
+    def test_the_answer_is_memoised_and_repeatable(self) -> None:
+        assert resolve_state_type(_AlphaActor) is resolve_state_type(_AlphaActor)
+        assert resolve_state_type(_UnparameterisedActor) is None
+        assert resolve_state_type(_UnparameterisedActor) is None
+
+
+##
+## 33-3 AC #7 — the cold host is unchanged in shape
+##
+class TestColdHostUnchangedByTheClassCarryingSignature:
+    """No store registered: creation still works and a registered scope's delta is a no-op."""
+
+    def test_cold_host_creates_and_absorbs_a_delta_silently(
+        self, host: ActorAddress, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        address = _get_or_create_kind(host, _AlphaActor, "P")
+        assert address.is_alive()
+
+        with caplog.at_level(logging.WARNING, logger=HOST_LOGGER):
+            _proxy(host).notify_delta("P", StateDelta(set={"alpha": "x"})).get(timeout=TIMEOUT)
+
+        assert host.is_alive()
+        assert _host_records(caplog) == []

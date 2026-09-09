@@ -277,15 +277,15 @@ class _FakeStore:
 
     def __init__(self, state: BaseState | None = None) -> None:
         self.state = state
-        self.load_calls: list[str] = []
-        self.apply_calls: list[tuple[str, StateDelta]] = []
+        self.load_calls: list[tuple[type[Akgent[Any, Any]], str]] = []
+        self.apply_calls: list[tuple[type[Akgent[Any, Any]], str, StateDelta]] = []
 
-    def load(self, scope: str) -> BaseState | None:
-        self.load_calls.append(scope)
+    def load(self, actor_class: type[Akgent[Any, Any]], scope: str) -> BaseState | None:
+        self.load_calls.append((actor_class, scope))
         return self.state
 
-    def apply(self, scope: str, delta: StateDelta) -> None:
-        self.apply_calls.append((scope, delta))
+    def apply(self, actor_class: type[Akgent[Any, Any]], scope: str, delta: StateDelta) -> None:
+        self.apply_calls.append((actor_class, scope, delta))
 
 
 class _RecordingSubscriber:
@@ -776,5 +776,9 @@ class TestCycleGuard:
         assert address.is_alive()
         _flush(address)
         assert _CallbackActor.callbacks == ["#Resource-callback"]
-        assert [scope for scope, _ in store.apply_calls] == ["#Resource-callback"]
-        assert store.apply_calls[0][1].set == {"callback": True}
+        # The delta is written, not dropped: ``getResourceOrCreate`` records the registry
+        # entry before the host can dequeue the callback, so the scope is known by then.
+        assert [(cls, scope) for cls, scope, _ in store.apply_calls] == [
+            (_CallbackActor, "#Resource-callback")
+        ]
+        assert store.apply_calls[0][2].set == {"callback": True}
