@@ -760,19 +760,22 @@ class TestUnregisteredScopeDeltaIsDropped:
     def test_delta_after_resource_stopped_is_not_written_and_is_logged(
         self, host: ActorAddress, caplog: pytest.LogCaptureFixture
     ) -> None:
+        # A distinctive scope on purpose: asserting a one-character scope appears in the
+        # record would be satisfied by almost any message the host could emit.
+        scope = "#Resource-dropped-scope"
         store = _FakeStore()
         _register_store(host, store)
-        _get_or_create_kind(host, _AlphaActor, "P")
-        _drop_entry(host, "P")
+        _get_or_create_kind(host, _AlphaActor, scope)
+        _drop_entry(host, scope)
 
         with caplog.at_level(logging.WARNING, logger=HOST_LOGGER):
-            _proxy(host).notify_delta("P", StateDelta(set={"alpha": "lost"})).get(timeout=TIMEOUT)
+            _proxy(host).notify_delta(scope, StateDelta(set={"alpha": "lost"})).get(timeout=TIMEOUT)
 
         # The absence of the store call is the guard; the log is corroboration.
         assert store.apply_calls == []
         assert host.is_alive()
         assert any(
-            "delta dropped" in record.getMessage() and "P" in record.getMessage()
+            "delta dropped" in record.getMessage() and scope in record.getMessage()
             for record in _host_records(caplog)
         )
 
