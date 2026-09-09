@@ -24,6 +24,7 @@ from akgentic.core.actor_address import ActorAddress
 from akgentic.core.actor_address_impl import ActorAddressImpl
 from akgentic.core.actor_system_impl import ActorSystem
 from akgentic.core.agent import Akgent
+from akgentic.core.agent_card import _extract_config_type
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
 from akgentic.core.messages.message import ResourceStopped, UserMessage
@@ -201,6 +202,14 @@ class _RichConfig(BaseConfig):
 
 class _RichAlphaActor(Akgent[_RichConfig, _AlphaState]):
     """Both type arguments concrete and distinct — the resolver must answer the state."""
+
+
+class _CacheProbeActor(Akgent[_RichConfig, _AlphaState]):
+    """Used by exactly one spec, so its two memo entries are primed in a known order.
+
+    Sharing ``_RichAlphaActor`` here would make that spec's verdict depend on which
+    resolver query the suite happened to run first.
+    """
 
 
 class _TypedStore:
@@ -824,6 +833,16 @@ class TestResolveStateType:
         # row in this class.
         assert resolve_state_type(_RichAlphaActor) is _AlphaState
         assert resolve_state_type(_RichAlphaActor) is not _RichConfig
+
+    def test_a_cached_config_answer_cannot_satisfy_a_state_query(self) -> None:
+        # The config memo and the state memo are separate dicts, each keyed on the class
+        # alone. Folded into one — the tidy-up that looks harmless, two near-identical
+        # dicts becoming one — the config answer primed on the first line below would be
+        # handed straight back on the second, and a store would rebuild a state document
+        # into a config class. Nothing else in the suite asks both questions about one
+        # class, so without this spec that fold stays green.
+        assert _extract_config_type(_CacheProbeActor) is _RichConfig
+        assert resolve_state_type(_CacheProbeActor) is _AlphaState
 
     def test_the_answer_is_memoised_and_repeatable(self) -> None:
         assert resolve_state_type(_AlphaActor) is resolve_state_type(_AlphaActor)
