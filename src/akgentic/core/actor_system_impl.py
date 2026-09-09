@@ -205,6 +205,47 @@ class ActorSystem(ExecutionContext):
             orch for orch in self.ActorRegistry.get_by_class_name("Orchestrator") if orch.is_alive()
         ]
 
+    @staticmethod
+    def find_by_class(actor_class: type[Akgent[Any, Any]]) -> list[ActorAddress]:
+        """Live actors of this class, or of a subclass, from the process registry.
+
+        Static because only boot code holds a system instance and a card never does —
+        and because the second caller has neither: a hosted actor is nobody's child, has
+        no orchestrator to ask and no parent to walk up to, so this lookup is its only
+        way back to the actor that hosts it.
+
+        **Matching is by class, not by class name.** ``ActorRegistry.get_by_class`` is an
+        ``issubclass`` test, so a subclass matches; the ``orchestrators`` property above
+        uses ``get_by_class_name``, which is a string match on ``__name__``, and this
+        deliberately does not. A deployment that subclasses a host must stay findable: a
+        lookup that missed it would answer "none running" while one is running, and the
+        documented remedy for that answer is to create a host — which is two hosts in one
+        process, the defect this lookup exists to prevent.
+
+        The ``is_alive()`` filter mirrors ``orchestrators`` and is **not** load-bearing
+        against the installed pykka: ``Actor._stop`` unregisters the ref *before* it sets
+        the stopped flag, so a stopped actor has already left the registry by the time
+        liveness could report False. It is kept because it costs one predicate, it
+        mirrors the property beside it, and it is correct if that ordering ever changes.
+
+        No ``try/except`` belongs here and none may be added: ``ActorRef.is_alive()``
+        reads a ``threading.Event`` held by strong reference on the ref and never
+        dereferences the actor weakref, so a garbage-collected actor cannot raise.
+
+        Args:
+            actor_class: The class to look for. Subclasses of it match too.
+
+        Returns:
+            Addresses of the live actors of that class — an empty list when none run,
+            never ``None``. Callers that require exactly one must say so themselves;
+            this lookup reports what is there and refuses nothing.
+        """
+        return [
+            ActorAddressImpl(ref)
+            for ref in pykka.ActorRegistry.get_by_class(actor_class)
+            if ref.is_alive()
+        ]
+
     def get_actor(self, agent: ActorAddress) -> ActorAddress | None:
         """Find an actor by its agent ID.
 

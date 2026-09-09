@@ -23,6 +23,7 @@ required.
 - [Agent Lifecycle](#agent-lifecycle)
 - [State & Configuration](#state--configuration)
 - [Orchestrator & Multi-Agent Coordination](#orchestrator--multi-agent-coordination)
+- [Resource Host](#resource-host)
 - [AgentCard — Capability Discovery](#agentcard--capability-discovery)
 - [UserProxy — Human-in-the-Loop](#userproxy--human-in-the-loop)
 - [Examples](#examples)
@@ -857,6 +858,143 @@ stays in the durable event store owned by the team layer.
 
 `akgentic-team` implements the full 3-phase restore protocol on top of these
 primitives. See [akgentic-team](https://github.com/b12consulting/akgentic-team/blob/master/README.md) for details.
+
+## Resource Host
+
+Some things an agent uses are not agents. A shared file workspace, a vector index,
+a cache — they are stateful, expensive to build, and **shared across teams**: two
+teams working on the same workspace must reach the same actor, and that actor must
+outlive both of them. A team member cannot own it, because a team member dies with
+its team.
+
+A **hosted actor** is an ordinary `Akgent` that is nobody's child. It has no parent,
+no orchestrator, and belongs to no team. It is started by a `ResourceHost`, which
+keeps exactly one live actor per name for the whole process.
+
+### The host is created once, at wiring time
+
+```python
+from akgentic.core import ActorSystem, BaseConfig
+from akgentic.core.resource_host import ResourceHost
+
+system = ActorSystem()
+
+# Exactly one, right after the ActorSystem. Never lazily, never a second one.
+host = system.createActor(
+    ResourceHost, config=BaseConfig(name="#ResourceHost", role="ResourceHost")
+)
+```
+
+Everything else **finds** it rather than creating it:
+
+```python
+hosts = ActorSystem.find_by_class(ResourceHost)   # static — no instance needed
+```
+
+`find_by_class` matches by class, so a subclassed host is still found, and it returns
+public `ActorAddress` values rather than raw pykka references. It reports what is
+running and refuses nothing; a caller that needs exactly one says so itself.
+
+> **Why explicit creation matters.** Two hosts in one process means two registries,
+> and two registries means two teams can put two actors on the same resource — the
+> exact corruption the host exists to prevent. So nothing anywhere creates a host on
+> demand, and a process that forgot to create one gets a loud error instead of a
+> quietly grown second one.
+
+### Binding an agent to a resource
+
+An agent reaches a resource through its orchestrator:
+
+```python
+address = orchestrator.getResourceOrCreate(
+    WorkspaceActor,                       # instantiated only on a miss
+    BaseConfig(name="#Workspace-/data/alice"),
+    agent_id=card_agent_id,
+    workspace_path="/data/alice",
+    metadata_keys=["owner"],
+)
+```
+
+The call returns a live address whether the host found the actor or created it. It
+raises `RuntimeError` in exactly two cases, both of which create nothing and emit
+nothing:
+
+| Condition | Fix |
+| --- | --- |
+| No `ResourceHost` in the process | Create one at wiring time, right after the `ActorSystem` |
+| More than one `ResourceHost` | Delete the extra creation site; there is one host per process |
+
+`workspace_path` is a parameter rather than something core works out from
+`config.name`. Core does not know what a name means and must not learn — the caller
+passes both, and core relates them in no way.
+
+### Persistence: `ResourceStore` and `StateDelta`
+
+Core ships the persistence *contract* and no implementation, so it gains no database
+dependency:
+
+```python
+class ResourceStore(Protocol):
+    def load(self, scope: str) -> BaseState | None: ...
+    def apply(self, scope: str, delta: StateDelta) -> None: ...
+```
+
+`scope` is `config.name` verbatim. `StateDelta` names what changed — `set` and
+`unset` — rather than carrying a whole state, so nothing downstream ever rebuilds a
+persisted document by enumerating its fields.
+
+Register a store after creating the host:
+
+```python
+system.proxy_tell(host, ResourceHost).register_store(MyStore())
+```
+
+Until then the host runs **cold**: `load` answers `None` and the write-back is a
+no-op. The flow is otherwise identical, so a deployment with no store is a supported
+deployment, not a degraded one. A store that raises is logged and swallowed — the
+host must not die, because a hosted actor outlives it and a restarted host with an
+empty registry would start a second actor on a live resource.
+
+### Telemetry: `ResourceAttached` and `ResourceStopped`
+
+A successful bind emits one `ResourceAttached` on the calling team's stream, so a
+client learns about the resource without a `StartMessage` the hosted actor never
+sends. One event per **bind**, not per actor created: two agents sharing one
+workspace produce two events and one actor, which is what makes a client's
+"accessible by" list a field to read rather than a state to reconstruct. There is
+deliberately **no detach event** — a binding is never released.
+
+`ResourceStopped` runs the other way. A hosted actor sends it to the host as it
+stops, and the host drops the registry entry and does nothing else. The stored
+document survives on purpose: it is what the next get-or-create restores from.
+
+### Two rules for writing a hosted actor
+
+**Look the host up at each use; never cache the address.** A cached address survives
+a host that has gone away, and a proxy onto a dead actor turns a lost update into
+silence instead of an error.
+
+```python
+def _host_address() -> ActorAddress | None:
+    hosts = ActorSystem.find_by_class(ResourceHost)
+    return hosts[0] if hosts else None
+
+
+class WorkspaceActor(Akgent[BaseConfig, WorkspaceState]):
+    def on_stop(self) -> None:
+        host = _host_address()
+        if host is not None:                        # empty is not an error
+            self.send(host, ResourceStopped(scope=self.config.name))
+        super().on_stop()
+```
+
+An empty lookup means "nothing to tell", not "something is wrong": at process
+shutdown the host may legitimately already be gone.
+
+**A hosted actor must never ask an orchestrator for anything.** It has none, so
+`get_team()` and every other orchestrator-backed call raise `WarningError`. That is
+not a gap to work around — it is the boundary. A resource shared by several teams
+cannot be allowed to depend on any one of them.
 
 ## AgentCard — Capability Discovery
 

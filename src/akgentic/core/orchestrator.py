@@ -24,12 +24,14 @@ from akgentic.core.messages.orchestrator import (
     NotificationMessage,
     ProcessedMessage,
     ReceivedMessage,
+    ResourceAttached,
     SentMessage,
     StartMessage,
     StateChangedMessage,
     StopMessage,
     TeamStoppingEvent,
 )
+from akgentic.core.resource_host import ResourceHost
 from akgentic.core.utils.serializer import SerializableBaseModel
 
 logger = logging.getLogger(__name__)
@@ -604,6 +606,83 @@ class Orchestrator(Akgent[BaseConfig, BaseState]):
             if child.is_alive() and child.name == config.name:
                 return child
         return self.createActor(actor_class, config=config)
+
+    def getResourceOrCreate(  # noqa: N802
+        self,
+        actor_class: type[Akgent[Any, Any]],
+        config: BaseConfig,
+        agent_id: uuid.UUID,
+        workspace_path: str,
+        metadata_keys: list[str] | None = None,
+    ) -> ActorAddress:
+        """Bind an agent to the process-wide resource named ``config.name``.
+
+        Forwards the get-or-create to the one ``ResourceHost`` running in this process
+        and returns the address the host answered — a live actor whether the host found
+        it or created it. The returned actor is **not** a team member and does not
+        become one: it is nobody's child, it emits no ``StartMessage``, and this method
+        creates nothing itself.
+
+        Exactly one ``ResourceAttached`` is emitted on this team's stream per successful
+        call, **including a registry hit**. The forward cannot tell a hit from a miss —
+        the host answers with an address either way, deliberately — and it must not
+        learn, because the event records *which agent bound to which resource*. Two
+        agents on one resource are two events and one actor.
+
+        ``workspace_path`` is a parameter rather than something derived from
+        ``config.name``: core does not know what a name means and must not learn. The
+        caller passes both and core validates no relationship between them.
+
+        Args:
+            actor_class: The ``Akgent`` subclass the host instantiates on a miss.
+            config: Configuration for the hosted actor; ``config.name`` is the host's
+                registry key, used verbatim.
+            agent_id: The agent whose card is binding, carried on the emitted event.
+            workspace_path: The resource's resolved path, carried verbatim.
+            metadata_keys: Keys to advertise on the event; ``None`` becomes ``[]``.
+
+        Returns:
+            The address of the hosted actor.
+
+        Raises:
+            RuntimeError: When the process has no ``ResourceHost``, or more than one.
+                Neither case creates anything and neither emits an event.
+        """
+        # Imported here, not at module scope: actor_system_impl imports STOP_TIMEOUT
+        # from this module, so a top-level import would close an import cycle.
+        from akgentic.core.actor_system_impl import ActorSystem
+
+        hosts = ActorSystem.find_by_class(ResourceHost)
+        if not hosts:
+            raise RuntimeError(
+                "No ResourceHost is running in this process, so no resource can be "
+                "bound. A ResourceHost is created once, explicitly, at wiring time — "
+                "right after the ActorSystem — and every team's orchestrator finds it "
+                "by lookup. Nothing creates one lazily."
+            )
+        if len(hosts) > 1:
+            raise RuntimeError(
+                f"Found {len(hosts)} ResourceHost actors in this process; exactly one "
+                "is required. Each host keeps its own registry, so two of them let two "
+                "teams put two actors on the same resource. Create the host once, at "
+                "wiring time, right after the ActorSystem."
+            )
+
+        # The one blocking outbound ask in this class, and it is safe. ADR-012's
+        # invariant is that the orchestrator must never block on a CHILD; the host is
+        # not a child, is in no team, and never asks an orchestrator for anything, so
+        # the cycle a deadlock needs does not exist. Do not copy this shape to a call
+        # that reaches a team member.
+        address = self.proxy_ask(hosts[0], ResourceHost).getResourceOrCreate(actor_class, config)
+
+        self.emitMessage(
+            ResourceAttached(
+                agent_id=agent_id,
+                workspace_path=workspace_path,
+                metadata_keys=metadata_keys or [],
+            )
+        )
+        return address
 
     def get_team(self) -> list[ActorAddress]:
         """Get list of active agents (excludes Orchestrator role).
