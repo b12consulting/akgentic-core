@@ -874,8 +874,7 @@ keeps exactly one live actor per name for the whole process.
 ### The host is created once, at wiring time
 
 ```python
-from akgentic.core import ActorSystem, BaseConfig
-from akgentic.core.resource_host import ResourceHost
+from akgentic.core import ActorSystem, BaseConfig, ResourceHost
 
 system = ActorSystem()
 

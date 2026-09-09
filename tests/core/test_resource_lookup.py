@@ -10,10 +10,12 @@ host up at each use and never caches an address, and it treats an empty answer a
 "nothing to tell" rather than an error. Both rules are load-bearing and both are
 exercised by specs in this module.
 
-Assertions go through the public seam wherever one exists. Two structural facts — the
-orchestrator's ``_children`` — are unreachable through a pykka proxy, which refuses any
-name starting with an underscore, so that one reads the live actor through ``_actor_of``.
-That is legal here and only here: core owns the actor implementation.
+Assertions go through an actor's own methods wherever one answers the question. One
+structural fact does not — the orchestrator's ``_children`` — because a pykka proxy
+refuses any name starting with an underscore, so that single assertion reads the live
+actor through ``_actor_of``. Reaching an ``ActorAddressImpl``'s ``_actor_ref`` for a
+proxy is the same kind of reach, one level shallower. Both are legal here and only
+here: core owns the actor implementation.
 """
 
 from __future__ import annotations
@@ -55,7 +57,7 @@ CALLBACK_TIMEOUT = 2
 ## Helpers
 ##
 def _proxy(address: ActorAddress) -> pykka.ActorProxy[Any]:
-    """A pykka proxy onto the actor behind *address* — the public seam."""
+    """A pykka proxy onto the actor behind *address*, for calling its own methods."""
     return cast(ActorAddressImpl, address)._actor_ref.proxy()
 
 
@@ -712,11 +714,6 @@ class TestHostedActorIsNotATeamActor:
         assert control.agent_id in start_senders
         assert hosted.agent_id not in start_senders
 
-        stop_senders = {
-            msg.sender.agent_id for msg in _messages(orchestrator, StopMessage) if msg.sender
-        }
-        assert hosted.agent_id not in stop_senders
-
         # Nothing at all on this stream was sent by the hosted actor; the only message
         # that mentions the resource is the orchestrator's own ResourceAttached.
         assert not any(
@@ -729,6 +726,22 @@ class TestHostedActorIsNotATeamActor:
         children_ids = {child.agent_id for child in _actor_of(orchestrator)._children}
         assert control.agent_id in children_ids
         assert hosted.agent_id not in children_ids
+
+        # The StopMessage half of the AC, asserted last and against a control, because
+        # asserting it while both actors are still running proves nothing: the list is
+        # empty then whatever the forward did. Stopping both makes it a difference.
+        # ``on_stop`` notifies through ``_notify_orchestrator``, which is a no-op with no
+        # orchestrator, so the team member's stop lands here and the hosted actor's does
+        # not — and an implementation that adopted the hosted actor would announce it.
+        _stop_and_wait(hosted)
+        _stop_and_wait(control)
+        _flush(orchestrator)
+
+        stop_senders = {
+            msg.sender.agent_id for msg in _messages(orchestrator, StopMessage) if msg.sender
+        }
+        assert control.agent_id in stop_senders
+        assert hosted.agent_id not in stop_senders
 
     def test_a_hosted_actor_asking_for_a_team_is_a_bug_by_construction(
         self, host: ActorAddress, orchestrator: ActorAddress
