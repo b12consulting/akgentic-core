@@ -8,6 +8,7 @@ payloads carried by ``EventMessage.event``.
 from akgentic.core.messages.message import (
     CancelMessage,
     Message,
+    ResourceStopped,
     ResultMessage,
     StopRecursively,
     UserMessage,
@@ -39,6 +40,7 @@ __all__ = [
     "NotificationMessage",
     "ProcessedMessage",
     "ReceivedMessage",
+    "ResourceStopped",
     "ResultMessage",
     "SentMessage",
     "StartMessage",

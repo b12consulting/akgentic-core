@@ -126,6 +126,22 @@ class ResultMessage(Message):
     content: str
 
 
+class ResourceStopped(Message):
+    """A hosted actor announcing, as it stops, that its host should forget it.
+
+    Sent by the actor itself to its ``ResourceHost``, which drops the registry entry for
+    ``scope`` and does nothing else. The actor is already stopping, so nothing stops it,
+    and the store is not called: the stored document deliberately survives and is what the
+    next get-or-create for this scope restores from.
+
+    Attributes:
+        scope: The host's registry key for the resource that is going away — the hosted
+            actor's ``config.name``, verbatim.
+    """
+
+    scope: str
+
+
 class CancelMessage(Message):
     """Ask the recipient to abandon its current run at the next step boundary (ADR-040 §4).
 
