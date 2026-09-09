@@ -187,6 +187,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         agent_id: Unique identifier for this agent instance.
         config: Public agent configuration.
         state: Current agent state with observer pattern.
+        user_id: Principal that owns this actor tree, or None.
         llm_context: LLM conversation history (Phase 2+).
 
     Example:
@@ -205,7 +206,7 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         agent_id: uuid.UUID | None = None,
         team_id: uuid.UUID | None = None,
         config: ConfigType | None = None,
-        user_id: uuid.UUID | None = None,
+        user_id: str | None = None,
         user_email: str | None = None,
         parent: ActorAddress | None = None,
         orchestrator: ActorAddress | None = None,
@@ -218,7 +219,9 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             agent_id: Unique identifier for this agent (defaults to uuid4()).
             team_id: Optional team UUID. Auto-generated if not provided.
             config: Public agent configuration.
-            user_id: User identifier for context propagation.
+            user_id: Identifier of the principal that owns this actor tree — an SSO
+                subject, an operator-supplied owner id, or "anonymous". Carried
+                verbatim and never parsed.
             user_email: User email for context propagation.
             parent: Parent agent address for hierarchy tracking.
             orchestrator: Orchestrator address for telemetry.
@@ -239,7 +242,10 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
         self.agent_id: uuid.UUID = agent_id or uuid.uuid4()
         self.team_id: uuid.UUID = team_id if team_id is not None else uuid.uuid4()
         self.config: ConfigType = config or BaseConfig()  # type: ignore
-        self._user_id = user_id
+        # The annotation is the guard, not a tidy-up: left inferred, mypy would take
+        # this attribute's type from the parameter, so narrowing user_id back to a
+        # uuid.UUID would narrow this with it and no gate would say a word.
+        self._user_id: str | None = user_id
         self._user_email = user_email
         self._parent = parent
         self._orchestrator = orchestrator
@@ -279,6 +285,19 @@ class Akgent(pykka.ThreadingActor, Generic[ConfigType, StateType]):  # noqa: UP0
             ActorAddress wrapping this agent's pykka actor reference.
         """
         return ActorAddressImpl(self.actor_ref)
+
+    @property
+    def user_id(self) -> str | None:
+        """The principal that owns this actor tree.
+
+        Propagated to every child by ``createActor``. ``None`` when the tree was
+        created without an identity — core neither supplies a default nor validates
+        the value.
+
+        Returns:
+            The owning user's identifier, or None.
+        """
+        return self._user_id
 
     @property
     def orchestrator(self) -> ActorAddress | None:

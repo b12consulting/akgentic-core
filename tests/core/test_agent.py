@@ -23,6 +23,7 @@ from pydantic import PrivateAttr
 
 from akgentic.core.actor_address import ActorAddress
 from akgentic.core.actor_address_impl import ActorAddressImpl
+from akgentic.core.actor_system_impl import ActorSystem
 from akgentic.core.agent import Akgent, ProxyWrapper, WarningError
 from akgentic.core.agent_config import BaseConfig
 from akgentic.core.agent_state import BaseState
@@ -122,7 +123,7 @@ class TestAgentInitialization:
         """Agent can be initialized with explicit keyword arguments."""
         agent_id = uuid.uuid4()
         team_id = uuid.uuid4()
-        user_id = uuid.uuid4()
+        user_id = "user-42"
         config = BaseConfig(name="test-agent", role="Tester")
 
         ref = SampleAgent.start(
@@ -390,6 +391,137 @@ class TestChildActorCreation:
             assert actual_squad_id == child_squad_id
         finally:
             ref.stop()
+
+
+class TestUserIdAccessor:
+    """Tests for the public read-only ``user_id`` accessor."""
+
+    def test_user_id_defaults_to_none(self) -> None:
+        """An agent started without an identity reports None."""
+        ref = SampleAgent.start(config=BaseConfig(name="no-owner"))
+        try:
+            assert ref.proxy().user_id.get(timeout=5) is None
+        finally:
+            ref.stop()
+
+    def test_user_id_reports_the_value_it_was_given(self) -> None:
+        """An agent started with an identity reports it through the proxy."""
+        ref = SampleAgent.start(config=BaseConfig(name="owned"), user_id="alice")
+        try:
+            assert ref.proxy().user_id.get(timeout=5) == "alice"
+        finally:
+            ref.stop()
+
+    def test_user_id_is_a_read_only_property_on_the_class(self) -> None:
+        """The accessor is a property with no setter, not a plain attribute."""
+        descriptor = Akgent.__dict__["user_id"]
+
+        assert isinstance(descriptor, property)
+        assert descriptor.fset is None
+
+    def test_user_id_cannot_be_written_through_the_proxy(self) -> None:
+        """A write through the public seam raises in the caller's thread."""
+        ref = SampleAgent.start(config=BaseConfig(name="owned"), user_id="alice")
+        try:
+            with pytest.raises(AttributeError):
+                ref.proxy().user_id = "mallory"
+
+            assert ref.proxy().user_id.get(timeout=5) == "alice"
+        finally:
+            ref.stop()
+
+    def test_oidc_subject_shaped_id_survives_verbatim(self) -> None:
+        """A base64url subject is carried through with no coercion and no parse."""
+        subject = "2R0bQV8j9zX8CEsBl6APi7MXgAn4_laOa8vd9ZoIHIQ"
+        ref = SampleAgent.start(config=BaseConfig(name="sso"), user_id=subject)
+        try:
+            reported = ref.proxy().user_id.get(timeout=5)
+
+            assert reported == subject
+            assert isinstance(reported, str)
+        finally:
+            ref.stop()
+
+    def test_anonymous_is_carried_verbatim(self) -> None:
+        """The no-auth literal is a value like any other — core does not interpret it."""
+        ref = SampleAgent.start(config=BaseConfig(name="anon"), user_id="anonymous")
+        try:
+            reported = ref.proxy().user_id.get(timeout=5)
+
+            assert reported == "anonymous"
+            assert isinstance(reported, str)
+        finally:
+            ref.stop()
+
+
+def _user_id_of(address: ActorAddress) -> str | None:
+    """Read an actor's user_id through the public proxy API.
+
+    Args:
+        address: Address of the actor to read.
+
+    Returns:
+        The actor's reported user_id.
+    """
+    return cast(str | None, ProxyWrapper(address, ask_mode=True, timeout=5).user_id)
+
+
+def _spawn_child(parent: ActorAddress, name: str) -> ActorAddress:
+    """Create a child of *parent* through the public proxy API.
+
+    Args:
+        parent: Address of the actor that creates the child.
+        name: Name for the child's configuration.
+
+    Returns:
+        Address of the newly created child.
+    """
+    proxy = ProxyWrapper(parent, ask_mode=True, timeout=5)
+    return cast(ActorAddress, proxy.createActor(SampleAgent, uuid.uuid4(), BaseConfig(name=name)))
+
+
+class TestUserIdPropagation:
+    """Tests for user_id inheritance down the actor tree."""
+
+    def test_child_and_grandchild_inherit_the_user_id(self) -> None:
+        """createActor carries the owner two generations down, unchanged."""
+        ref = SampleAgent.start(config=BaseConfig(name="root"), user_id="alice")
+        try:
+            child = _spawn_child(ActorAddressImpl(ref), "child")
+            grandchild = _spawn_child(child, "grandchild")
+
+            assert _user_id_of(child) == "alice"
+            assert _user_id_of(grandchild) == "alice"
+        finally:
+            ref.stop()
+
+    def test_a_none_parent_yields_none_children(self) -> None:
+        """Propagation must not invent a default for an unowned tree."""
+        ref = SampleAgent.start(config=BaseConfig(name="root"))
+        try:
+            child = _spawn_child(ActorAddressImpl(ref), "child")
+            grandchild = _spawn_child(child, "grandchild")
+
+            assert _user_id_of(child) is None
+            assert _user_id_of(grandchild) is None
+        finally:
+            ref.stop()
+
+    def test_both_creation_paths_report_the_same_user_id(self) -> None:
+        """ActorSystem.createActor and Akgent.createActor agree on the owner."""
+        system = ActorSystem()
+        try:
+            root = system.createActor(
+                SampleAgent,
+                user_id="alice",
+                config=BaseConfig(name="root"),
+            )
+            child = _spawn_child(root, "child")
+
+            assert _user_id_of(root) == "alice"
+            assert _user_id_of(child) == _user_id_of(root)
+        finally:
+            system.shutdown()
 
 
 class TestStateManagement:
