@@ -871,18 +871,25 @@ A **hosted actor** is an ordinary `Akgent` that is nobody's child. It has no par
 no orchestrator, and belongs to no team. It is started by a `ResourceHost`, which
 keeps exactly one live actor per name for the whole process.
 
-### The host is created once, at wiring time
+### The host is created once per concrete class, at wiring time
 
 ```python
 from akgentic.core import ActorSystem, BaseConfig, ResourceHost
 
 system = ActorSystem()
 
-# Exactly one, right after the ActorSystem. Never lazily, never a second one.
+# Exactly one of each concrete host class, right after the ActorSystem. Never
+# lazily, never a second one of the same class.
 host = system.createActor(
     ResourceHost, config=BaseConfig(name="#ResourceHost", role="ResourceHost")
 )
 ```
+
+`ResourceHost` here stands in for the kind's own subclass, as it does in core's own
+tests. A real deployment creates `WorkspaceHost` — and, for a second kind, that
+kind's host beside it — because the forward below looks the class up exactly, so a
+wiring that creates the base while a card asks for `WorkspaceHost` is refused with
+"No WorkspaceHost is running".
 
 Everything else **finds** it rather than creating it:
 

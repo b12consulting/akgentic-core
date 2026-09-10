@@ -588,7 +588,11 @@ class TestOneHostPerKind:
     """
 
     def test_each_forward_reaches_its_own_host(
-        self, host: ActorAddress, sub_host: ActorAddress, orchestrator: ActorAddress
+        self,
+        system: ActorSystem,
+        host: ActorAddress,
+        sub_host: ActorAddress,
+        orchestrator: ActorAddress,
     ) -> None:
         assert issubclass(_SubHost, ResourceHost)
         assert _SubHost is not ResourceHost
@@ -604,6 +608,19 @@ class TestOneHostPerKind:
         assert on_base.is_alive()
         assert on_sub.is_alive()
         assert on_base.agent_id != on_sub.agent_id
+        assert len(_CountingActor.constructions) == 2
+
+        # WHICH host answered, asked of the hosts themselves. Two distinct actors and two
+        # constructions are also what a forward that routed base→sub and sub→base would
+        # produce, and every assertion below this one is symmetric under that swap; only
+        # each host's own registry is not. A hit here proves the actor the forward
+        # returned is the one THIS host holds under the name.
+        assert _ask_host(system, host, _CountingActor, "#Resource-kind").agent_id == (
+            on_base.agent_id
+        )
+        assert _ask_host(system, sub_host, _CountingActor, "#Resource-kind").agent_id == (
+            on_sub.agent_id
+        )
         assert len(_CountingActor.constructions) == 2
 
         # Repeats are hits, each on its own host.
