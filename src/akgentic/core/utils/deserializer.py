@@ -9,6 +9,8 @@ Source: Preserves v1 deserialization behavior from akgentic-framework.
 from __future__ import annotations
 
 import base64
+import logging
+import sys
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import is_dataclass
@@ -16,6 +18,8 @@ from importlib import import_module
 from typing import Any, TypedDict, cast
 
 from pydantic import PydanticUserError, TypeAdapter
+
+logger = logging.getLogger(__name__)
 
 
 class ActorAddressDict(TypedDict):
@@ -84,12 +88,37 @@ def import_class(class_path: str) -> type[Any]:
     return getattr(module, class_name)  # type: ignore[no-any-return]
 
 
+class UnresolvableClassError(ValueError):
+    """A ``__model__`` / ``__type__`` tag names a class path that no longer exists.
+
+    A ``ValueError``, so every caller that isolates a bad record on ``ValueError`` is unchanged.
+    It has a type of its own so the list branch can drop exactly this failure and nothing else.
+    """
+
+
+def _is_missing_path(class_path: str, error: ImportError | AttributeError) -> bool:
+    """Whether *error* means the class path is gone, not that its module failed to import.
+
+    A deleted class shows as a ``ModuleNotFoundError`` naming the tagged module or one of its
+    parents, or as an ``AttributeError`` from a module that did import. A missing third-party
+    package or a broken module body is a broken environment, and must stay loud.
+    """
+    module_path = class_path.rsplit(".", 1)[0]
+    if isinstance(error, ModuleNotFoundError):
+        missing = error.name or ""
+        return module_path == missing or module_path.startswith(f"{missing}.")
+    # A module whose own import raised is removed from sys.modules; one that imported stays.
+    return isinstance(error, AttributeError) and module_path in sys.modules
+
+
 def _resolve_tagged_class(class_path: str, *, marker: str) -> type[Any]:
-    """Resolve a ``__model__`` / ``__type__`` tag, wrapping an unresolvable path as ValueError."""
+    """Resolve a ``__model__`` / ``__type__`` tag; a path that is gone is UnresolvableClassError."""
     try:
         return import_class(class_path)
     except (ImportError, AttributeError) as e:
-        raise ValueError(f"Cannot resolve {marker} {class_path!r}: {e}") from e
+        if not _is_missing_path(class_path, e):
+            raise
+        raise UnresolvableClassError(f"Cannot resolve {marker} {class_path!r}: {e}") from e
 
 
 _type_adapter_cache: dict[type[Any], TypeAdapter[Any] | None] = {}
@@ -149,8 +178,10 @@ def deserialize_object(
         Deserialized object with proper types restored.
 
     Raises:
-        ValueError: If a __model__ / __type__ tag names a class that cannot be
-            imported, or if model construction fails.
+        UnresolvableClassError: A ``ValueError`` raised when a __model__ / __type__ tag
+            outside any list names a class path that no longer exists. Inside a list, the
+            element is dropped with a WARNING instead.
+        ValueError: If model construction fails.
     """
     if isinstance(obj, dict):
         if "__actor_address__" in obj:
@@ -197,7 +228,7 @@ def deserialize_object(
         return {key: deserialize_object(value, context) for key, value in obj.items()}
 
     elif isinstance(obj, list):
-        return [deserialize_object(item, context) for item in obj]
+        return _deserialize_list(obj, context)
 
     elif isinstance(obj, set):
         return {deserialize_object(item, context) for item in obj}
@@ -210,3 +241,17 @@ def deserialize_object(
 
     else:
         return obj
+
+
+def _deserialize_list(items: list[Any], context: DeserializeContext | None) -> list[Any]:
+    """Deserialize each element; drop one whose class, or a class nested in it, is gone."""
+    kept: list[Any] = []
+    for index, item in enumerate(items):
+        try:
+            kept.append(deserialize_object(item, context))
+        except UnresolvableClassError as e:
+            tag = item.get("__model__", item.get("__type__")) if isinstance(item, dict) else None
+            logger.warning(
+                "Dropping list element %d (%s) that cannot be rehydrated: %s", index, tag, e
+            )
+    return kept
