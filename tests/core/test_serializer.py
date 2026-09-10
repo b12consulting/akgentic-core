@@ -9,6 +9,7 @@ import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 
 import pydantic
 import pydantic.dataclasses
@@ -368,7 +369,10 @@ class TestDeserializeObject:
         with pytest.raises(ValueError) as exc_info:
             deserialize_object(data)
 
-        assert data["__model__"] in str(exc_info.value)
+        message = str(exc_info.value)
+        assert "__model__" in message
+        assert data["__model__"] in message
+        assert str(exc_info.value.__cause__) in message
         assert isinstance(exc_info.value.__cause__, expected_cause)
 
     @pytest.mark.parametrize(("break_path", "expected_cause"), _UNRESOLVABLE_TAG_ROWS)
@@ -384,8 +388,22 @@ class TestDeserializeObject:
         with pytest.raises(ValueError) as exc_info:
             deserialize_object({"__type__": class_path})
 
-        assert class_path in str(exc_info.value)
+        message = str(exc_info.value)
+        assert "__type__" in message
+        assert class_path in message
+        assert str(exc_info.value.__cause__) in message
         assert isinstance(exc_info.value.__cause__, expected_cause)
+
+    @pytest.mark.parametrize("marker", ["__model__", "__type__"])
+    def test_a_module_that_fails_its_own_import_is_not_wrapped(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, marker: str
+    ) -> None:
+        """Only ImportError/AttributeError are wrapped; any other import failure escapes raw."""
+        (tmp_path / "_akgentic_boom_on_import.py").write_text('raise RuntimeError("boom")\n')
+        monkeypatch.syspath_prepend(str(tmp_path))
+
+        with pytest.raises(RuntimeError, match="boom"):
+            deserialize_object({marker: "_akgentic_boom_on_import.Anything"})
 
     def test_deserialize_set(self) -> None:
         """Should recursively deserialize set."""
