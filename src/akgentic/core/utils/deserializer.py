@@ -182,6 +182,8 @@ def deserialize_object(
             outside any list names a class path that no longer exists. Inside a list, the
             element is dropped with a WARNING instead.
         ValueError: If model construction fails.
+        ImportError: Or whatever else the module raises, when a tagged module exists but fails
+            its own import (a broken environment). It propagates raw, inside a list too.
     """
     if isinstance(obj, dict):
         if "__actor_address__" in obj:

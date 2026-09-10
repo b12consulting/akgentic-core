@@ -544,8 +544,8 @@ class TestAStaleListElementIsDropped:
         assert [card.name for card in result] == ["a", "b"]
         warnings = _deserializer_warnings(caplog)
         assert len(warnings) == 1
-        assert stale_path in warnings[0].getMessage()
-        assert "list element 1" in warnings[0].getMessage()
+        # The element's own tag sits beside its index, for a __type__ element as for a __model__.
+        assert f"list element 1 ({stale_path})" in warnings[0].getMessage()
 
     @pytest.mark.parametrize("entry", ["deserialize_object", "model_validate"])
     def test_an_element_carrying_a_stale_class_is_dropped_whole(
@@ -680,6 +680,14 @@ class TestAStaleListElementIsDropped:
                 _NEEDS_A_MISSING_CLIENT,
                 ModuleNotFoundError,
                 id="missing-dependency",
+            ),
+            pytest.param(
+                # The missing package's name is a string prefix of the module path, so only the
+                # dot boundary of the parent test tells it apart from a deleted parent package.
+                "_akgentic_absent_client_lib_card",
+                _NEEDS_A_MISSING_CLIENT,
+                ModuleNotFoundError,
+                id="missing-dependency-named-like-the-module",
             ),
             pytest.param(
                 "_akgentic_34_2_broken_name_import",
