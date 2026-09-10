@@ -4,7 +4,9 @@ Tests serialize functions, SerializableBaseModel, and deserialize_object.
 """
 
 import base64
+import sys
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -66,6 +68,23 @@ class PlainEventWithBinary:
 
     event_name: str
     payload: FakeBinaryContent
+
+
+def _delete_plain_event(monkeypatch: pytest.MonkeyPatch, class_path: str) -> str:
+    """Stale-tag row 1: the module still imports, but the class is gone from it."""
+    monkeypatch.delattr(sys.modules[PlainEvent.__module__], "PlainEvent")
+    return class_path
+
+
+def _point_at_missing_module(monkeypatch: pytest.MonkeyPatch, class_path: str) -> str:
+    """Stale-tag row 2: the module itself no longer exists."""
+    return "akgentic.core.no_such_module.Gone"
+
+
+_UNRESOLVABLE_TAG_ROWS = [
+    pytest.param(_delete_plain_event, AttributeError, id="attribute-deleted"),
+    pytest.param(_point_at_missing_module, ModuleNotFoundError, id="module-missing"),
+]
 
 
 class TestSerializeType:
@@ -333,6 +352,40 @@ class TestDeserializeObject:
         }
         with pytest.raises(ValueError, match="Error deserializing model"):
             deserialize_object(data)
+
+    @pytest.mark.parametrize(("break_path", "expected_cause"), _UNRESOLVABLE_TAG_ROWS)
+    def test_unresolvable_model_tag_raises_value_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        break_path: Callable[[pytest.MonkeyPatch, str], str],
+        expected_cause: type[Exception],
+    ) -> None:
+        """A __model__ tag whose class cannot be imported is a ValueError naming the path."""
+        data = serialize(PlainEvent(name="x", count=1))
+        assert isinstance(data, dict)
+        data["__model__"] = break_path(monkeypatch, data["__model__"])
+
+        with pytest.raises(ValueError) as exc_info:
+            deserialize_object(data)
+
+        assert data["__model__"] in str(exc_info.value)
+        assert isinstance(exc_info.value.__cause__, expected_cause)
+
+    @pytest.mark.parametrize(("break_path", "expected_cause"), _UNRESOLVABLE_TAG_ROWS)
+    def test_unresolvable_type_tag_raises_value_error(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        break_path: Callable[[pytest.MonkeyPatch, str], str],
+        expected_cause: type[Exception],
+    ) -> None:
+        """A __type__ tag whose class cannot be imported is a ValueError naming the path."""
+        class_path = break_path(monkeypatch, serialize_type(PlainEvent))
+
+        with pytest.raises(ValueError) as exc_info:
+            deserialize_object({"__type__": class_path})
+
+        assert class_path in str(exc_info.value)
+        assert isinstance(exc_info.value.__cause__, expected_cause)
 
     def test_deserialize_set(self) -> None:
         """Should recursively deserialize set."""

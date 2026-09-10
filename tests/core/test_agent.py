@@ -578,7 +578,8 @@ class TestStateManagement:
             orchestrator=mock_orch,
         )
         try:
-            # An unimportable __model__ makes deserialize_object raise inside update_state.
+            # An unimportable __model__ makes deserialize_object raise ValueError inside
+            # update_state; the message names the class path that could not be resolved.
             ref.proxy().update_state({"__model__": "nonexistent_module_xyz.NoSuchState"}).get(
                 timeout=5
             )
@@ -590,8 +591,8 @@ class TestStateManagement:
                 if isinstance(arg, ErrorMessage)
             ]
             assert len(errors) == 1
-            assert errors[0].content_type == "ModuleNotFoundError"
-            assert "nonexistent_module_xyz" in errors[0].content
+            assert errors[0].content_type == "ValueError"
+            assert "nonexistent_module_xyz.NoSuchState" in errors[0].content
         finally:
             ref.stop()
 

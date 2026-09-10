@@ -84,6 +84,14 @@ def import_class(class_path: str) -> type[Any]:
     return getattr(module, class_name)  # type: ignore[no-any-return]
 
 
+def _resolve_tagged_class(class_path: str, *, marker: str) -> type[Any]:
+    """Resolve a ``__model__`` / ``__type__`` tag, wrapping an unresolvable path as ValueError."""
+    try:
+        return import_class(class_path)
+    except (ImportError, AttributeError) as e:
+        raise ValueError(f"Cannot resolve {marker} {class_path!r}: {e}") from e
+
+
 _type_adapter_cache: dict[type[Any], TypeAdapter[Any] | None] = {}
 
 
@@ -141,7 +149,8 @@ def deserialize_object(
         Deserialized object with proper types restored.
 
     Raises:
-        ValueError: If model deserialization fails.
+        ValueError: If a __model__ / __type__ tag names a class that cannot be
+            imported, or if model construction fails.
     """
     if isinstance(obj, dict):
         if "__actor_address__" in obj:
@@ -157,10 +166,10 @@ def deserialize_object(
             return base64.b64decode(obj["__bytes__"])
 
         if "__type__" in obj:
-            return import_class(obj["__type__"])
+            return _resolve_tagged_class(obj["__type__"], marker="__type__")
 
         if "__model__" in obj:
-            model_class = import_class(obj["__model__"])
+            model_class = _resolve_tagged_class(obj["__model__"], marker="__model__")
             deserialized_data = {
                 key: deserialize_object(value, context)
                 for key, value in obj.items()
