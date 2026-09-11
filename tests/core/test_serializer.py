@@ -4,6 +4,9 @@ Tests serialize functions, SerializableBaseModel, and deserialize_object.
 """
 
 import base64
+import binascii
+import importlib
+import logging
 import sys
 import uuid
 from collections.abc import Callable
@@ -14,13 +17,14 @@ from pathlib import Path
 import pydantic
 import pydantic.dataclasses
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from akgentic.core.actor_address import ActorAddress
 from akgentic.core.messages.message import Message, UserMessage
 from akgentic.core.utils.deserializer import (
     ActorAddressDict,
     DeserializeContext,
+    UnresolvableClassError,
     deserialize_object,
     import_class,
     is_uuid_canonical,
@@ -69,6 +73,102 @@ class PlainEventWithBinary:
 
     event_name: str
     payload: FakeBinaryContent
+
+
+class _StaleCollection(SerializableBaseModel):
+    """Stands in for a class a later release deletes (a collection config)."""
+
+    backend: str = "inmemory"
+
+
+class _ToolCardStub(SerializableBaseModel):
+    """A tool card whose class survives; ``collection`` may hold one that does not."""
+
+    name: str
+    collection: _StaleCollection | None = None
+
+
+class _DeletedToolCard(_ToolCardStub):
+    """A tool card whose own class a later release deletes."""
+
+
+class _ConfigWithTools(SerializableBaseModel):
+    """The ``StartMessage.config`` shape: a list of tool cards."""
+
+    name: str
+    tools: list[_ToolCardStub] = Field(default_factory=list)
+
+
+class _ConfigNeedingATool(SerializableBaseModel):
+    """A list field that must not be empty."""
+
+    tools: list[_ToolCardStub] = Field(min_length=1)
+
+
+class _ConfigWithDirectField(SerializableBaseModel):
+    """The ``PlanConfig`` shape: the stale class is a direct field, and it has a default."""
+
+    name: str
+    collection: _StaleCollection | None = None
+
+
+def _deserializer_warnings(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    """WARNING records of the deserializer's own logger, matched by name and level."""
+    return [
+        record
+        for record in caplog.records
+        if record.name == "akgentic.core.utils.deserializer" and record.levelno == logging.WARNING
+    ]
+
+
+def _load(entry: str, model: type[SerializableBaseModel], data: object) -> object:
+    """Rehydrate *data* through one of the two entry points a persisted read uses."""
+    if entry == "model_validate":
+        return model.model_validate(data)
+    return deserialize_object(data)
+
+
+def _card_whose_class_is_deleted(monkeypatch: pytest.MonkeyPatch) -> tuple[object, str]:
+    """Stale element row: the module still imports, but the card's class is gone from it."""
+    element = serialize(_DeletedToolCard(name="gone"))
+    stale_path = serialize_type(_DeletedToolCard)
+    assert isinstance(element, dict)
+    assert element["__model__"] == stale_path  # a subclass keeps its own tag in the list
+    monkeypatch.delattr(sys.modules[_DeletedToolCard.__module__], "_DeletedToolCard")
+    return element, stale_path
+
+
+def _card_whose_module_is_missing(monkeypatch: pytest.MonkeyPatch) -> tuple[object, str]:
+    """Stale element row: the card's module itself no longer exists."""
+    element = serialize(_DeletedToolCard(name="gone"))
+    assert isinstance(element, dict)
+    element["__model__"] = "akgentic.core.no_such_module.Gone"
+    return element, "akgentic.core.no_such_module.Gone"
+
+
+def _card_whose_package_is_missing(monkeypatch: pytest.MonkeyPatch) -> tuple[object, str]:
+    """Stale element row: a parent package of the card's module no longer exists."""
+    element = serialize(_DeletedToolCard(name="gone"))
+    assert isinstance(element, dict)
+    element["__model__"] = "akgentic.core.no_such_package.card.Gone"
+    return element, "akgentic.core.no_such_package.card.Gone"
+
+
+def _type_whose_class_is_deleted(monkeypatch: pytest.MonkeyPatch) -> tuple[object, str]:
+    """Stale element row: a ``__type__`` reference to a deleted class."""
+    stale_path = serialize_type(_DeletedToolCard)
+    monkeypatch.delattr(sys.modules[_DeletedToolCard.__module__], "_DeletedToolCard")
+    return {"__type__": stale_path}, stale_path
+
+
+def _write_module(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, name: str, body: str) -> str:
+    """Put a real module named *name* on ``sys.path``; return its import path."""
+    (tmp_path / f"{name}.py").write_text(body)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    return name
+
+
+_NEEDS_A_MISSING_CLIENT = "import _akgentic_absent_client_lib\n\n\nclass Card:\n    pass\n"
 
 
 def _delete_plain_event(monkeypatch: pytest.MonkeyPatch, class_path: str) -> str:
@@ -414,6 +514,256 @@ class TestDeserializeObject:
         """Should recursively deserialize tuple."""
         result = deserialize_object((1, 2, 3))
         assert result == (1, 2, 3)
+
+
+class TestAStaleListElementIsDropped:
+    """A list element whose class path is gone is dropped; every other failure still raises."""
+
+    @pytest.mark.parametrize(
+        "make_stale",
+        [
+            pytest.param(_card_whose_class_is_deleted, id="model-attribute-deleted"),
+            pytest.param(_card_whose_module_is_missing, id="model-module-missing"),
+            pytest.param(_card_whose_package_is_missing, id="model-package-missing"),
+            pytest.param(_type_whose_class_is_deleted, id="type-tag"),
+        ],
+    )
+    def test_a_stale_element_is_dropped_and_its_siblings_are_kept_in_order(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        make_stale: Callable[[pytest.MonkeyPatch], tuple[object, str]],
+    ) -> None:
+        """Only the stale element goes, with one WARNING naming its index and class path."""
+        first = serialize(_ToolCardStub(name="a"))
+        last = serialize(_ToolCardStub(name="b"))
+        stale, stale_path = make_stale(monkeypatch)
+
+        result = deserialize_object([first, stale, last])
+
+        assert [card.name for card in result] == ["a", "b"]
+        warnings = _deserializer_warnings(caplog)
+        assert len(warnings) == 1
+        # The element's own tag sits beside its index, for a __type__ element as for a __model__.
+        assert f"list element 1 ({stale_path})" in warnings[0].getMessage()
+
+    @pytest.mark.parametrize("entry", ["deserialize_object", "model_validate"])
+    def test_an_element_carrying_a_stale_class_is_dropped_whole(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, entry: str
+    ) -> None:
+        """A resolvable card holding a deleted class in a field is dropped as a whole."""
+        config = _ConfigWithTools(
+            name="m",
+            tools=[
+                _ToolCardStub(name="search"),
+                _ToolCardStub(name="plan", collection=_StaleCollection()),
+            ],
+        )
+        data = serialize(config)
+        stale_path = serialize_type(_StaleCollection)
+        assert isinstance(data, dict)
+        assert data["tools"][1]["collection"]["__model__"] == stale_path
+        monkeypatch.delattr(sys.modules[_StaleCollection.__module__], "_StaleCollection")
+
+        result = _load(entry, _ConfigWithTools, data)
+
+        assert isinstance(result, _ConfigWithTools)
+        assert [tool.name for tool in result.tools] == ["search"]
+        warnings = _deserializer_warnings(caplog)
+        assert len(warnings) == 1
+        assert stale_path in warnings[0].getMessage()
+        assert serialize_type(_ToolCardStub) in warnings[0].getMessage()
+
+    def test_the_innermost_list_drops_the_element(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A stale element of an inner list costs that element, not the outer one."""
+        first = serialize(_ToolCardStub(name="a"))
+        other = serialize(_ToolCardStub(name="b"))
+        stale, _ = _card_whose_class_is_deleted(monkeypatch)
+
+        result = deserialize_object([[first, stale], [other]])
+
+        assert [[card.name for card in inner] for inner in result] == [["a"], ["b"]]
+        assert len(_deserializer_warnings(caplog)) == 1
+
+    @pytest.mark.parametrize(
+        ("bad", "expected"),
+        [
+            pytest.param(
+                {"__model__": "akgentic.core.messages.message.UserMessage"},
+                ValueError,
+                id="construction-failure",
+            ),
+            pytest.param({"__bytes__": 123}, TypeError, id="type-error"),
+            pytest.param(
+                {"__bytes__": "not-valid-base64!!!"}, binascii.Error, id="foreign-value-error"
+            ),
+        ],
+    )
+    def test_any_other_failure_in_an_element_still_raises(
+        self,
+        caplog: pytest.LogCaptureFixture,
+        bad: dict[str, object],
+        expected: type[Exception],
+    ) -> None:
+        """Only an unresolvable class path is dropped; nothing else is swallowed or logged."""
+        with pytest.raises(expected) as exc_info:
+            deserialize_object([serialize(_ToolCardStub(name="a")), bad])
+
+        assert not isinstance(exc_info.value, UnresolvableClassError)
+        if expected is ValueError:
+            assert "Error deserializing model" in str(exc_info.value)
+        assert _deserializer_warnings(caplog) == []
+
+    @pytest.mark.parametrize("entry", ["deserialize_object", "model_validate"])
+    def test_a_stale_direct_field_still_raises(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, entry: str
+    ) -> None:
+        """No key is dropped and no default is substituted, even for a field with a default."""
+        data = serialize(_ConfigWithDirectField(name="p", collection=_StaleCollection()))
+        stale_path = serialize_type(_StaleCollection)
+        assert isinstance(data, dict)
+        assert data["collection"]["__model__"] == stale_path
+        monkeypatch.delattr(sys.modules[_StaleCollection.__module__], "_StaleCollection")
+        expected = pydantic.ValidationError if entry == "model_validate" else UnresolvableClassError
+
+        with pytest.raises(expected) as exc_info:
+            _load(entry, _ConfigWithDirectField, data)
+
+        assert "Cannot resolve __model__" in str(exc_info.value)
+        assert stale_path in str(exc_info.value)
+        assert _deserializer_warnings(caplog) == []
+
+    @pytest.mark.parametrize(
+        "config",
+        [
+            pytest.param(
+                _ConfigWithTools(
+                    name="m", tools=[_DeletedToolCard(name="x"), _DeletedToolCard(name="y")]
+                ),
+                id="empty-accepted",
+            ),
+            pytest.param(
+                _ConfigNeedingATool(tools=[_DeletedToolCard(name="x"), _DeletedToolCard(name="y")]),
+                id="empty-rejected",
+            ),
+        ],
+    )
+    def test_a_list_of_only_stale_elements_is_empty(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        config: SerializableBaseModel,
+    ) -> None:
+        """Every element dropped leaves ``[]``; a field that rejects ``[]`` fails construction."""
+        data = serialize(config)
+        _, stale_path = _card_whose_class_is_deleted(monkeypatch)
+        assert isinstance(data, dict)
+        assert [tool["__model__"] for tool in data["tools"]] == [stale_path, stale_path]
+
+        if isinstance(config, _ConfigNeedingATool):
+            with pytest.raises(ValueError, match="Error deserializing model") as exc_info:
+                deserialize_object(data)
+            assert not isinstance(exc_info.value, UnresolvableClassError)
+        else:
+            result = deserialize_object(data)
+            assert isinstance(result, _ConfigWithTools)
+            assert result.tools == []
+        assert len(_deserializer_warnings(caplog)) == 2
+
+    @pytest.mark.parametrize(
+        ("module_name", "body", "expected"),
+        [
+            pytest.param(
+                "_akgentic_34_2_missing_dependency",
+                _NEEDS_A_MISSING_CLIENT,
+                ModuleNotFoundError,
+                id="missing-dependency",
+            ),
+            pytest.param(
+                # The missing package's name is a string prefix of the module path, so only the
+                # dot boundary of the parent test tells it apart from a deleted parent package.
+                "_akgentic_absent_client_lib_card",
+                _NEEDS_A_MISSING_CLIENT,
+                ModuleNotFoundError,
+                id="missing-dependency-named-like-the-module",
+            ),
+            pytest.param(
+                "_akgentic_34_2_broken_name_import",
+                "from json import no_such_name\n",
+                ImportError,
+                id="broken-name-import",
+            ),
+            pytest.param(
+                "_akgentic_34_2_attribute_error_in_body",
+                "import json\n\n_ = json.no_such_attribute\n",
+                AttributeError,
+                id="attribute-error-in-body",
+            ),
+        ],
+    )
+    def test_a_module_whose_own_import_fails_is_not_dropped(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+        tmp_path: Path,
+        module_name: str,
+        body: str,
+        expected: type[Exception],
+    ) -> None:
+        """A module that exists but cannot import is a broken environment: raw, never dropped."""
+        module = _write_module(tmp_path, monkeypatch, module_name, body)
+
+        with pytest.raises(expected) as exc_info:
+            deserialize_object(
+                [serialize(_ToolCardStub(name="a")), {"__model__": f"{module}.Card"}]
+            )
+
+        assert not isinstance(exc_info.value, ValueError)
+        if isinstance(exc_info.value, ModuleNotFoundError):
+            assert exc_info.value.name == "_akgentic_absent_client_lib"
+        assert _deserializer_warnings(caplog) == []
+
+    def test_a_missing_dependency_fails_the_whole_load(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: Path
+    ) -> None:
+        """Through ``model_validate`` the raw error escapes, so a loader cannot skip it quietly."""
+        module = _write_module(
+            tmp_path, monkeypatch, "_akgentic_34_2_loader_dependency", _NEEDS_A_MISSING_CLIENT
+        )
+        data = {
+            "__model__": serialize_type(_ConfigWithTools),
+            "name": "m",
+            "tools": [serialize(_ToolCardStub(name="a")), {"__model__": f"{module}.Card"}],
+        }
+
+        with pytest.raises(ModuleNotFoundError) as exc_info:
+            _ConfigWithTools.model_validate(data)
+
+        assert exc_info.value.name == "_akgentic_absent_client_lib"
+        assert _deserializer_warnings(caplog) == []
+
+    def test_the_same_module_path_deleted_is_dropped(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: Path
+    ) -> None:
+        """The module that failed loudly above is dropped once its file is gone."""
+        module = _write_module(
+            tmp_path, monkeypatch, "_akgentic_34_2_deleted_module", _NEEDS_A_MISSING_CLIENT
+        )
+        items = [serialize(_ToolCardStub(name="a")), {"__model__": f"{module}.Card"}]
+        with pytest.raises(ModuleNotFoundError):
+            deserialize_object(items)
+        assert _deserializer_warnings(caplog) == []
+
+        (tmp_path / f"{module}.py").unlink()
+        importlib.invalidate_caches()
+        result = deserialize_object(items)
+
+        assert [card.name for card in result] == ["a"]
+        warnings = _deserializer_warnings(caplog)
+        assert len(warnings) == 1
+        assert f"{module}.Card" in warnings[0].getMessage()
 
 
 class TestDeserializeContext:
