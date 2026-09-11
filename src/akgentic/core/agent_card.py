@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, TypeVar, get_args, get_origin
 from pydantic import Field, model_validator
 
 from akgentic.core.agent_config import BaseConfig
+from akgentic.core.agent_state import BaseState
 from akgentic.core.utils import import_class
 from akgentic.core.utils.serializer import SerializableBaseModel
 
@@ -23,6 +24,13 @@ if TYPE_CHECKING:
 # Cache for resolved ConfigType per agent class — walking __orig_bases__ is
 # non-trivial, and AgentCard.model_validate is hot on catalog load.
 _CONFIG_TYPE_CACHE: dict[type, type[BaseConfig] | None] = {}
+
+# The same memo for the *state* type argument. Deliberately a second dict rather
+# than one cache keyed on (class, position): the two answers for one class are
+# different types, so a single class-keyed cache would hand a config type back to
+# a state query. Each cache is keyed on the class alone, which is what makes a
+# lookup a single dict hit.
+_STATE_TYPE_CACHE: dict[type, type[BaseState] | None] = {}
 
 
 def _resolve_agent_class(value: str | type) -> type:
@@ -56,6 +64,76 @@ def _resolve_agent_class(value: str | type) -> type:
     return import_class(value)
 
 
+def _extract_akgent_type_arg[BoundT](
+    agent_cls: type,
+    position: int,
+    bound: type[BoundT],
+    cache: dict[type, type[BoundT] | None],
+) -> type[BoundT] | None:
+    """Walk ``agent_cls.__mro__`` for the type argument at *position* of ``Akgent[…]``.
+
+    Inspects each base's ``__orig_bases__`` for an entry whose origin is
+    :class:`akgentic.core.agent.Akgent`, and answers the type argument at
+    *position* when it is a concrete subclass of *bound*. Answers ``None`` when
+    the argument is a :class:`typing.TypeVar` (unparameterised subclass), is not
+    a type or not a *bound* subclass, when *agent_cls* is not an
+    :class:`Akgent` subclass at all, or when no such binding is found.
+
+    ``Akgent`` takes ``[ConfigType, StateType]``, so *position* is 0 for the
+    config and 1 for the state. Both callers share this walk rather than copying
+    it: it is subtle enough — the MRO climb, the ``TypeVar`` case, the negative
+    memo — that a second copy would drift.
+
+    Args:
+        agent_cls: The candidate agent class.
+        position: Index into ``Akgent``'s type arguments.
+        bound: The class the argument must subclass to count as an answer.
+        cache: The memo for this *position*, keyed by *agent_cls*. Callers pass
+            their own so that a config query and a state query for one class
+            cannot answer each other.
+
+    Returns:
+        The concrete type argument at *position*, or ``None`` when no usable
+        binding exists.
+    """
+    cached = cache.get(agent_cls)
+    # Two clauses on purpose: a negative answer is cached as None, and the
+    # membership test is what stops it being re-walked on every lookup.
+    if cached is not None or agent_cls in cache:
+        return cached
+
+    # Lazy import to avoid module-initialisation cycles: agent.py imports
+    # agent_card, and we cannot import Akgent at module top-level here.
+    from akgentic.core.agent import Akgent
+
+    if not (isinstance(agent_cls, type) and issubclass(agent_cls, Akgent)):
+        cache[agent_cls] = None
+        return None
+
+    resolved: type[BoundT] | None = None
+    for base_cls in agent_cls.__mro__:
+        orig_bases = getattr(base_cls, "__orig_bases__", ())
+        for orig in orig_bases:
+            if get_origin(orig) is not Akgent:
+                continue
+            args = get_args(orig)
+            if len(args) <= position:
+                continue
+            candidate = args[position]
+            if isinstance(candidate, TypeVar):
+                # Unparameterised — keep searching up the MRO in case a
+                # sibling/parent provides a concrete binding.
+                continue
+            if isinstance(candidate, type) and issubclass(candidate, bound):
+                resolved = candidate
+                break
+        if resolved is not None:
+            break
+
+    cache[agent_cls] = resolved
+    return resolved
+
+
 def _extract_config_type(agent_cls: type) -> type[BaseConfig] | None:
     """Walk ``agent_cls.__mro__`` for the first concrete ``Akgent[ConfigType, …]`` binding.
 
@@ -76,40 +154,29 @@ def _extract_config_type(agent_cls: type) -> type[BaseConfig] | None:
         first ``Akgent[X, Y]`` binding found in the MRO, or ``None`` when no
         usable binding exists.
     """
-    cached = _CONFIG_TYPE_CACHE.get(agent_cls)
-    if cached is not None or agent_cls in _CONFIG_TYPE_CACHE:
-        return cached
+    return _extract_akgent_type_arg(agent_cls, 0, BaseConfig, _CONFIG_TYPE_CACHE)
 
-    # Lazy import to avoid module-initialisation cycles: agent.py imports
-    # agent_card, and we cannot import Akgent at module top-level here.
-    from akgentic.core.agent import Akgent
 
-    if not (isinstance(agent_cls, type) and issubclass(agent_cls, Akgent)):
-        _CONFIG_TYPE_CACHE[agent_cls] = None
-        return None
+def _extract_state_type(agent_cls: type) -> type[BaseState] | None:
+    """Walk ``agent_cls.__mro__`` for the first concrete ``Akgent[…, StateType]`` binding.
 
-    config_type: type[BaseConfig] | None = None
-    for base_cls in agent_cls.__mro__:
-        orig_bases = getattr(base_cls, "__orig_bases__", ())
-        for orig in orig_bases:
-            if get_origin(orig) is not Akgent:
-                continue
-            args = get_args(orig)
-            if not args:
-                continue
-            candidate = args[0]
-            if isinstance(candidate, TypeVar):
-                # Unparameterised — keep searching up the MRO in case a
-                # sibling/parent provides a concrete binding.
-                continue
-            if isinstance(candidate, type) and issubclass(candidate, BaseConfig):
-                config_type = candidate
-                break
-        if config_type is not None:
-            break
+    The state-side counterpart of :func:`_extract_config_type`, sharing its walk.
+    Public callers reach it through
+    :func:`akgentic.core.resource_host.resolve_state_type`, which is where the
+    contract it serves — a store rebuilding a document it never typed — is
+    documented.
 
-    _CONFIG_TYPE_CACHE[agent_cls] = config_type
-    return config_type
+    Results are memoised in ``_STATE_TYPE_CACHE`` keyed by *agent_cls*.
+
+    Args:
+        agent_cls: The candidate agent class.
+
+    Returns:
+        The concrete ``StateType`` (subclass of ``BaseState``) declared by the
+        first ``Akgent[X, Y]`` binding found in the MRO, or ``None`` when no
+        usable binding exists.
+    """
+    return _extract_akgent_type_arg(agent_cls, 1, BaseState, _STATE_TYPE_CACHE)
 
 
 class AgentCard(SerializableBaseModel):

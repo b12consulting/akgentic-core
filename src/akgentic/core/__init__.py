@@ -30,6 +30,12 @@ from akgentic.core.agent_config import (
 )
 from akgentic.core.agent_state import AkgentStateObserver, BaseState
 from akgentic.core.orchestrator import EventSubscriber, Orchestrator
+from akgentic.core.resource_host import (
+    ResourceHost,
+    ResourceStore,
+    StateDelta,
+    resolve_state_type,
+)
 from akgentic.core.user_proxy import UserProxy
 
 __all__ = [
@@ -63,6 +69,11 @@ __all__ = [
     # Orchestrator
     "Orchestrator",
     "EventSubscriber",
+    # Resource host (get-or-create by name, persistence through a store Protocol)
+    "resolve_state_type",
+    "ResourceHost",
+    "ResourceStore",
+    "StateDelta",
     # UserProxy
     "UserProxy",
 ]

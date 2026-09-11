@@ -23,6 +23,7 @@ required.
 - [Agent Lifecycle](#agent-lifecycle)
 - [State & Configuration](#state--configuration)
 - [Orchestrator & Multi-Agent Coordination](#orchestrator--multi-agent-coordination)
+- [Resource Host](#resource-host)
 - [AgentCard — Capability Discovery](#agentcard--capability-discovery)
 - [UserProxy — Human-in-the-Loop](#userproxy--human-in-the-loop)
 - [Examples](#examples)
@@ -857,6 +858,198 @@ stays in the durable event store owned by the team layer.
 
 `akgentic-team` implements the full 3-phase restore protocol on top of these
 primitives. See [akgentic-team](https://github.com/b12consulting/akgentic-team/blob/master/README.md) for details.
+
+## Resource Host
+
+Some things an agent uses are not agents. A shared file workspace, a vector index,
+a cache — they are stateful, expensive to build, and **shared across teams**: two
+teams working on the same workspace must reach the same actor, and that actor must
+outlive both of them. A team member cannot own it, because a team member dies with
+its team.
+
+A **hosted actor** is an ordinary `Akgent` that is nobody's child. It has no parent,
+no orchestrator, and belongs to no team. It is started by a `ResourceHost`, which
+keeps exactly one live actor per name for the whole process.
+
+### The host is created once per concrete class, at wiring time
+
+```python
+from akgentic.core import ActorSystem, BaseConfig, ResourceHost
+
+system = ActorSystem()
+
+# Exactly one of each concrete host class, right after the ActorSystem. Never
+# lazily, never a second one of the same class.
+host = system.createActor(
+    ResourceHost, config=BaseConfig(name="#ResourceHost", role="ResourceHost")
+)
+```
+
+`ResourceHost` here stands in for the kind's own subclass, as it does in core's own
+tests. A real deployment creates `WorkspaceHost` — and, for a second kind, that
+kind's host beside it — because the forward below looks the class up exactly, so a
+wiring that creates the base while a card asks for `WorkspaceHost` is refused with
+"No WorkspaceHost is running".
+
+Everything else **finds** it rather than creating it:
+
+```python
+hosts = ActorSystem.find_by_class(ResourceHost)   # static — no instance needed
+```
+
+`find_by_class` matches the **exact** class, and it returns public `ActorAddress`
+values rather than raw pykka references. It reports what is running and refuses
+nothing; a caller that needs exactly one says so itself.
+
+Exact, not subclass-inclusive, because `ResourceHost` is the generic base: each
+resource kind — a workspace, a memory, a vector store — subclasses it in the package
+that owns the kind, and **one host of each concrete class runs per process**. Two
+kinds are two hosts with two registries, so a store call stuck on one kind blocks
+nothing of another, and no pair key is needed to tell them apart. A subclass-inclusive
+lookup would hand one kind another kind's host.
+
+> **Why explicit creation matters.** Two hosts of one class in one process means two
+> registries for one kind, and that means two teams can put two actors on the same
+> resource — the exact corruption the host exists to prevent. So nothing anywhere
+> creates a host on demand, and a process that forgot to create one gets a loud error
+> instead of a quietly grown second one.
+
+### Binding an agent to a resource
+
+An agent reaches a resource through its orchestrator:
+
+```python
+address = orchestrator.getResourceOrCreate(
+    WorkspaceHost,                        # the kind's host class — looked up exactly
+    WorkspaceActor,                       # instantiated only on a miss
+    BaseConfig(name="#Workspace-/data/alice"),
+    WorkspaceAttached(agent_id=card_agent_id, workspace_path="/data/alice"),
+)
+```
+
+`WorkspaceHost` (a `ResourceHost` subclass) and `WorkspaceAttached` (a frozen
+dataclass) are the tool package's declarations, not core's: the package that knows
+what the fields mean declares the host and the event.
+
+The call returns a live address whether the host found the actor or created it. It
+raises `RuntimeError` in exactly two cases, both of which create nothing and emit
+nothing:
+
+| Condition | Fix |
+| --- | --- |
+| No host of the asked class in the process | Create one at wiring time, right after the `ActorSystem` |
+| More than one host of the asked class | Delete the extra creation site; there is one host per concrete class per process |
+
+The last argument is the caller's own domain event. Core wraps it in `EventMessage`
+and emits it on the calling team's stream **unread**: it does not copy it, validate
+it or read a field off it. Core does not know what a name or a path means and must
+not learn — the caller builds the event, and core relates it to `config.name` in no
+way.
+
+### Persistence: `ResourceStore` and `StateDelta`
+
+Core ships the persistence *contract* and no implementation, so it gains no database
+dependency:
+
+```python
+class ResourceStore(Protocol):
+    def load(self, actor_class: type[Akgent[Any, Any]], scope: str) -> BaseState | None: ...
+    def apply(self, actor_class: type[Akgent[Any, Any]], scope: str, delta: StateDelta) -> None: ...
+```
+
+`scope` is `config.name` verbatim. `StateDelta` names what changed — `set` and
+`unset` — rather than carrying a whole state, so nothing downstream ever rebuilds a
+persisted document by enumerating its fields.
+
+`actor_class` comes first on both methods and does two jobs. It **namespaces the
+document**, so two resource kinds that meet at one scope string are two documents
+rather than one — the host hosts any `Akgent` subclass and cannot tell two kinds
+apart by name. And it is **how a store derives the state type to rebuild into**:
+
+```python
+from akgentic.core import resolve_state_type
+
+state_type = resolve_state_type(actor_class)   # the declared StateType, or None
+```
+
+A stored document is assembled from the delta's `set` / `unset` keys, so unlike a
+whole serialised model it carries no root type marker and cannot say what it is —
+the class is the only way back to a concrete state class. `resolve_state_type`
+answers `None` for an unparameterised `Akgent` subclass or a binding whose state
+argument is not a `BaseState`; a store that gets `None` should return `None` from
+`load` rather than substituting `BaseState`. Deriving the namespace key from the
+class is the store's job and core has no opinion about it —
+`f"{cls.__module__}.{cls.__qualname__}"` is safe, bare `__name__` collides across
+packages.
+
+A delta for a scope the host has no registry entry for is **dropped and logged**,
+never written: the host cannot invent a class, and writing under a guessed one
+would corrupt another kind's document rather than lose one delta.
+
+Register a store after creating the host:
+
+```python
+system.proxy_tell(host, ResourceHost).register_store(MyStore())
+```
+
+Until then the host runs **cold**: `load` answers `None` and the write-back is a
+no-op. The flow is otherwise identical, so a deployment with no store is a supported
+deployment, not a degraded one. A store that raises is logged and swallowed — the
+host must not die, because a hosted actor outlives it and a restarted host with an
+empty registry would start a second actor on a live resource.
+
+### Telemetry: the attach event and `ResourceStopped`
+
+A successful bind puts one `EventMessage` on the calling team's stream, carrying the
+kind's own attach event — `WorkspaceAttached` for a workspace — so a client learns
+about the resource without a `StartMessage` the hosted actor never sends. A client
+reads it by the payload's name, exactly as it reads `ClosedNotification` and
+`TeamStoppingEvent`: core defines no attach message class, no kind string and no base
+class for the payload. One event per **bind**, not per actor created: two agents
+sharing one workspace produce two events and one actor, which is what makes a
+client's "accessible by" list a field to read rather than a state to reconstruct.
+There is deliberately **no detach event** — a binding is never released.
+
+Declare the payload as a frozen dataclass at **module top level**. The serializer
+persists it under `module.ClassName` — `__name__`, not `__qualname__` — and replay
+resolves that string back with no alias mechanism, so a class nested in a function or
+another class serialises to a path that does not exist, and every replay of that
+team's stream fails on it. For the same reason, do not move the class once events
+have been written.
+
+`ResourceStopped` runs the other way. A hosted actor sends it to the host as it
+stops, and the host drops the registry entry and does nothing else. The stored
+document survives on purpose: it is what the next get-or-create restores from.
+
+### Two rules for writing a hosted actor
+
+**Look the host up at each use; never cache the address.** A cached address survives
+a host that has gone away, and a proxy onto a dead actor turns a lost update into
+silence instead of an error. Look up the host class **your kind is hosted by** —
+`WorkspaceHost` for a workspace, never the base — because the lookup is exact: asking
+for `ResourceHost` in a process that runs `WorkspaceHost` answers nothing.
+
+```python
+def _host_address() -> ActorAddress | None:
+    hosts = ActorSystem.find_by_class(WorkspaceHost)
+    return hosts[0] if hosts else None
+
+
+class WorkspaceActor(Akgent[BaseConfig, WorkspaceState]):
+    def on_stop(self) -> None:
+        host = _host_address()
+        if host is not None:                        # empty is not an error
+            self.send(host, ResourceStopped(scope=self.config.name))
+        super().on_stop()
+```
+
+An empty lookup means "nothing to tell", not "something is wrong": at process
+shutdown the host may legitimately already be gone.
+
+**A hosted actor must never ask an orchestrator for anything.** It has none, so
+`get_team()` and every other orchestrator-backed call raise `WarningError`. That is
+not a gap to work around — it is the boundary. A resource shared by several teams
+cannot be allowed to depend on any one of them.
 
 ## AgentCard — Capability Discovery
 
